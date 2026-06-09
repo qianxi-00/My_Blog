@@ -1,0 +1,49 @@
+# ====================================
+# DevLog 个人博客后端 - Python 依赖
+# ====================================
+
+# Web 框架
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# 数据库 ORM
+sqlalchemy==2.0.36
+aiomysql==0.2.0
+pymysql==1.1.1
+
+# 数据库迁移
+alembic==1.14.0
+
+# 配置管理
+pydantic==2.10.5
+pydantic-settings==2.7.1
+email-validator==2.3.0
+
+# 认证与安全
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+
+# Markdown 解析
+markdown==3.7
+beautifulsoup4==4.12.3
+pygments==2.18.0
+pyyaml==6.0.2
+
+# OpenAI API
+openai==1.60.0
+httpx==0.28.1
+
+# 定时任务
+apscheduler==3.10.4
+redis>=5.0.0
+
+# 工具库
+python-slugify==8.0.4
+aiofiles==24.1.0
+
+# 开发工具 (可选)
+# pytest==8.3.4
+# pytest-asyncio==0.24.0
+# httpx==0.28.1

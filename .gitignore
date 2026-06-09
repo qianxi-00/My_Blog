@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+.venv/
+venv/
+
+# builds
+frontend/dist/
+frontend/dist.bak-*/
+dist/
+build/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# runtime data
+logs/
+*.log
+uploads/
+backend/uploads/
+backend/tmp/
+_deploy_tmp/
+_packages/
+
+# caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
