@@ -10,6 +10,7 @@ import ArticleList from './pages/ArticleList';
 import ArticleDetail from './pages/ArticleDetail';
 import Archives from './pages/Archives';
 import PromptLibrary from './pages/PromptLibrary';
+import PromptLab from './pages/PromptLab';
 import Unsubscribe from './pages/Unsubscribe';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
@@ -46,6 +47,8 @@ const App: React.FC = () => {
                 <Route path="article/:slug" element={<ArticleDetail />} />
                 <Route path="archives" element={<Archives />} />
                 <Route path="prompts" element={<PromptLibrary />} />
+                <Route path="prompts/lab" element={<PromptLab />} />
+                <Route path="prompts/lab/:id" element={<PromptLab />} />
                 <Route path="forum" element={<ForumHome />} />
                 <Route path="forum/new" element={<ForumNewThread />} />
                 <Route path="forum/threads/:id" element={<ForumThreadDetail />} />
