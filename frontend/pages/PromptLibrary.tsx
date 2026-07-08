@@ -203,9 +203,7 @@ const PromptLibrary: React.FC = () => {
               <Button onClick={() => setShowSubmitModal(true)} className="bg-cyan-500 hover:bg-cyan-600">
                 <Icons.Sparkles className="w-4 h-4 mr-2" /> 提交新提示词
               </Button>
-              <Link to={prompts[0] ? `/prompts/lab/${prompts[0].id}` : '/prompts/lab'} className="inline-flex items-center justify-center rounded-xl border border-cyan-200 dark:border-cyan-700 bg-white/80 dark:bg-cyan-900/20 px-4 py-2 text-sm font-bold text-cyan-700 dark:text-cyan-200 hover:bg-cyan-50 dark:hover:bg-cyan-900/40 transition-colors">
-                进入全屏实验室
-              </Link>
+              <button type="button" onClick={() => document.getElementById('prompt-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center justify-center rounded-xl border border-cyan-200 dark:border-cyan-700 bg-white/80 dark:bg-cyan-900/20 px-4 py-2 text-sm font-bold text-cyan-700 dark:text-cyan-200 hover:bg-cyan-50 dark:hover:bg-cyan-900/40 transition-colors">去实验室试跑</button>
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-3">
@@ -304,10 +302,9 @@ const PromptLibrary: React.FC = () => {
                         </>
                       )}
                     </Button>
-                    <Link to={`/prompts/lab/${prompt.id}`} className="flex-1">
-                      <Button size="sm" variant="outline" title="进入全屏实验室" className="w-full dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
-                        <Icons.ExternalLink className="w-3 h-3 mr-2" />
-                        实验室
+                    <Link to={`/prompts/${prompt.id}`}>
+                      <Button size="sm" variant="outline" title="查看详情" className="dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+                        <Icons.ExternalLink className="w-3 h-3" />
                       </Button>
                     </Link>
                     <Button

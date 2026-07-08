@@ -10,7 +10,7 @@ import ArticleList from './pages/ArticleList';
 import ArticleDetail from './pages/ArticleDetail';
 import Archives from './pages/Archives';
 import PromptLibrary from './pages/PromptLibrary';
-import PromptLab from './pages/PromptLab';
+import PromptDetail from './pages/PromptDetail';
 import Unsubscribe from './pages/Unsubscribe';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminLogin from './pages/AdminLogin';
@@ -30,6 +30,7 @@ import HotspotDetail from './pages/HotspotDetail';
 import HotspotManager from './pages/HotspotManager';
 import HotspotEditor from './pages/HotspotEditor';
 import HotspotUploadPage from './pages/HotspotUploadPage';
+import AiDaily from './pages/AiDaily';
 
 const App: React.FC = () => {
 // ... existing imports
@@ -47,12 +48,12 @@ const App: React.FC = () => {
                 <Route path="article/:slug" element={<ArticleDetail />} />
                 <Route path="archives" element={<Archives />} />
                 <Route path="prompts" element={<PromptLibrary />} />
-                <Route path="prompts/lab" element={<PromptLab />} />
-                <Route path="prompts/lab/:id" element={<PromptLab />} />
+                <Route path="prompts/:id" element={<PromptDetail />} />
                 <Route path="forum" element={<ForumHome />} />
                 <Route path="forum/new" element={<ForumNewThread />} />
                 <Route path="forum/threads/:id" element={<ForumThreadDetail />} />
                 <Route path="hotspots" element={<HotspotsList />} />
+                <Route path="ai-daily" element={<AiDaily />} />
                 <Route path="hotspots/:id" element={<HotspotDetail />} />
               </Route>
 

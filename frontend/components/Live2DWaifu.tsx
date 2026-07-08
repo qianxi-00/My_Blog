@@ -15,32 +15,8 @@ const LIVE2D_ASSETS = {
 const STORAGE_KEYS = {
   session: 'chat_session_id',
   live2dHiddenAt: 'waifu-display',
-  chatOpen: 'live2d_chat_open',
-  manuallyClosed: 'live2d_manually_closed'
+  chatOpen: 'live2d_chat_open'
 } as const;
-
-const DEFAULT_MODEL_NAME = 'Senko_Normals';
-const safeClipboardWrite = async (text: string) => {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return true;
-  }
-
-  const textarea = document.createElement('textarea');
-  textarea.value = text;
-  textarea.setAttribute('readonly', 'true');
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  textarea.style.pointerEvents = 'none';
-  document.body.appendChild(textarea);
-  textarea.focus();
-  textarea.select();
-  textarea.setSelectionRange(0, textarea.value.length);
-  const ok = document.execCommand('copy');
-  document.body.removeChild(textarea);
-  if (!ok) throw new Error('Clipboard API unavailable');
-  return true;
-};
 
 const TOOLBAR_LABELS: Record<string, string> = {
   chat: '聊天',
@@ -67,12 +43,10 @@ const Live2DWaifu: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [widgetReady, setWidgetReady] = useState(false);
-  const [retryNonce, setRetryNonce] = useState(0);
   const [chatSize, setChatSize] = useState({ width: window.innerWidth >= 640 ? 520 : 420, height: window.innerWidth >= 640 ? 480 : 420 });
   const [chatPosition, setChatPosition] = useState<{ x: number; y: number } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
-  const retryCountRef = useRef(0);
   const chatRef = useRef<HTMLDivElement>(null);
   const ignoreNextClickRef = useRef(false);
   const lastOpenAtRef = useRef(0);
@@ -133,11 +107,6 @@ const Live2DWaifu: React.FC = () => {
 
   useEffect(() => {
     if (!canRender || initRef.current) return;
-    // 兼容此前误写入的永久隐藏标记与短期隐藏时间戳，避免看板娘在修复后仍被旧缓存藏起来。
-    if (localStorage.getItem(STORAGE_KEYS.manuallyClosed) === '1') {
-      localStorage.removeItem(STORAGE_KEYS.manuallyClosed);
-    }
-    localStorage.removeItem(STORAGE_KEYS.live2dHiddenAt);
     initRef.current = true;
 
     const loadExternalResource = (url: string, type: 'css' | 'js') => new Promise<void>((resolve, reject) => {
@@ -161,7 +130,6 @@ const Live2DWaifu: React.FC = () => {
 
     const initWidget = async () => {
       try {
-        setError(null);
         await loadExternalResource(LIVE2D_ASSETS.css, 'css');
         await loadExternalResource(LIVE2D_ASSETS.coreJs, 'js');
         await loadExternalResource(LIVE2D_ASSETS.sdkJs, 'js');
@@ -175,22 +143,9 @@ const Live2DWaifu: React.FC = () => {
           return;
         }
 
-        // 固定使用当前存在的默认模型，避免旧缓存与失效模型路径导致 404
+        // NOTE: 模型列表更新后，旧的 localStorage 索引可能越界导致报错，重置为默认值
         localStorage.removeItem('modelId');
         localStorage.removeItem('modelTexturesId');
-        try {
-          const modelListResp = await fetch(`${LIVE2D_ASSETS.modelRoot}model_list.json`);
-          if (modelListResp.ok) {
-            const modelList = await modelListResp.json();
-            const names: string[] = (modelList?.models || []).flat();
-            const fallbackIndex = Math.max(0, names.indexOf(DEFAULT_MODEL_NAME));
-            localStorage.setItem('modelId', String(fallbackIndex));
-            localStorage.setItem('modelTexturesId', '0');
-          }
-        } catch {
-          localStorage.setItem('modelId', '0');
-          localStorage.setItem('modelTexturesId', '0');
-        }
 
         init({
           homePath: '/#/',
@@ -214,25 +169,14 @@ const Live2DWaifu: React.FC = () => {
         }
 
         const widget = document.getElementById('waifu');
-        const toggle = document.getElementById('waifu-toggle');
-        if (toggle) {
-          toggle.textContent = '显示看板娘';
-          toggle.addEventListener('click', () => {
-            localStorage.removeItem(STORAGE_KEYS.manuallyClosed);
-            localStorage.removeItem(STORAGE_KEYS.live2dHiddenAt);
-            initRef.current = false;
-            setWidgetReady(false);
-            setError(null);
-          }, true);
-        }
-
         if (widget) {
           widget.addEventListener(
             'click',
             (event) => {
               const target = event.target as HTMLElement;
-              // 保留看板娘原生工具栏按钮的默认点击链路，避免 capture 阶段把事件提前吞掉。
               if (target && target.closest('#waifu-tool')) {
+                event.stopPropagation();
+                event.preventDefault();
                 return;
               }
               if (ignoreNextClickRef.current || Date.now() - lastOpenAtRef.current < 800) {
@@ -245,38 +189,17 @@ const Live2DWaifu: React.FC = () => {
         }
 
         setWidgetReady(true);
-        setError(null);
-        retryCountRef.current = 0;
 
         if (typeof (window as any).showWelcomeMessage === 'function') {
           (window as any).showWelcomeMessage();
         }
-
-        const quitButton = document.getElementById('waifu-tool-quit');
-        if (quitButton) {
-          quitButton.addEventListener('click', () => {
-            // 仅走原生看板娘隐藏逻辑，不再写入会导致组件永远不初始化的永久标记。
-            localStorage.removeItem(STORAGE_KEYS.manuallyClosed);
-            setWidgetReady(false);
-            setChatOpen(false);
-          }, true);
-        }
       } catch (err) {
-        console.error('Live2D init failed:', err);
         setError('Live2D 资源加载失败');
-        setWidgetReady(false);
-        if (retryCountRef.current < 2) {
-          retryCountRef.current += 1;
-          window.setTimeout(() => {
-            initRef.current = false;
-            setRetryNonce((value) => value + 1);
-          }, 1200);
-        }
       }
     };
 
     initWidget();
-  }, [canRender, retryNonce]);
+  }, [canRender]);
 
   useEffect(() => {
     if (!canRender || !chatOpen) return;
@@ -294,13 +217,8 @@ const Live2DWaifu: React.FC = () => {
           setMessages(mapped);
           setSession({ id: storedSession, title: history.title, created_at: history.created_at, updated_at: history.updated_at });
           return;
-        } catch (err: any) {
+        } catch (err) {
           localStorage.removeItem(STORAGE_KEYS.session);
-          if (err?.response?.status === 404 || String(err?.message || '').includes('404')) {
-            setMessages([]);
-            setSession(null);
-            return;
-          }
         }
       }
       setSession(null);
@@ -312,10 +230,6 @@ const Live2DWaifu: React.FC = () => {
     if (!canRender || !chatOpen) return;
 
     const keepOpenOnClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('#waifu-tool')) {
-        return;
-      }
       if (ignoreNextClickRef.current) {
         event.stopImmediatePropagation();
         event.stopPropagation();
@@ -489,7 +403,7 @@ const Live2DWaifu: React.FC = () => {
   if (!canRender) return null;
 
   return (
-    <div className={`fixed bottom-6 right-6 z-[70] flex flex-col items-end gap-3 text-sm text-slate-700 ${widgetReady ? '' : 'pointer-events-none opacity-0'}`}>
+    <div className={`fixed bottom-6 right-6 z-[70] flex flex-col items-end gap-3 text-sm text-slate-700 ${widgetReady ? '' : 'pointer-events-none'}`}>
       {error && (
         <div className="rounded-lg bg-rose-50/90 px-3 py-2 text-xs text-rose-600 shadow">
           {error}
@@ -527,14 +441,7 @@ const Live2DWaifu: React.FC = () => {
             }}
           >
             <span>小魄罗 · Live2D</span>
-            <button
-              onClick={() => setChatOpen(false)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-white/85 transition hover:bg-white/10 hover:text-white"
-              aria-label="关闭聊天框"
-              title="关闭聊天框"
-            >
-              <span aria-hidden="true" className="text-sm leading-none">×</span>
-            </button>
+            <button onClick={() => setChatOpen(false)} className="text-xs opacity-80 hover:opacity-100">关闭</button>
           </div>
           <div className="flex-1 min-h-[240px] overflow-y-auto px-4 py-3 space-y-3 bg-gradient-to-b from-white/80 to-slate-50/80">
             {['n','e','s','w','ne','nw','se','sw'].map((dir) => (
