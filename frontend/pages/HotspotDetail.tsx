@@ -23,6 +23,11 @@ const formatDateTime = (value?: string) => {
 
 const formatNumber = (value?: number) => Number(value || 0).toLocaleString('zh-CN');
 
+const stripFrontmatter = (markdown?: string) => {
+  if (!markdown) return '';
+  return markdown.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim();
+};
+
 const HotspotDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -79,10 +84,12 @@ const HotspotDetail: React.FC = () => {
     window.scrollTo(0, 0);
   }, [id]);
 
+  const articleMarkdown = useMemo(() => stripFrontmatter(hotspot?.analysis_md), [hotspot?.analysis_md]);
+
   const headingItems = useMemo(() => {
-    const allHeadings = extractHeadingsFromMarkdown(hotspot?.analysis_md || '');
+    const allHeadings = extractHeadingsFromMarkdown(articleMarkdown);
     return allHeadings.filter((item) => item.level >= 2 && item.level <= 4);
-  }, [hotspot?.analysis_md]);
+  }, [articleMarkdown]);
 
   useEffect(() => {
     if (headingItems.length === 0) {
@@ -399,8 +406,8 @@ const HotspotDetail: React.FC = () => {
               </Link>
             </div>
 
-            <article className="relative overflow-hidden rounded-[32px] border border-slate-100 dark:border-slate-700 bg-white/96 dark:bg-slate-800/96 shadow-sm">
-              <div className="absolute inset-x-0 top-0 h-[280px] bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.14),transparent_38%),radial-gradient(circle_at_top_left,rgba(99,102,241,0.12),transparent_34%)] pointer-events-none" />
+            <article className="relative overflow-hidden rounded-3xl border border-slate-100 dark:border-slate-700 bg-white/98 dark:bg-slate-800/96 shadow-sm">
+              <div className="absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.12),transparent_38%),radial-gradient(circle_at_top_left,rgba(99,102,241,0.10),transparent_34%)] pointer-events-none" />
 
               <div className="relative px-6 md:px-10 pt-8 md:pt-10 pb-8 border-b border-slate-100 dark:border-slate-700">
                 <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
@@ -442,28 +449,23 @@ const HotspotDetail: React.FC = () => {
               </div>
 
               <div className="relative px-6 md:px-10 py-8 md:py-10 space-y-8">
-                <section className="space-y-5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-6 rounded-full bg-primary-500" />
-                    <h2 className="text-xl font-black text-slate-900 dark:text-white">热点概览</h2>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4">
+                <section className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/45 p-4 md:p-5">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
                       <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">分类</div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">{hotspot.primary_category || '未分类'}</div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-white truncate">{hotspot.primary_category || '未分类'}</div>
                     </div>
-                    <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4">
+                    <div>
                       <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">热度</div>
                       <div className="text-sm font-bold text-slate-900 dark:text-white">{formatNumber(hotspot.heat_score)}</div>
                     </div>
-                    <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4">
+                    <div>
                       <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">来源数</div>
                       <div className="text-sm font-bold text-slate-900 dark:text-white">{formatNumber(hotspot.source_count)}</div>
                     </div>
-                    <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4">
+                    <div>
                       <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">更新时间</div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">{formatDateTime(hotspot.updated_at || hotspot.published_at || hotspot.created_at)}</div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-white truncate">{formatDateTime(hotspot.updated_at || hotspot.published_at || hotspot.created_at)}</div>
                     </div>
                   </div>
                 </section>
@@ -474,13 +476,13 @@ const HotspotDetail: React.FC = () => {
                     <h2 className="text-xl font-black text-slate-900 dark:text-white">深度解读</h2>
                   </div>
 
-                  {hotspot.analysis_md ? (
-                    <div className="rounded-[28px] border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
-                      <div className="px-6 md:px-7 py-6">
+                  {articleMarkdown ? (
+                    <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
+                      <div className="px-4 sm:px-6 md:px-8 py-6 md:py-8">
                         <MarkdownContent
-                          className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-p:leading-8 prose-pre:rounded-2xl prose-img:rounded-2xl"
+                          className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-headings:tracking-normal prose-h1:text-3xl prose-h1:md:text-4xl prose-h2:text-2xl prose-h2:md:text-3xl prose-p:text-[15px] md:prose-p:text-base prose-p:leading-8 prose-li:leading-8 prose-ul:my-5 prose-ol:my-5 prose-blockquote:border-cyan-300 dark:prose-blockquote:border-cyan-700 prose-pre:rounded-2xl prose-img:rounded-2xl"
                         >
-                          {hotspot.analysis_md}
+                          {articleMarkdown}
                         </MarkdownContent>
                       </div>
                     </div>

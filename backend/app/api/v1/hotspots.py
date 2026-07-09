@@ -138,6 +138,14 @@ def _to_list_item(topic, comment_count: int = 0) -> HotTopicListItem:
     )
 
 
+def _normalize_markdown_payload(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return value
+    if ("\n" not in value and "\r" not in value) and ("\\n" in value or "\\r" in value):
+        return value.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
+    return value
+
+
 def _to_detail(topic, comment_count: int = 0) -> HotTopicDetailResponse:
     source_types = _normalized_source_types(topic.sources or [])
     source_domains = _normalized_source_domains(topic.sources or [])
@@ -147,7 +155,7 @@ def _to_detail(topic, comment_count: int = 0) -> HotTopicDetailResponse:
         title=topic.title,
         slug=topic.slug,
         summary=topic.summary,
-        analysis_md=topic.analysis_md,
+        analysis_md=_normalize_markdown_payload(topic.analysis_md),
         key_points_json=topic.key_points_json,
         heat_score=topic.heat_score,
         status=topic.status,

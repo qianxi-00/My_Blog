@@ -170,9 +170,29 @@ export const getAdjacentPublishedHotspots = async (id: number): Promise<{ newer:
   };
 };
 
+const normalizeMarkdownPayload = (value?: string) => {
+  if (!value) return value;
+
+  const hasRealLineBreaks = /\r|\n/.test(value);
+  const hasEscapedLineBreaks = /\\r|\\n/.test(value);
+
+  if (!hasRealLineBreaks && hasEscapedLineBreaks) {
+    return value
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\n');
+  }
+
+  return value;
+};
+
 export const getHotspotDetail = async (id: number): Promise<HotTopicDetail> => {
   const response = await api.get(`/hotspots/${id}`);
-  return response.data;
+  const data = response.data as HotTopicDetail;
+  return {
+    ...data,
+    analysis_md: normalizeMarkdownPayload(data.analysis_md),
+  };
 };
 
 export const createHotspot = async (data: HotspotCreatePayload): Promise<HotTopicDetail> => {
