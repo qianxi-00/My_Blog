@@ -72,6 +72,7 @@ interface HotspotArchiveSidebarProps {
 }
 
 const PAGE_SIZE = 10;
+const HOTSPOT_FETCH_PAGE_SIZE = 20;
 const MAX_ARCHIVE_MONTHS = 12;
 const ARCHIVE_MIN_MONTH = '2026-03';
 const STACK_COLLAPSED_LIMIT = 8;
@@ -658,16 +659,25 @@ const HotspotsList: React.FC = () => {
         const merged: HotTopicListItem[] = [];
 
         while (currentPage <= totalPages) {
-          const response = await getHotspots({
-            page: currentPage,
-            page_size: 100,
-            status: 'published',
-            admin: false,
-          });
+          try {
+            const response = await getHotspots({
+              page: currentPage,
+              page_size: HOTSPOT_FETCH_PAGE_SIZE,
+              status: 'published',
+              admin: false,
+            });
 
-          merged.push(...(response.data || []).filter((item) => item.status === 'published'));
-          totalPages = Math.max(1, Number(response.total_pages || 1));
-          currentPage += 1;
+            merged.push(...(response.data || []).filter((item) => item.status === 'published'));
+            totalPages = Math.max(1, Number(response.total_pages || 1));
+            currentPage += 1;
+
+            if (alive) {
+              setAllItems(Array.from(new Map(merged.map((item) => [item.id, item])).values()));
+            }
+          } catch (pageError) {
+            console.error(`获取热点列表第 ${currentPage} 页失败`, pageError);
+            break;
+          }
         }
 
         const deduped = Array.from(new Map(merged.map((item) => [item.id, item])).values());
@@ -677,7 +687,7 @@ const HotspotsList: React.FC = () => {
       } catch (error) {
         console.error('获取热点列表失败', error);
         if (alive) {
-          setAllItems([]);
+          setAllItems((current) => current);
         }
       } finally {
         if (alive) {
