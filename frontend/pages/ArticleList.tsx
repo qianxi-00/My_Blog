@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { getArticles, getTags, ArticleListItem, Tag } from '../api/articles';
@@ -83,66 +83,8 @@ const ArticleList: React.FC = () => {
   // 判断是否有任何筛选条件
   const hasFilter = selectedTag || searchQuery;
 
-  const pageStats = useMemo(() => {
-    const views = articles.reduce((sum, article) => sum + Number(article.view_count || 0), 0);
-    const likes = articles.reduce((sum, article) => sum + Number(article.like_count || 0), 0);
-    const comments = articles.reduce((sum, article) => sum + Number(article.comment_count || 0), 0);
-    const minutes = articles.reduce((sum, article) => sum + Number(article.read_time_minutes || 0), 0);
-    const hotArticle = [...articles].sort((a, b) => Number(b.view_count || 0) - Number(a.view_count || 0))[0];
-
-    return {
-      views,
-      likes,
-      comments,
-      minutes,
-      hotArticle,
-      avgRead: articles.length ? Math.max(1, Math.round(minutes / articles.length)) : 0,
-    };
-  }, [articles]);
-
-  const hotTags = useMemo(() => tags.slice(0, 12), [tags]);
-  const popularArticles = useMemo(
-    () => [...articles]
-      .sort((a, b) => (Number(b.view_count || 0) + Number(b.like_count || 0) * 3) - (Number(a.view_count || 0) + Number(a.like_count || 0) * 3))
-      .slice(0, 5),
-    [articles]
-  );
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <section className="mb-10 overflow-hidden rounded-[2rem] border border-primary-100 dark:border-slate-700 bg-gradient-to-br from-cyan-50 via-white to-violet-50 dark:from-slate-900 dark:via-slate-900 dark:to-cyan-950/30 p-6 md:p-8 shadow-sm relative">
-        <div className="absolute -right-16 -top-16 w-52 h-52 rounded-full bg-primary-200/30 dark:bg-primary-500/10 blur-3xl"></div>
-        <div className="absolute -left-12 -bottom-16 w-48 h-48 rounded-full bg-purple-200/30 dark:bg-purple-500/10 blur-3xl"></div>
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 dark:bg-slate-800/70 border border-white dark:border-slate-700 text-xs font-black tracking-wide text-primary-600 dark:text-primary-300 mb-4">
-              <Icons.Sparkles className="w-3.5 h-3.5" /> ARTICLE COMMAND CENTER
-            </div>
-            <h1 className="text-3xl md:text-5xl font-black text-slate-900 dark:text-white tracking-tight mb-3">
-              {searchQuery ? `搜索: "${searchQuery}"` : selectedTag ? `标签: #${selectedTag}` : '文章工作台'}
-            </h1>
-            <p className="text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
-              用排序、标签和搜索快速定位文章；右侧雷达会跟随当前页实时展示阅读、点赞和互动强度。
-            </p>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 min-w-full lg:min-w-[460px]">
-            {[
-              { label: '命中总数', value: total, icon: Icons.BookOpen },
-              { label: '本页阅读', value: pageStats.views, icon: Icons.Eye },
-              { label: '点赞', value: pageStats.likes, icon: Icons.Heart },
-              { label: '评论', value: pageStats.comments, icon: Icons.MessageSquare },
-            ].map(item => (
-              <div key={item.label} className="rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-white dark:border-slate-700 p-4 shadow-sm">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
-                  <item.icon className="w-3.5 h-3.5 text-primary-500" /> {item.label}
-                </div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <div className="flex flex-col xl:flex-row gap-12">
         {/* Main Content */}
         <div className="flex-1 min-w-0">
@@ -153,29 +95,6 @@ const ArticleList: React.FC = () => {
             </h1>
             <span className="text-slate-500 dark:text-slate-400 font-medium transition-colors">共 {total} 篇</span>
           </div>
-
-          {!loading && articles.length > 0 && (
-            <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2"><Icons.Clock className="w-3.5 h-3.5" /> 平均阅读</div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{pageStats.avgRead} min</div>
-                <div className="mt-2 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"><div className="h-full bg-gradient-to-r from-primary-400 to-cyan-300" style={{ width: `${Math.min(100, pageStats.avgRead * 8)}%` }} /></div>
-              </div>
-              <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2"><Icons.TrendingUp className="w-3.5 h-3.5" /> 本页热度</div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{pageStats.views + pageStats.likes * 3 + pageStats.comments * 5}</div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">阅读 + 点赞×3 + 评论×5</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm overflow-hidden">
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2"><Icons.Sparkles className="w-3.5 h-3.5" /> 热门焦点</div>
-                {pageStats.hotArticle ? (
-                  <Link to={`/articles/${pageStats.hotArticle.id}`} className="block text-sm font-bold text-slate-800 dark:text-slate-100 hover:text-primary-600 dark:hover:text-primary-400 line-clamp-2">
-                    {pageStats.hotArticle.title}
-                  </Link>
-                ) : <span className="text-sm text-slate-400">暂无</span>}
-              </div>
-            </div>
-          )}
 
           {/* 排序选项 */}
           <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
@@ -383,32 +302,6 @@ const ArticleList: React.FC = () => {
                   >
                     #{tag.name}
                   </Link>
-                ))}
-              </div>
-            </div>
-
-            {/* Hot Articles */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-100 dark:border-slate-700 shadow-sm transition-all">
-              <h3 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2 transition-colors">
-                <Icons.TrendingUp className="w-4 h-4" /> 本页热读
-              </h3>
-              <div className="space-y-3">
-                {popularArticles.map((article, index) => (
-                  <Link key={article.id} to={`/articles/${article.id}`} className="group flex gap-3 rounded-xl p-2 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
-                    <span className="w-6 h-6 rounded-lg bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-300 text-xs font-black flex items-center justify-center flex-shrink-0">{index + 1}</span>
-                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 group-hover:text-primary-600 dark:group-hover:text-primary-400 line-clamp-2">{article.title}</span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-
-            {/* Quick Tag Cloud */}
-            <div className="bg-slate-900 dark:bg-slate-950 rounded-2xl p-6 border border-slate-800 shadow-sm overflow-hidden relative">
-              <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-primary-500/20 blur-2xl"></div>
-              <h3 className="font-bold text-white mb-4 flex items-center gap-2 relative z-10"><Icons.Tags className="w-4 h-4 text-primary-300" /> 快速跳转</h3>
-              <div className="flex flex-wrap gap-2 relative z-10">
-                {hotTags.map(tag => (
-                  <Link key={tag.id} to={`/articles?tag=${tag.name}`} className="px-2.5 py-1 rounded-full bg-white/10 hover:bg-primary-400/30 text-slate-200 text-xs font-bold transition-colors">#{tag.name}</Link>
                 ))}
               </div>
             </div>

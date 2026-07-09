@@ -23,6 +23,8 @@ build/
 logs/
 *.log
 uploads/
+!frontend/public/uploads/
+!frontend/public/uploads/**
 backend/uploads/
 backend/tmp/
 _deploy_tmp/

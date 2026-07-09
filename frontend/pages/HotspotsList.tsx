@@ -7,7 +7,7 @@ import {
   HotspotSort,
 } from '../api/hotspots';
 
-type TimeRange = 'today' | 'week' | 'month';
+type TimeRange = 'all' | 'today' | 'week' | 'month';
 
 type MonthOption = {
   value: string;
@@ -82,7 +82,7 @@ const parsePositiveInt = (value: string | null, fallback = 1) => {
 };
 
 const isSortMode = (value: string | null): value is HotspotSort => value === 'latest' || value === 'hottest';
-const isTimeRange = (value: string | null): value is TimeRange => value === 'today' || value === 'week' || value === 'month';
+const isTimeRange = (value: string | null): value is TimeRange => value === 'all' || value === 'today' || value === 'week' || value === 'month';
 
 const formatMonthLabel = (month: string) => {
   const [year, mon] = month.split('-');
@@ -365,6 +365,7 @@ const HotspotFilters: React.FC<HotspotFiltersProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-slate-500 dark:text-slate-400">时间：</span>
         {([
+          { value: 'all', label: '全部' },
           { value: 'today', label: '今天' },
           { value: 'week', label: '近 7 天' },
           { value: 'month', label: '近 30 天' },
@@ -634,7 +635,7 @@ const HotspotsList: React.FC = () => {
   const page = parsePositiveInt(searchParams.get('page'), 1);
   const search = searchParams.get('search') || '';
   const sort = isSortMode(searchParams.get('sort')) ? (searchParams.get('sort') as HotspotSort) : 'latest';
-  const timeRange = isTimeRange(searchParams.get('range')) ? (searchParams.get('range') as TimeRange) : 'week';
+  const timeRange = isTimeRange(searchParams.get('range')) ? (searchParams.get('range') as TimeRange) : 'all';
   const selectedCategory = searchParams.get('category') || 'all';
   const selectedSource = searchParams.get('source') || searchParams.get('source_type') || 'all';
   const selectedArchive = searchParams.get('archive') || 'all';
@@ -716,6 +717,10 @@ const HotspotsList: React.FC = () => {
   const dateScopedItems = useMemo(() => {
     if (selectedArchive !== 'all') {
       return allItems.filter((item) => getArchiveKey(item) === selectedArchive);
+    }
+
+    if (timeRange === 'all') {
+      return allItems;
     }
 
     const now = new Date();
@@ -860,6 +865,7 @@ const HotspotsList: React.FC = () => {
       return month?.label || formatMonthLabel(selectedArchive);
     }
 
+    if (timeRange === 'all') return '全部时段热点';
     if (timeRange === 'today') return '今日热点';
     if (timeRange === 'week') return '近 7 天热点';
     return '近 30 天热点';
@@ -881,7 +887,7 @@ const HotspotsList: React.FC = () => {
     selectedSource !== 'all' ||
     selectedArchive !== 'all' ||
     selectedStack !== 'all' ||
-    timeRange !== 'week' ||
+    timeRange !== 'all' ||
     sort !== 'latest'
   );
 
