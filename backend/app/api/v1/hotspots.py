@@ -13,6 +13,7 @@ from sqlalchemy import delete
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.config import settings
 from ...core.database import get_db
 from ...core.deps import get_current_admin, get_current_admin_optional
 from ...core.redis import cache_get, cache_set, cache_delete_pattern
@@ -401,11 +402,16 @@ async def get_hotspots_meta(
         if name
     ]
 
+    month_expr = (
+        func.strftime("%Y-%m", HotTopic.topic_date)
+        if settings.DB_TYPE == "sqlite"
+        else func.date_format(HotTopic.topic_date, "%Y-%m")
+    )
     archive_result = await db.execute(
-        select(func.date_format(HotTopic.topic_date, "%Y-%m"), func.count(HotTopic.id))
+        select(month_expr, func.count(HotTopic.id))
         .where(*filters)
-        .group_by(func.date_format(HotTopic.topic_date, "%Y-%m"))
-        .order_by(func.date_format(HotTopic.topic_date, "%Y-%m").desc())
+        .group_by(month_expr)
+        .order_by(month_expr.desc())
     )
     archive_month_counts = [
         HotTopicArchiveCount(month=month, count=count)

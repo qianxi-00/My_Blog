@@ -1,0 +1,23 @@
+{
+  "updatedAt": "2026-06-08T19:07:05.947068+08:00",
+  "total": 2,
+  "months": [
+    {
+      "month": "2026-06",
+      "label": "2026 年 6 月",
+      "count": 2,
+      "days": [
+        {
+          "date": "2026-06-08",
+          "label": "06-08",
+          "path": "/data/ai-daily/2026-06-08.json"
+        },
+        {
+          "date": "2026-06-06",
+          "label": "06-06",
+          "path": "/data/ai-daily/2026-06-06.json"
+        }
+      ]
+    }
+  ]
+}

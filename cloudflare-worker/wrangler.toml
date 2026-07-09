@@ -1,0 +1,9 @@
+name = "qianxi-blog-site"
+main = "src/worker.js"
+compatibility_date = "2026-07-09"
+workers_dev = true
+
+[assets]
+directory = "../frontend/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"

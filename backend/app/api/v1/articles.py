@@ -313,7 +313,7 @@ async def get_article(
     
     # 增加浏览次数
     if article.status == "published":
-        article.view_count += 1
+        article.view_count = int(article.view_count or 0) + 1
         await db.commit()
         await db.refresh(article)
     

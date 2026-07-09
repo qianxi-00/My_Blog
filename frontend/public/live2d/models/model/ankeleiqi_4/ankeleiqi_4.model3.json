@@ -1,0 +1,48 @@
+{
+  "Version": 3,
+  "Name": "ankeleiqi_4",
+  "FileReferences": {
+    "Moc": "ankeleiqi_4.moc3",
+    "Textures": [
+      "textures/texture_00.png",
+      "textures/texture_01.png"
+    ],
+    "DisplayInfo": "ankeleiqi_4.cdi3.json",
+    "Physics": "ankeleiqi_4.physics3.json",
+    "Motions": {
+      "Idle": [
+        {
+          "File": "motions/idle.motion3.json"
+        }
+      ],
+      "TapBody": [
+        {
+          "File": "motions/touch_body.motion3.json"
+        }
+      ],
+      "TapHead": [
+        {
+          "File": "motions/touch_head.motion3.json"
+        }
+      ]
+    },
+    "Expressions": []
+  },
+  "Groups": [
+    {
+      "Target": "Parameter",
+      "Name": "EyeBlink",
+      "Ids": [
+        "ParamEyeLOpen",
+        "ParamEyeROpen"
+      ]
+    },
+    {
+      "Target": "Parameter",
+      "Name": "LipSync",
+      "Ids": [
+        "ParamMouthOpenY"
+      ]
+    }
+  ]
+}

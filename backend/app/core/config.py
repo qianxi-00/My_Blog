@@ -20,15 +20,15 @@ class Settings(BaseSettings):
     """应用配置类"""
     
     # ====================================
-    # 数据库配置 (MySQL)
+    # 数据库配置
     # ====================================
+    DB_TYPE: str = "sqlite"          # mysql or sqlite
+    DB_PATH: str = "/data/blog.db"  # SQLite file path (when DB_TYPE=sqlite)
     DB_HOST: str = "localhost"
     DB_PORT: str = "3306"
     DB_USER: str = "root"
     DB_PASSWORD: str = ""
     DB_NAME: str = "my_blog"
-
-    # 连接编码（避免中文/emoji 等出现乱码）
     DB_CHARSET: str = "utf8mb4"
     
     # ====================================
@@ -108,14 +108,16 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """构建数据库连接 URL (异步，用于 SQLAlchemy asyncio)"""
-        # 对密码进行 URL 编码，处理特殊字符如 @, # 等
+        if self.DB_TYPE == "sqlite":
+            return f"sqlite+aiosqlite:///{self.DB_PATH}"
         encoded_password = quote_plus(self.DB_PASSWORD)
         return f"mysql+aiomysql://{self.DB_USER}:{encoded_password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset={self.DB_CHARSET}"
     
     @property
     def database_url_sync(self) -> str:
         """构建同步数据库连接 URL (用于 Alembic 迁移)"""
-        # 对密码进行 URL 编码，处理特殊字符如 @, # 等
+        if self.DB_TYPE == "sqlite":
+            return f"sqlite:///{self.DB_PATH}"
         encoded_password = quote_plus(self.DB_PASSWORD)
         return f"mysql+pymysql://{self.DB_USER}:{encoded_password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset={self.DB_CHARSET}"
     

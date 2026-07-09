@@ -1,0 +1,91 @@
+{
+  "pets": [
+    {
+      "id": "guga",
+      "displayName": "咕嘎",
+      "tags": [
+        "anime",
+        "game",
+        "pixel",
+        "animated",
+        "celeb",
+        "cute",
+        "mascot"
+      ],
+      "validationReport": {
+        "cellSize": "192x208",
+        "atlasSize": "1536x1872",
+        "manifestId": "guga",
+        "manifestBytes": 204,
+        "statesDetected": 9,
+        "spritesheetBytes": 1945586
+      },
+      "poster": "/images/codex-pets/guga/poster.webp",
+      "posterBytes": 34722,
+      "preview": "/images/codex-pets/guga/preview.webp",
+      "previewBytes": 165654,
+      "spritesheet": "/images/codex-pets/guga/spritesheet.webp",
+      "spritesheetBytes": 1945586
+    },
+    {
+      "id": "duodong",
+      "displayName": "多栋",
+      "tags": [
+        "cute",
+        "soft"
+      ],
+      "validationReport": {
+        "cellSize": "192x208",
+        "atlasSize": "1536x1872",
+        "manifestId": "duodong",
+        "manifestBytes": 209,
+        "statesDetected": 9,
+        "spritesheetBytes": 1780536
+      },
+      "poster": "/images/codex-pets/duodong/poster.webp",
+      "posterBytes": 32424,
+      "preview": "/images/codex-pets/duodong/preview.webp",
+      "previewBytes": 170078,
+      "spritesheet": "/images/codex-pets/duodong/spritesheet.webp",
+      "spritesheetBytes": 1780536
+    },
+    {
+      "id": "stlulu",
+      "displayName": "lulu",
+      "tags": [],
+      "validationReport": {
+        "cellSize": "192x208",
+        "atlasSize": "1536x1872",
+        "manifestId": "stlulu",
+        "manifestBytes": 260,
+        "statesDetected": 9,
+        "spritesheetBytes": 1710556
+      },
+      "poster": "/images/codex-pets/stlulu/poster.webp",
+      "posterBytes": 28458,
+      "preview": "/images/codex-pets/stlulu/preview.webp",
+      "previewBytes": 163208,
+      "spritesheet": "/images/codex-pets/stlulu/spritesheet.webp",
+      "spritesheetBytes": 1710556
+    },
+    {
+      "id": "kimlet-hover-clap",
+      "displayName": "Kimlet Hover Clap",
+      "tags": [],
+      "validationReport": {
+        "cellSize": "192x208",
+        "atlasSize": "1536x1872",
+        "manifestId": "kimlet-hover-clap",
+        "manifestBytes": 287,
+        "statesDetected": 9,
+        "spritesheetBytes": 1535118
+      },
+      "poster": "/images/codex-pets/kimlet-hover-clap/poster.webp",
+      "posterBytes": 25018,
+      "preview": "/images/codex-pets/kimlet-hover-clap/preview.webp",
+      "previewBytes": 136120,
+      "spritesheet": "/images/codex-pets/kimlet-hover-clap/spritesheet.webp",
+      "spritesheetBytes": 1535118
+    }
+  ]
+}

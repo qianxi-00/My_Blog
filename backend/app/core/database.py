@@ -10,12 +10,24 @@ from .config import settings
 
 
 # 创建异步数据库引擎
+db_url = settings.database_url
+engine_kwargs = {}
+
+# SQLite 不需要连接池
+if not db_url.startswith("sqlite"):
+    engine_kwargs.update({
+        "pool_pre_ping": True,
+        "pool_size": 10,
+        "max_overflow": 20,
+    })
+else:
+    # SQLite 需要设置 check_same_thread=False
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
 engine = create_async_engine(
-    settings.database_url,
-    echo=settings.DEBUG,  # 调试模式下打印 SQL 语句
-    pool_pre_ping=True,   # 连接前检查连接是否有效
-    pool_size=10,         # 连接池大小
-    max_overflow=20,      # 最大溢出连接数
+    db_url,
+    echo=settings.DEBUG,
+    **engine_kwargs,
 )
 
 # 创建异步会话工厂

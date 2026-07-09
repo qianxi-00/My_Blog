@@ -1,0 +1,16 @@
+{
+  "models": [
+    ["Senko_Normals"],
+    ["aersasi_3"],
+    ["ankeleiqi_4"],
+    ["beilaosenlin_2"],
+    ["Cyrene20251105"]
+  ],
+  "messages": [
+    ["你好，我是仙狐小姐~"],
+    ["你好，我是 aersasi~"],
+    ["你好，我是 ankeleiqi~"],
+    ["你好，我是 beilaosenlin~"],
+    ["你好，我是 Cyrene~"]
+  ]
+}
