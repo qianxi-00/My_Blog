@@ -73,9 +73,16 @@ interface HotspotArchiveSidebarProps {
 
 const PAGE_SIZE = 10;
 const HOTSPOT_FETCH_PAGE_SIZE = 20;
+const HOTSPOT_SNAPSHOT_PATH = '/data/hotspots-published.json';
 const MAX_ARCHIVE_MONTHS = 12;
 const ARCHIVE_MIN_MONTH = '2026-03';
 const STACK_COLLAPSED_LIMIT = 8;
+
+type HotspotSnapshot = {
+  updatedAt?: string;
+  total?: number;
+  items?: HotTopicListItem[];
+};
 
 const parsePositiveInt = (value: string | null, fallback = 1) => {
   const parsed = Number(value || fallback);
@@ -120,6 +127,43 @@ const normalizeDate = (value?: string) => {
 };
 
 const getHeatScore = (item: HotTopicListItem) => Number(item.heat_score || 0);
+
+const dedupeHotspots = (items: HotTopicListItem[]) => Array.from(new Map(items.map((item) => [item.id, item])).values());
+
+const fetchHotspotSnapshot = async (): Promise<HotTopicListItem[]> => {
+  const response = await fetch(HOTSPOT_SNAPSHOT_PATH, { cache: 'default' });
+  if (!response.ok) {
+    throw new Error(`热点快照加载失败: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as HotspotSnapshot;
+  if (!Array.isArray(payload.items)) {
+    throw new Error('热点快照格式无效');
+  }
+
+  return dedupeHotspots(payload.items.filter((item) => item?.status === 'published'));
+};
+
+const fetchHotspotsFromApi = async (): Promise<HotTopicListItem[]> => {
+  let currentPage = 1;
+  let totalPages = 1;
+  const merged: HotTopicListItem[] = [];
+
+  while (currentPage <= totalPages) {
+    const response = await getHotspots({
+      page: currentPage,
+      page_size: HOTSPOT_FETCH_PAGE_SIZE,
+      status: 'published',
+      admin: false,
+    });
+
+    merged.push(...(response.data || []).filter((item) => item.status === 'published'));
+    totalPages = Math.max(1, Number(response.total_pages || 1));
+    currentPage += 1;
+  }
+
+  return dedupeHotspots(merged);
+};
 
 const getPublishedDate = (item: HotTopicListItem) => normalizeDate(item.published_at || item.topic_date || item.created_at);
 
@@ -654,33 +698,14 @@ const HotspotsList: React.FC = () => {
     const fetchAllPublished = async () => {
       setLoading(true);
       try {
-        let currentPage = 1;
-        let totalPages = 1;
-        const merged: HotTopicListItem[] = [];
-
-        while (currentPage <= totalPages) {
-          try {
-            const response = await getHotspots({
-              page: currentPage,
-              page_size: HOTSPOT_FETCH_PAGE_SIZE,
-              status: 'published',
-              admin: false,
-            });
-
-            merged.push(...(response.data || []).filter((item) => item.status === 'published'));
-            totalPages = Math.max(1, Number(response.total_pages || 1));
-            currentPage += 1;
-
-            if (alive) {
-              setAllItems(Array.from(new Map(merged.map((item) => [item.id, item])).values()));
-            }
-          } catch (pageError) {
-            console.error(`获取热点列表第 ${currentPage} 页失败`, pageError);
-            break;
-          }
+        let deduped: HotTopicListItem[] = [];
+        try {
+          deduped = await fetchHotspotSnapshot();
+        } catch (snapshotError) {
+          console.warn('热点静态快照不可用，回退到 API 拉取', snapshotError);
+          deduped = await fetchHotspotsFromApi();
         }
 
-        const deduped = Array.from(new Map(merged.map((item) => [item.id, item])).values());
         if (alive) {
           setAllItems(deduped);
         }
