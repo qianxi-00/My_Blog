@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sys
 import urllib.parse
 import urllib.request
@@ -11,12 +12,14 @@ from pathlib import Path
 API = 'https://aihot.virxact.com/api/public/daily'
 ITEMS_API = 'https://aihot.virxact.com/api/public/items'
 UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 aihot-skill/0.2.0 qianxi-blog-ai-daily'
-OUT = Path('/data/My_Blog/frontend/dist/data/ai-daily.json')
-SELECTED_OUT = Path('/data/My_Blog/frontend/dist/data/ai-selected.json')
-DAILY_DIR = Path('/data/My_Blog/frontend/dist/data/ai-daily')
-INDEX_OUT = Path('/data/My_Blog/frontend/dist/data/ai-daily-index.json')
-ARCHIVE = Path('/data/My_Blog/ai_daily_archive')
-LOG = Path('/data/My_Blog/logs/ai_daily_fetch.log')
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_ROOT = Path(os.environ.get('AI_DAILY_DATA_ROOT', REPO_ROOT / 'frontend' / 'public' / 'data'))
+OUT = DATA_ROOT / 'ai-daily.json'
+SELECTED_OUT = DATA_ROOT / 'ai-selected.json'
+DAILY_DIR = DATA_ROOT / 'ai-daily'
+INDEX_OUT = DATA_ROOT / 'ai-daily-index.json'
+ARCHIVE = Path(os.environ.get('AI_DAILY_ARCHIVE_DIR', DAILY_DIR))
+LOG = Path(os.environ.get('AI_DAILY_LOG', REPO_ROOT / 'logs' / 'ai_daily_fetch.log'))
 
 CATEGORIES = [
     ('all', '全部', None),
