@@ -4,7 +4,6 @@ import { Icons } from '../components/Icons';
 import { Button } from '../components/Shared';
 import { useTheme } from '../contexts/ThemeContext';
 import DesktopPet from '../components/DesktopPet';
-import Live2DWaifu from '../components/Live2DWaifu';
 
 import { getPublicSettings, PublicSettings } from '../api/stats';
 
@@ -38,6 +37,7 @@ const PublicLayout: React.FC = () => {
     { label: '首页', path: '/' },
     { label: '文章', path: '/articles' },
     { label: '热点', path: '/hotspots' },
+    { label: 'AI日报', path: '/ai-daily' },
     { label: '归档', path: '/archives' },
     { label: '提示词', path: '/prompts' },
     { label: '论坛', path: '/forum' },
@@ -180,8 +180,7 @@ const PublicLayout: React.FC = () => {
         </div>
       </footer>
 
-      {/* Live2D Waifu Overlay */}
-      <Live2DWaifu />
+      <DesktopPet />
     </div>
   );
 };

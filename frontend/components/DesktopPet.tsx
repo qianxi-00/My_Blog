@@ -36,13 +36,13 @@ type PetTheme = {
   accent: string;
 };
 
-const FALLBACK_PET_SRC = '/images/poro/robot_poro.png';
+const FALLBACK_PET_SRC = '/images/codex-pets/guga/poster.webp';
 
 const PET_VARIANTS: PetVariant[] = [
-  { id: 'default', label: '默认', src: FALLBACK_PET_SRC },
-  { id: 'witch', label: '女巫', src: FALLBACK_PET_SRC },
-  { id: 'summer', label: '夏日', src: FALLBACK_PET_SRC },
-  { id: 'christmas', label: '圣诞', src: FALLBACK_PET_SRC }
+  { id: 'guga', label: '咕嘎', src: '/images/codex-pets/guga/poster.webp' },
+  { id: 'duodong', label: '多栋', src: '/images/codex-pets/duodong/poster.webp' },
+  { id: 'stlulu', label: 'Lulu', src: '/images/codex-pets/stlulu/poster.webp' },
+  { id: 'kimlet-hover-clap', label: 'Kimlet', src: '/images/codex-pets/kimlet-hover-clap/poster.webp' }
 ];
 
 const PET_THEMES: Record<PetThemeId, PetTheme> = {
@@ -159,8 +159,6 @@ const clampPosition = (
     y: clamp(y, minY, maxY)
   };
 };
-;
-};
 
 const clampPanelSize = (size: PanelSize, viewportWidth: number, viewportHeight: number): PanelSize => {
   const maxWidth = Math.min(MAX_PANEL_SIZE.width, Math.max(MIN_PANEL_SIZE.width, viewportWidth - 48));
@@ -186,7 +184,7 @@ const DesktopPet: React.FC = () => {
     {
       id: '1',
       role: 'assistant',
-      content: '嗨！我是小魄罗～🐾 有什么可以帮你的吗？(●\'◡\'●)',
+      content: '嗨！我是咕嘎～ 有什么可以帮你的吗？',
       timestamp: new Date()
     }
   ]);
@@ -584,7 +582,7 @@ const DesktopPet: React.FC = () => {
       let currentSession = session;
 
       if (!currentSession) {
-        currentSession = await createChatSession('与小魄罗的对话');
+        currentSession = await createChatSession(`与${currentVariant.label}的对话`);
         setSession(currentSession);
         localStorage.setItem(STORAGE_KEYS.chatSession, currentSession.id);
       }
@@ -632,7 +630,7 @@ const DesktopPet: React.FC = () => {
       setMessages([{
         id: '1',
         role: 'assistant',
-        content: '嗨！我是小魄罗～🐾 有什么可以帮你的吗？',
+        content: `嗨！我是${currentVariant.label}～ 有什么可以帮你的吗？`,
         timestamp: new Date()
       }]);
       setSession(null);
