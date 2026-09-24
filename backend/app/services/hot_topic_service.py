@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from pathlib import Path
 from datetime import datetime, date
@@ -41,6 +42,15 @@ DEFAULT_ANALYSIS_TEMPLATE = (
 
 
 DEFAULT_ARTICLE_ARCHIVE_DIR = Path("/data/My_Blog/Articles")
+# HuggingFace Space / read-only containers may not have the blog server archive path.
+# Prefer explicit env, then common writable fallbacks, then /tmp.
+_HF_ARCHIVE_FALLBACKS = (
+    Path(os.environ["HOTSPOT_ARCHIVE_DIR"]) if os.environ.get("HOTSPOT_ARCHIVE_DIR") else None,
+    Path("/data/My_Blog/Articles"),
+    Path("/data/Articles"),
+    Path("/app/Articles"),
+    Path("/tmp/My_Blog/Articles"),
+)
 HOTSPOT_PAGE_SIZE_DEFAULT = 12
 HOTSPOT_PAGE_SIZE_MAX = 100
 HOTSPOT_DETAIL_MAX_AGE_SECONDS = 300
@@ -67,14 +77,40 @@ def _build_hotspot_archive_markdown(topic: HotTopic) -> str:
     return f"# {topic.title}\n\n> 分类：{topic.primary_category or '未分类'}\n> 发布：{published or topic.topic_date.isoformat()}\n> 热度：{topic.heat_score}\n> 标签：{tags or '无'}\n> Slug：{topic.slug}\n\n## 摘要\n\n{topic.summary or '暂无摘要'}\n\n## 正文\n\n{body}\n\n## 来源\n\n{source_block}\n"
 
 
+def _archive_root_candidates() -> List[Path]:
+    roots: List[Path] = []
+    for item in _HF_ARCHIVE_FALLBACKS:
+        if item is None:
+            continue
+        if item not in roots:
+            roots.append(item)
+    if DEFAULT_ARTICLE_ARCHIVE_DIR not in roots:
+        roots.insert(0, DEFAULT_ARTICLE_ARCHIVE_DIR)
+    return roots
+
+
 def _persist_hotspot_markdown(topic: HotTopic) -> str:
+    """Persist hotspot markdown archive best-effort.
+
+    Must never break create/publish API when archive filesystem is missing
+    (common on HuggingFace Spaces where /data/My_Blog/Articles is unavailable).
+    """
     category = _sanitize_filename_component(topic.primary_category or "未分类")
     topic_day = topic.topic_date.isoformat() if topic.topic_date else datetime.now().date().isoformat()
-    archive_dir = DEFAULT_ARTICLE_ARCHIVE_DIR / category / topic_day
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    file_path = archive_dir / f"{_sanitize_filename_component(topic.slug or topic.title, fallback='hotspot')}.md"
-    file_path.write_text(_build_hotspot_archive_markdown(topic), encoding="utf-8")
-    return str(file_path)
+    filename = f"{_sanitize_filename_component(topic.slug or topic.title, fallback='hotspot')}.md"
+    content = _build_hotspot_archive_markdown(topic)
+    errors: List[str] = []
+    for root in _archive_root_candidates():
+        try:
+            archive_dir = root / category / topic_day
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            file_path = archive_dir / filename
+            file_path.write_text(content, encoding="utf-8")
+            return str(file_path)
+        except Exception as exc:  # noqa: BLE001 - archive is non-critical side effect
+            errors.append(f"{root}: {type(exc).__name__}: {exc}")
+    # Soft-fail: keep API create/update working even if no writable archive path exists.
+    return f"unpersisted://{category}/{topic_day}/{filename}"
 
 
 def _normalize_url(url: str) -> str:
@@ -631,42 +667,32 @@ async def create_hot_topic(
     if not slug:
         raise ValueError("slug 不能为空")
 
-    existing = await db.scalar(select(HotTopic).where(HotTopic.slug == slug))
+    existing = await db.scalar(
+        select(HotTopic)
+        .options(selectinload(HotTopic.sources), selectinload(HotTopic.tags))
+        .where(HotTopic.slug == slug)
+    )
     if existing and payload.upsert_strategy != "update":
         raise ValueError("slug 已存在，请更换 slug 或使用 update 策略")
 
-    if existing:
-        topic = existing
-    else:
-        topic = HotTopic(
-            topic_date=payload.topic_date,
-            title=payload.title.strip(),
-            slug=slug,
-            summary=payload.summary,
-            analysis_md=payload.analysis_md,
-            key_points_json=payload.key_points_json or {},
-            heat_score=payload.heat_score or 0,
-            status="draft",
-            primary_category=payload.primary_category,
-            created_by=created_by,
-        )
-        db.add(topic)
-        await db.flush()
-
-    topic.topic_date = payload.topic_date
-    topic.title = payload.title.strip()
-    topic.slug = slug
-    topic.summary = payload.summary
-    topic.analysis_md = payload.analysis_md
-    topic.key_points_json = payload.key_points_json or {}
-    topic.heat_score = payload.heat_score or 0
-    topic.primary_category = payload.primary_category
+    # Resolve tags first (needs DB IO) before mutating relationship collections.
+    new_tags: List[Tag] = []
+    for name in payload.tag_names or []:
+        cleaned = name.strip()
+        if not cleaned:
+            continue
+        tag = await db.scalar(select(Tag).where(Tag.name == cleaned))
+        if not tag:
+            tag = Tag(name=cleaned, slug=slugify(cleaned, lowercase=True))
+            db.add(tag)
+            await db.flush()
+        new_tags.append(tag)
 
     source_items = payload.sources or []
-    topic.sources.clear()
+    new_sources: List[HotTopicSource] = []
     for src in source_items:
         source_url = _normalize_url(src.source_url)
-        topic.sources.append(
+        new_sources.append(
             HotTopicSource(
                 source_type=src.source_type or "manual",
                 source_name=src.source_name,
@@ -680,21 +706,42 @@ async def create_hot_topic(
             )
         )
 
-    topic.tags.clear()
-    for name in payload.tag_names or []:
-        cleaned = name.strip()
-        if not cleaned:
-            continue
-        tag = await db.scalar(select(Tag).where(Tag.name == cleaned))
-        if not tag:
-            tag = Tag(name=cleaned, slug=slugify(cleaned, lowercase=True))
-            db.add(tag)
-            await db.flush()
-        topic.tags.append(tag)
-
     final_status = payload.status if payload.status in {"draft", "published", "hidden"} else "draft"
     if payload.auto_publish:
         final_status = "published"
+
+    if existing:
+        topic = existing
+        topic.topic_date = payload.topic_date
+        topic.title = payload.title.strip()
+        topic.slug = slug
+        topic.summary = payload.summary
+        topic.analysis_md = payload.analysis_md
+        topic.key_points_json = payload.key_points_json or {}
+        topic.heat_score = payload.heat_score or 0
+        topic.primary_category = payload.primary_category
+        # Relationships were selectinloaded above; assignment is safe.
+        topic.sources = new_sources
+        topic.tags = new_tags
+    else:
+        # Important: assign collections BEFORE flush. After flush the object is
+        # persistent and async lazy-load of sources/tags raises MissingGreenlet.
+        topic = HotTopic(
+            topic_date=payload.topic_date,
+            title=payload.title.strip(),
+            slug=slug,
+            summary=payload.summary,
+            analysis_md=payload.analysis_md,
+            key_points_json=payload.key_points_json or {},
+            heat_score=payload.heat_score or 0,
+            status="draft",
+            primary_category=payload.primary_category,
+            created_by=created_by,
+            sources=new_sources,
+            tags=new_tags,
+        )
+        db.add(topic)
+
     topic.status = final_status
     if final_status == "published":
         topic.published_at = payload.published_at or topic.published_at or datetime.now()
@@ -750,7 +797,7 @@ async def update_hot_topic(
         topic.published_at = published_at
 
     if tag_names is not None:
-        topic.tags.clear()
+        new_tags: List[Tag] = []
         for name in tag_names:
             cleaned = name.strip()
             if not cleaned:
@@ -760,7 +807,8 @@ async def update_hot_topic(
                 tag = Tag(name=cleaned, slug=slugify(cleaned, lowercase=True))
                 db.add(tag)
                 await db.flush()
-            topic.tags.append(tag)
+            new_tags.append(tag)
+        topic.tags = new_tags
 
     # 热点不得同步到普通文章，确保 article_id 保持为空
     topic.article_id = None

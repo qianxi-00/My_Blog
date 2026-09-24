@@ -24,13 +24,34 @@ class AgentService:
     MAX_TOOL_ROUNDS = 10
 
     def __init__(self):
-        self.client = AsyncOpenAI(
-            api_key=settings.AGENT_API_KEY,
-            base_url=settings.AGENT_API_BASE,
-            timeout=45.0,
-            max_retries=1,
-        )
+        # Agent 模型链对齐 OpenClaw；保留 client 字段兼容旧逻辑
         self.model = settings.AGENT_MODEL
+        from app.services.llm_router import resolve_model_endpoints
+        endpoints = resolve_model_endpoints(self._agent_model_override())
+        if endpoints:
+            self.client = endpoints[0].client(timeout=45.0, max_retries=1)
+        else:
+            self.client = AsyncOpenAI(
+                api_key=settings.AGENT_API_KEY or settings.OPENAI_API_KEY,
+                base_url=settings.AGENT_API_BASE or settings.OPENAI_API_BASE,
+                timeout=45.0,
+                max_retries=1,
+            )
+
+    @staticmethod
+    def _agent_model_override() -> str | None:
+        """Agent 优先 AGENT_MODEL + AGENT_MODEL_FALLBACKS，否则走全局 OpenClaw 链。"""
+        primary = (settings.AGENT_MODEL or "").strip()
+        fb = (getattr(settings, "AGENT_MODEL_FALLBACKS", None) or "").strip()
+        # 若 AGENT 未单独配置 fallbacks，且 primary 与 OPENAI 主模型相同，直接用全局链
+        if not fb:
+            openai_primary = (settings.OPENAI_MODEL or "").strip()
+            if not primary or primary == openai_primary or primary in {"gpt-5.5", "mynewapi/grok-4.5", "grok-4.5"}:
+                return None
+            return primary
+        parts = [primary] if primary else []
+        parts.extend([x.strip() for x in fb.split(",") if x.strip()])
+        return ",".join(parts) if parts else None
 
     async def _save_message(
         self,
@@ -101,21 +122,46 @@ class AgentService:
             round_count += 1
             llm_call_count += 1
 
-            # ----- 流式调用 LLM -----
-            stream = await self.client.chat.completions.create(
-                model=self.model,
-                messages=llm_messages,
-                tools=build_all_tools(),
-                tool_choice="auto",
-                max_tokens=settings.AGENT_MAX_TOKENS,
-                temperature=settings.AGENT_TEMPERATURE,
-                stream=True,
-            )
+            # ----- 流式调用 LLM（带 OpenClaw 同款 fallback）-----
+            from app.services.llm_router import resolve_model_endpoints
+            endpoints = resolve_model_endpoints(self._agent_model_override())
+            if not endpoints:
+                yield {
+                    "type": "error",
+                    "data": {"message": "没有可用的 LLM endpoint，请检查模型与 API Key 配置。"},
+                }
+                return
 
             content_buffer = ""
             tool_call_map: Dict[int, Dict[str, str]] = {}
             tool_calls_detected = False
             thinking_flushed = False
+            stream = None
+            last_llm_error: Optional[Exception] = None
+            for ep in endpoints:
+                try:
+                    client = ep.client(timeout=45.0, max_retries=1)
+                    stream = await client.chat.completions.create(
+                        model=ep.model_id,
+                        messages=llm_messages,
+                        tools=build_all_tools(),
+                        tool_choice="auto",
+                        max_tokens=settings.AGENT_MAX_TOKENS,
+                        temperature=settings.AGENT_TEMPERATURE,
+                        stream=True,
+                    )
+                    self.model = ep.ref
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    last_llm_error = exc
+                    stream = None
+                    continue
+            if stream is None:
+                yield {
+                    "type": "error",
+                    "data": {"message": f"All models failed: {last_llm_error}"},
+                }
+                return
 
             async for chunk in stream:
                 if not chunk.choices:

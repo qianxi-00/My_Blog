@@ -1,0 +1,6 @@
+.env
+test_write.txt
+.git
+__pycache__/
+*.py[cod]
+.pytest_cache/

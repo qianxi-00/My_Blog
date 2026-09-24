@@ -10,5 +10,5 @@ ENV REDIS_ENABLED=false
 ENV PYTHONUNBUFFERED=1
 ENV DEBUG=false
 RUN mkdir -p /app/uploads
-HEALTHCHECK --interval=300s --timeout=3s CMD curl -f http://localhost:7860/ || exit 1
+HEALTHCHECK --interval=300s --timeout=10s --start-period=20s --retries=3 CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/health', timeout=5).read()" || exit 1
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]

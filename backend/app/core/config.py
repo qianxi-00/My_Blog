@@ -45,12 +45,34 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 默认 24 小时
     
     # ====================================
-    # OpenAI API 配置
+    # OpenAI API 配置（mynewapi / 主链路）
+    # 对齐 OpenClaw agents.defaults.model
     # ====================================
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_API_BASE: str = "https://qianxi7988.me/v1"
-    OPENAI_MODEL: str = "gpt-5.5"
-    ZHAIYAO_MODEL: str = "gpt-5.5"  # 默认值，会被 .env 覆盖
+    # 主模型：可用 provider/model 或裸 model id（裸 id 默认走 mynewapi）
+    OPENAI_MODEL: str = "mynewapi/grok-4.5"
+    # 逗号分隔 fallback 链（可写 provider/model）
+    OPENAI_MODEL_FALLBACKS: str = (
+        "mynewapi/gpt-5.6-terra,"
+        "cpa/grok-4.5,"
+        "mynewapi/gpt-5.5,"
+        "mynewapi/gpt-5.6-luna,"
+        "mynewapi/deepseek-ai/deepseek-v4-flash,"
+        "mynewapi/stepfun-ai/step-3.7-flash,"
+        "mynewapi/minimaxai/minimax-m3,"
+        "mynewapi/moonshotai/kimi-k2.6,"
+        "mynewapi/deepseek-ai/deepseek-v4-pro,"
+        "mynewapi/z-ai/glm-5.2,"
+        "mynewapi/minimaxai/minimax-m2.7"
+    )
+    # 完整链覆盖（若设置则优先于 OPENAI_MODEL + FALLBACKS）
+    LLM_MODEL_CHAIN: Optional[str] = None
+    ZHAIYAO_MODEL: str = "mynewapi/grok-4.5"  # 摘要默认跟随主模型链；可单独指定
+
+    # CPA 备用 provider（OpenClaw cpa/grok-4.5）
+    CPA_API_KEY: Optional[str] = None
+    CPA_API_BASE: str = "http://43.160.202.101:8317/v1"
     
     # ====================================
     # Agent AI 配置（管理后台 AI 助手）
@@ -66,7 +88,9 @@ class Settings(BaseSettings):
     
     AGENT_API_KEY: Optional[str] = None
     AGENT_API_BASE: str = "https://qianxi7988.me/v1"
-    AGENT_MODEL: str = "gpt-5.5"
+    # Agent 默认复用同一套 OpenClaw 模型链；可单独覆盖
+    AGENT_MODEL: str = "mynewapi/grok-4.5"
+    AGENT_MODEL_FALLBACKS: Optional[str] = None  # 空则继承 OPENAI_MODEL_FALLBACKS / 默认链
     AGENT_MAX_TOKENS: int = 16000
     AGENT_TEMPERATURE: float = 0.7
     
