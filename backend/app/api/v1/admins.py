@@ -67,7 +67,7 @@ async def create_admin(
     admin = Admin(
         username=admin_data.username,
         email=admin_data.email,
-        password_hash=get_password_hash(admin_data.password),
+        password_hash=await get_password_hash(admin_data.password),
         display_name=admin_data.display_name,
         avatar_url=admin_data.avatar_url,
         bio=admin_data.bio,
@@ -208,14 +208,14 @@ async def update_password(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="请提供旧密码"
             )
-        if not verify_password(password_data.old_password, admin.password_hash):
+        if not await verify_password(password_data.old_password, admin.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="旧密码错误"
             )
     
     # 更新密码
-    admin.password_hash = get_password_hash(password_data.new_password)
+    admin.password_hash = await get_password_hash(password_data.new_password)
     await db.commit()
     
     return {"message": "密码修改成功"}

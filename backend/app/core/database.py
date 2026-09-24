@@ -3,6 +3,7 @@
 使用 SQLAlchemy 2.0 异步引擎
 """
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -13,7 +14,8 @@ from .config import settings
 db_url = settings.database_url
 engine_kwargs = {}
 
-# SQLite 不需要连接池
+# SQLite 不走 MySQL 风格的池参数默认值太少，这里显式放大：
+# aiosqlite 每个连接占一个后台线程，20+30 足够个人博客的并发读，不会压爆内存。
 if not db_url.startswith("sqlite"):
     engine_kwargs.update({
         "pool_pre_ping": True,
@@ -21,14 +23,34 @@ if not db_url.startswith("sqlite"):
         "max_overflow": 20,
     })
 else:
-    # SQLite 需要设置 check_same_thread=False
-    engine_kwargs["connect_args"] = {"check_same_thread": False}
+    # SQLite 需要设置 check_same_thread=False；timeout 是驱动层锁等待秒数
+    engine_kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
+    engine_kwargs.update({
+        "pool_pre_ping": True,
+        "pool_size": 20,
+        "max_overflow": 30,
+    })
 
 engine = create_async_engine(
     db_url,
     echo=settings.DEBUG,
     **engine_kwargs,
 )
+
+
+if db_url.startswith("sqlite"):
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _record):
+        """WAL 模式：写不再阻塞读（默认 delete 模式下每次 view_count+1 都会锁全库）。
+
+        journal_mode=WAL 是文件级持久设置；busy_timeout 兜底写冲突时的快速失败。
+        synchronous=NORMAL 是 WAL 下的常规性能档，掉电最多丢最后一次事务。
+        """
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.close()
 
 # 创建异步会话工厂
 async_session_maker = async_sessionmaker(

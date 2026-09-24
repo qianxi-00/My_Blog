@@ -45,7 +45,7 @@ async def login(
         )
     
     # 验证密码
-    if not verify_password(login_data.password, admin.password_hash):
+    if not await verify_password(login_data.password, admin.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误"
@@ -137,7 +137,7 @@ async def update_password(
     # 验证旧密码 (超级管理员如果要强制修改他人密码不即便此，但这是修改自己的密码)
     # verify_password first arg is plain, second is hashed
     if password_in.old_password:
-        if not verify_password(password_in.old_password, admin.password_hash):
+        if not await verify_password(password_in.old_password, admin.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="旧密码错误"
@@ -155,7 +155,7 @@ async def update_password(
         pass
         
     # Set new password
-    admin.password_hash = get_password_hash(password_in.new_password)
+    admin.password_hash = await get_password_hash(password_in.new_password)
     
     await db.commit()
     return {"message": "密码修改成功"}

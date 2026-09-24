@@ -32,7 +32,7 @@ async def init_super_admin():
         # 创建超级管理员
         admin = Admin(
             username=settings.SUPER_ADMIN_USERNAME,
-            password_hash=get_password_hash(settings.SUPER_ADMIN_PASSWORD),
+            password_hash=await get_password_hash(settings.SUPER_ADMIN_PASSWORD),
             display_name="超级管理员",
             role="super_admin",
             is_active=True

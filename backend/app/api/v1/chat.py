@@ -26,6 +26,9 @@ from ...core.prompt import SYSTEM_PROMPT_CHAT
 
 router = APIRouter()
 
+# A-RAG 每路对话是一个完整 agent 循环（多轮 LLM + 工具），768MB 容器设 8 路并发上限
+_ARAG_SEMAPHORE = asyncio.Semaphore(8)
+
 
 def _sse(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
@@ -303,78 +306,82 @@ async def send_message_agentic(
     history_msgs = [{"role": msg.role, "content": msg.content} for msg in history]
 
     async def generate():
-        final_text = ""
-        try:
-            queue: asyncio.Queue = asyncio.Queue()
-            # langgraph v3 messages 通道不透传 reasoning，改由模型子类回调直接入队
-            agent = build_arag_agent(
-                on_reasoning=lambda delta: queue.put_nowait(("reasoning", {"content": delta})),
-            )
-            stream = await agent.astream_events({"messages": history_msgs}, version="v3")
-
-            async def pump_messages():
-                async for message in stream.messages:
-                    async for delta in message.text:
-                        if delta:
-                            await queue.put(("text", {"content": delta}))
-
-            async def pump_tools():
-                async for call in stream.tool_calls:
-                    input_text = call.input if isinstance(call.input, str) else json.dumps(
-                        call.input if call.input else {}, ensure_ascii=False, default=str)
-                    await queue.put(("tool_start", {
-                        "name": call.tool_name,
-                        "input": input_text[:160],
-                    }))
-                    async for _ in getattr(call, "output_deltas", []):
-                        pass
-                    error = getattr(call, "error", None)
-                    await queue.put(("tool_result", {
-                        "name": call.tool_name,
-                        "ok": error is None,
-                        "summary": _summarize_tool_output(call.output) if error is None else str(error)[:80],
-                    }))
-
-            tasks = [
-                asyncio.create_task(pump_messages()),
-                asyncio.create_task(pump_tools()),
-            ]
+        if _ARAG_SEMAPHORE.locked():
+            yield _sse("error", {"message": "小魄罗正在招呼太多客人啦，请稍等片刻再试～"})
+            return
+        async with _ARAG_SEMAPHORE:
+            final_text = ""
             try:
-                while any(not t.done() for t in tasks) or not queue.empty():
-                    try:
-                        kind, data = await asyncio.wait_for(queue.get(), timeout=0.25)
-                    except asyncio.TimeoutError:
-                        continue
-                    if kind == "text":
-                        final_text += data["content"]
-                    yield _sse(kind, data)
-                failed = next((t for t in tasks if t.done() and t.exception()), None)
-                if failed is not None:
-                    raise failed.exception()
-            finally:
-                for t in tasks:
-                    t.cancel()
-            yield _sse("done", {"session_id": session.id})
-        except Exception as e:
-            error_text = str(e)
-            if "Invalid token" in error_text or "401" in error_text:
-                yield _sse("error", {"message": "模型网关鉴权失败，暂时无法回答，请站长检查后端 AI 配置。"})
-            else:
-                yield _sse("error", {"message": f"A-RAG 服务暂时不可用：{error_text[:200]}"})
+                queue: asyncio.Queue = asyncio.Queue()
+                # langgraph v3 messages 通道不透传 reasoning，改由模型子类回调直接入队
+                agent = build_arag_agent(
+                    on_reasoning=lambda delta: queue.put_nowait(("reasoning", {"content": delta})),
+                )
+                stream = await agent.astream_events({"messages": history_msgs}, version="v3")
 
-        # 持久化本轮回答（与旧接口一致）
-        if final_text:
-            assistant_message = ChatMessage(
-                session_id=session.id,
-                role="assistant",
-                content=final_text
-            )
-            db.add(assistant_message)
-            if len(history) <= 1:
-                title = message_data.content[:20] + "..." if len(message_data.content) > 20 else message_data.content
-                session.title = title
-            await record_ai_call(db)
-            await db.commit()
+                async def pump_messages():
+                    async for message in stream.messages:
+                        async for delta in message.text:
+                            if delta:
+                                await queue.put(("text", {"content": delta}))
+
+                async def pump_tools():
+                    async for call in stream.tool_calls:
+                        input_text = call.input if isinstance(call.input, str) else json.dumps(
+                            call.input if call.input else {}, ensure_ascii=False, default=str)
+                        await queue.put(("tool_start", {
+                            "name": call.tool_name,
+                            "input": input_text[:160],
+                        }))
+                        async for _ in getattr(call, "output_deltas", []):
+                            pass
+                        error = getattr(call, "error", None)
+                        await queue.put(("tool_result", {
+                            "name": call.tool_name,
+                            "ok": error is None,
+                            "summary": _summarize_tool_output(call.output) if error is None else str(error)[:80],
+                        }))
+
+                tasks = [
+                    asyncio.create_task(pump_messages()),
+                    asyncio.create_task(pump_tools()),
+                ]
+                try:
+                    while any(not t.done() for t in tasks) or not queue.empty():
+                        try:
+                            kind, data = await asyncio.wait_for(queue.get(), timeout=0.25)
+                        except asyncio.TimeoutError:
+                            continue
+                        if kind == "text":
+                            final_text += data["content"]
+                        yield _sse(kind, data)
+                    failed = next((t for t in tasks if t.done() and t.exception()), None)
+                    if failed is not None:
+                        raise failed.exception()
+                finally:
+                    for t in tasks:
+                        t.cancel()
+                yield _sse("done", {"session_id": session.id})
+            except Exception as e:
+                error_text = str(e)
+                if "Invalid token" in error_text or "401" in error_text:
+                    yield _sse("error", {"message": "模型网关鉴权失败，暂时无法回答，请站长检查后端 AI 配置。"})
+                else:
+                    yield _sse("error", {"message": f"A-RAG 服务暂时不可用：{error_text[:200]}"})
+
+            # 持久化本轮回答（与旧接口一致）
+            if final_text:
+                assistant_message = ChatMessage(
+                    session_id=session.id,
+                    role="assistant",
+                    content=final_text
+                )
+                db.add(assistant_message)
+                if len(history) <= 1:
+                    title = message_data.content[:20] + "..." if len(message_data.content) > 20 else message_data.content
+                    session.title = title
+                await record_ai_call(db)
+                await db.commit()
 
     return StreamingResponse(
         generate(),

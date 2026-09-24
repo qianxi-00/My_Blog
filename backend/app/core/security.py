@@ -3,6 +3,7 @@
 JWT 认证和密码加密
 """
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -16,31 +17,32 @@ from .config import settings
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+async def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    验证密码
-    
+    验证密码（bcrypt 是 100-300ms 的纯 CPU 计算，丢线程池执行，
+    避免在登录时阻塞事件循环上的所有并发请求）
+
     Args:
         plain_password: 明文密码
         hashed_password: 哈希后的密码
-    
+
     Returns:
         密码是否匹配
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    return await asyncio.to_thread(pwd_context.verify, plain_password, hashed_password)
 
 
-def get_password_hash(password: str) -> str:
+async def get_password_hash(password: str) -> str:
     """
-    获取密码哈希值
-    
+    获取密码哈希值（同样丢线程池，理由同上）
+
     Args:
         password: 明文密码
-    
+
     Returns:
         哈希后的密码
     """
-    return pwd_context.hash(password)
+    return await asyncio.to_thread(pwd_context.hash, password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
