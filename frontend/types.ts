@@ -1,4 +1,5 @@
 import React from 'react';
+import type { ProcessStep } from './components/AgentProcessStrip';
 
 export interface Article {
   id: number;
@@ -24,6 +25,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
+  /** A-RAG 过程事件（思考 / 工具调用），仅流式会话期间填充 */
+  process?: ProcessStep[];
 }
 
 export interface NavItem {

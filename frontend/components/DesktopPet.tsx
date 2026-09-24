@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Icons } from './Icons';
 import { ChatMessage } from '../types';
 import MarkdownContent from './MarkdownContent';
-import { createChatSession, sendMessageStream, getChatHistory, ChatSession } from '../api/chat';
+import AgentProcessStrip, { ProcessStep } from './AgentProcessStrip';
+import { createChatSession, sendMessageStream, streamAgenticChat, getChatHistory, ChatSession } from '../api/chat';
 
 type PetVariant = {
   id: string;
@@ -596,12 +597,92 @@ const DesktopPet: React.FC = () => {
       };
       setMessages(prev => [...prev, aiMessage]);
 
+      const patchAi = (patch: Partial<ChatMessage>) => {
+        setMessages(prev => prev.map(msg => (msg.id === aiMessageId ? { ...msg, ...patch } : msg)));
+      };
+      const appendProcess = (steps: ProcessStep[]) => {
+        setMessages(prev => prev.map(msg => {
+          if (msg.id !== aiMessageId) return msg;
+          return { ...msg, process: [...(msg.process || []), ...steps] };
+        }));
+      };
+      const patchProcess = (stepId: string, patch: Partial<ProcessStep>) => {
+        setMessages(prev => prev.map(msg => {
+          if (msg.id !== aiMessageId || !msg.process) return msg;
+          return {
+            ...msg,
+            process: msg.process.map(step => (step.id === stepId ? { ...step, ...patch } : step)),
+          };
+        }));
+      };
+
       let fullContent = '';
-      await sendMessageStream(currentSession.id, contentToSend, (chunk) => {
-        fullContent += chunk;
-        setMessages(prev => prev.map(msg =>
-          msg.id === aiMessageId ? { ...msg, content: fullContent } : msg
-        ));
+      let stepCounter = 0;
+      let lastReasoningId: string | null = null;
+
+      await streamAgenticChat(currentSession.id, contentToSend, (event) => {
+        switch (event.type) {
+          case 'reasoning': {
+            if (lastReasoningId) {
+              setMessages(prev => prev.map(msg => {
+                if (msg.id !== aiMessageId || !msg.process) return msg;
+                return {
+                  ...msg,
+                  process: msg.process.map(step => {
+                    if (step.id !== lastReasoningId) return step;
+                    return { ...step, reasoningText: (step.reasoningText || '') + (event.content || '') };
+                  }),
+                };
+              }));
+            } else {
+              stepCounter += 1;
+              lastReasoningId = `reasoning-${stepCounter}-${Date.now()}`;
+              appendProcess([{ id: lastReasoningId, kind: 'reasoning', reasoningText: event.content || '' }]);
+            }
+            break;
+          }
+          case 'tool_start': {
+            lastReasoningId = null;
+            stepCounter += 1;
+            appendProcess([{
+              id: `tool-${stepCounter}-${Date.now()}`,
+              kind: 'tool',
+              name: event.name,
+              input: event.input,
+              status: 'running',
+            }]);
+            break;
+          }
+          case 'tool_result': {
+            stepCounter += 1;
+            // 关闭最近一个同名 running 工具步骤
+            setMessages(prev => prev.map(msg => {
+              if (msg.id !== aiMessageId || !msg.process) return msg;
+              const runningIdx = [...msg.process].reverse().findIndex(
+                step => step.kind === 'tool' && step.name === event.name && step.status === 'running'
+              );
+              if (runningIdx === -1) return msg;
+              const idx = msg.process.length - 1 - runningIdx;
+              const process = msg.process.map((step, i) => (
+                i === idx ? { ...step, status: event.ok ? ('ok' as const) : ('error' as const), summary: event.summary } : step
+              ));
+              return { ...msg, process };
+            }));
+            break;
+          }
+          case 'text': {
+            fullContent += event.content;
+            patchAi({ content: fullContent });
+            break;
+          }
+          case 'error': {
+            fullContent = fullContent || event.message;
+            patchAi({ content: fullContent });
+            break;
+          }
+          case 'done':
+            break;
+        }
       });
       recordDebug('chat:stream_done');
 
@@ -1026,6 +1107,9 @@ const DesktopPet: React.FC = () => {
                       </span>
                     </span>
                   )}
+                  {msg.role === 'assistant' && msg.process && msg.process.length > 0 && (
+                    <AgentProcessStrip steps={msg.process} />
+                  )}
                   {msg.role === 'assistant' ? (
                     (() => {
                       const { main, refs } = splitReferences(msg.content || '');
@@ -1212,6 +1296,9 @@ const DesktopPet: React.FC = () => {
                           <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
                         </span>
                       </span>
+                    )}
+                    {msg.role === 'assistant' && msg.process && msg.process.length > 0 && (
+                      <AgentProcessStrip steps={msg.process} />
                     )}
                     {msg.role === 'assistant' ? (
                       (() => {

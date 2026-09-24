@@ -100,6 +100,100 @@ export const sendMessageStream = async (
     }
 };
 
+// ---------- A-RAG 流式对话（SSE：思考 / 工具调用 / 回答） ----------
+
+export type AgenticEvent =
+    | { type: 'reasoning'; content: string }
+    | { type: 'text'; content: string }
+    | { type: 'tool_start'; name: string; input?: string }
+    | { type: 'tool_result'; name: string; ok: boolean; summary?: string }
+    | { type: 'done'; session_id?: string }
+    | { type: 'error'; message: string };
+
+export const streamAgenticChat = async (
+    sessionId: string,
+    content: string,
+    onEvent: (event: AgenticEvent) => void
+): Promise<void> => {
+    const token = localStorage.getItem('access_token');
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${api.defaults.baseURL}/chat/message/agentic`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            session_id: sessionId,
+            content
+        })
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || response.statusText);
+    }
+
+    if (!response.body) return;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE 帧以空行分隔：event: <type>\ndata: <json>\n\n
+        let sep = buffer.indexOf('\n\n');
+        while (sep !== -1) {
+            const block = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            sep = buffer.indexOf('\n\n');
+
+            let eventType = '';
+            let dataRaw = '';
+            for (const line of block.split('\n')) {
+                if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+                else if (line.startsWith('data: ')) dataRaw = line.slice(6);
+            }
+            if (!eventType) continue;
+
+            let data: Record<string, any> = {};
+            try {
+                data = dataRaw ? JSON.parse(dataRaw) : {};
+            } catch {
+                data = {};
+            }
+
+            switch (eventType) {
+                case 'reasoning':
+                    onEvent({ type: 'reasoning', content: data.content || '' });
+                    break;
+                case 'text':
+                    onEvent({ type: 'text', content: data.content || '' });
+                    break;
+                case 'tool_start':
+                    onEvent({ type: 'tool_start', name: data.name || 'tool', input: data.input });
+                    break;
+                case 'tool_result':
+                    onEvent({ type: 'tool_result', name: data.name || 'tool', ok: !!data.ok, summary: data.summary });
+                    break;
+                case 'done':
+                    onEvent({ type: 'done', session_id: data.session_id });
+                    break;
+                case 'error':
+                    onEvent({ type: 'error', message: data.message || 'A-RAG 服务暂时不可用' });
+                    break;
+            }
+        }
+    }
+};
+
 // 获取会话历史
 export const getChatHistory = async (sessionId: string): Promise<ChatSessionWithMessages> => {
     const response = await api.get(`/chat/session/${sessionId}/history`);

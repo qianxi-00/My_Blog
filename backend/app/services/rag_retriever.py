@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from ..core.config import settings
 from ..models.article import Article, Tag
+from ..models.hot_topic import HotTopic
 
 
 _STOPWORDS = {
@@ -298,3 +299,64 @@ def format_rag_context(items: List[Dict[str, Any]]) -> str:
         if item.get("snippet"):
             lines.append(f"摘要: {item['snippet']}")
     return "\n".join(lines)
+
+
+def _build_hotspot_url(topic_id: int) -> str:
+    base = settings.SITE_URL.rstrip("/")
+    return f"{base}/#/hotspots/{topic_id}"
+
+
+def _score_hotspot(topic: "HotTopic", keywords: Sequence[str]) -> int:
+    title_score = _field_count(topic.title, keywords) * 18
+    summary_score = _field_count(topic.summary, keywords) * 8
+    content_score = _field_count(topic.analysis_md, keywords) * 2
+    category_score = _field_count(topic.primary_category, keywords) * 10
+    return title_score + summary_score + content_score + category_score
+
+
+async def search_hotspots(
+    db: AsyncSession,
+    query: str,
+    top_k: int = 5,
+    candidate_limit: int = 60,
+) -> List[Dict[str, Any]]:
+    """在已发布热点（AI 日报分析）中做关键词检索，供 A-RAG 工具调用。"""
+    keywords = expand_keywords(query)
+    if not keywords:
+        return []
+
+    conditions = []
+    for kw in keywords:
+        like = f"%{kw}%"
+        conditions.append(HotTopic.title.ilike(like))
+        conditions.append(HotTopic.summary.ilike(like))
+        conditions.append(HotTopic.analysis_md.ilike(like))
+        conditions.append(HotTopic.primary_category.ilike(like))
+
+    stmt = (
+        select(HotTopic)
+        .where(HotTopic.status == "published")
+        .where(or_(*conditions))
+        .order_by(HotTopic.topic_date.desc())
+        .limit(candidate_limit)
+    )
+    result = await db.execute(stmt)
+    topics = result.scalars().all()
+
+    ranked: List[Dict[str, Any]] = []
+    for topic in topics:
+        score = _score_hotspot(topic, keywords)
+        if score <= 0:
+            continue
+        ranked.append({
+            "id": topic.id,
+            "title": topic.title,
+            "slug": topic.slug or "",
+            "url": _build_hotspot_url(topic.id),
+            "date": topic.topic_date.isoformat() if topic.topic_date else "",
+            "category": topic.primary_category or "",
+            "summary": (topic.summary or "")[:420],
+            "score": score,
+        })
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+    return ranked[:top_k]

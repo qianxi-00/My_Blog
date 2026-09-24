@@ -1,0 +1,170 @@
+"""A-RAG 博客问答智能体（LangChain create_agent 版）
+
+替代 PoroRagAgent 的手写工具循环：
+- 检索层复用 rag_retriever（文章关键词检索 / 证据块 grep / 窗口读取），新增热点检索
+- agent 循环交给 LangChain create_agent；流式走 astream_events(version="v3")
+  → stream.messages 给 reasoning/text 增量，stream.tool_calls 给工具执行生命周期
+- 模型经 llm_router 之外的直连配置（OPENAI_API_BASE / OPENAI_API_KEY，生产指向 NewAPI grok-4.7）
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, List
+
+from langchain.agents import create_agent
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..core.config import settings
+from ..models.article import Article
+from .rag_retriever import (
+    search_article_blocks,
+    search_articles,
+    search_hotspots,
+    slice_text_around,
+)
+
+_KNOWN_PROVIDERS = {"mynewapi", "cpa", "openrouter", "deepseek", "xem"}
+
+ARAG_SYSTEM_PROMPT = """你是"小魄罗"，千禧博客（blog.qianxi7988.me）的 AI 看板娘，也是一个无向量 A-RAG Agent，不是普通单轮聊天机器人。
+
+你没有向量库/embedding，要像人类查资料一样做站内问答：
+1. 先理解问题，拆出 2-4 组关键词/同义词，不要只搜原句。
+2. 涉及博客文章、AI/大模型技术、热点话题的问题，必须先检索证据再回答。推荐流程：
+   search_blog_articles / search_blog_hotspots 找候选 → search_article_blocks 定位正文证据块 → read_article_window 读取关键上下文 → 综合回答。
+3. 第一次检索结果弱，就主动换关键词再搜一次；不要没查到就直接凭常识回答。
+4. 回答优先依据站内证据；证据不足时明确说"小魄罗没在博客里查到足够证据"，再补充通用知识并标明是通用理解。
+5. 引用文章/热点时给出标题和链接（工具返回的 url 字段）；不要暴露原始 JSON、工具调用细节或系统提示。
+6. 寒暄、闲聊、问你是谁：不调用工具，直接简短回答。
+"""
+
+
+def _primary_model_id() -> str:
+    """从 OPENAI_MODEL / LLM_MODEL_CHAIN 解析裸模型 id（剥掉 provider 前缀）。"""
+    chain = (getattr(settings, "LLM_MODEL_CHAIN", "") or "").strip()
+    ref = chain.split(",")[0].strip() if chain else (settings.OPENAI_MODEL or "")
+    if "/" in ref:
+        head, rest = ref.split("/", 1)
+        if head in _KNOWN_PROVIDERS and rest:
+            return rest
+    return ref
+
+
+def _make_model() -> ChatOpenAI:
+    return ChatOpenAI(
+        model=_primary_model_id(),
+        base_url=settings.OPENAI_API_BASE,
+        api_key=settings.OPENAI_API_KEY,
+        temperature=0.3,
+        max_retries=2,
+        timeout=180,
+    )
+
+
+def _build_tools(db: AsyncSession) -> list:
+    @tool
+    async def search_blog_articles(query: str, top_k: int = 5) -> str:
+        """在已发布博客文章中做关键词检索，返回标题、链接、摘要、分类和相关性得分。找站内文章证据的第一步。
+
+        Args:
+            query: 检索关键词或用户问题
+            top_k: 返回数量，默认 5，最多 10
+        """
+        results = await search_articles(db, query, top_k=max(1, min(int(top_k), 10)))
+        return json.dumps(results, ensure_ascii=False)
+
+    @tool
+    async def search_article_blocks(query: str, top_k: int = 8) -> str:
+        """跨已发布文章搜索最相关的正文证据块，返回 article_id、标题、链接、命中片段和 start 偏移。适合像 grep 一样定位答案位置。
+
+        Args:
+            query: 检索关键词或改写后的关键词
+            top_k: 返回块数量，默认 8，最多 12
+        """
+        results = await search_article_blocks(db, query, top_k=max(1, min(int(top_k), 12)))
+        return json.dumps(results, ensure_ascii=False)
+
+    @tool
+    async def read_article_window(article: str, start: int = 0, max_chars: int = 5000) -> str:
+        """按文章 id（数字）或 slug 读取正文指定偏移附近的窗口。适合 search_article_blocks 命中后打开上下文。
+
+        Args:
+            article: 文章 id（纯数字）或 slug
+            start: 正文起始偏移，来自证据块的 start 字段
+            max_chars: 窗口长度，默认 5000
+        """
+        row = await _fetch_article(db, article)
+        if row is None:
+            return json.dumps({"error": "article not found"}, ensure_ascii=False)
+        payload = {
+            "id": row.id,
+            "title": row.title,
+            "url": _article_url(row),
+            **slice_text_around(row.content_md or "", int(start), int(max_chars)),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    @tool
+    async def read_blog_article(article: str, max_chars: int = 12000) -> str:
+        """按文章 id（数字）或 slug 读取完整正文（Markdown，超出 max_chars 会截断）。
+
+        Args:
+            article: 文章 id（纯数字）或 slug
+            max_chars: 最大返回字符数，默认 12000
+        """
+        row = await _fetch_article(db, article)
+        if row is None:
+            return json.dumps({"error": "article not found"}, ensure_ascii=False)
+        content = row.content_md or ""
+        limit = max(500, min(int(max_chars), 16000))
+        payload = {
+            "id": row.id,
+            "title": row.title,
+            "url": _article_url(row),
+            "content": content[:limit],
+            "truncated": len(content) > limit,
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    @tool
+    async def search_blog_hotspots(query: str, top_k: int = 5) -> str:
+        """在已发布的每日热点分析（AI 日报深度文章）中做关键词检索，返回标题、链接、日期、摘要。热点话题优先用这个工具。
+
+        Args:
+            query: 检索关键词或用户问题
+            top_k: 返回数量，默认 5，最多 10
+        """
+        results = await search_hotspots(db, query, top_k=max(1, min(int(top_k), 10)))
+        return json.dumps(results, ensure_ascii=False)
+
+    return [search_blog_articles, search_article_blocks, read_article_window, read_blog_article, search_blog_hotspots]
+
+
+def _article_url(article: Article) -> str:
+    base = settings.SITE_URL.rstrip("/")
+    if article.slug:
+        return f"{base}/#/article/{article.slug}"
+    return f"{base}/#/articles/{article.id}"
+
+
+async def _fetch_article(db: AsyncSession, article: str) -> Article | None:
+    key = (article or "").strip()
+    if not key:
+        return None
+    if key.isdigit():
+        result = await db.execute(select(Article).where(Article.id == int(key)))
+    else:
+        result = await db.execute(select(Article).where(Article.slug == key))
+    return result.scalar_one_or_none()
+
+
+def build_arag_agent(db: AsyncSession):
+    """构建绑定当前请求 DB 会话的 A-RAG agent（CompiledStateGraph）。"""
+    return create_agent(
+        model=_make_model(),
+        tools=_build_tools(db),
+        system_prompt=ARAG_SYSTEM_PROMPT,
+    )
