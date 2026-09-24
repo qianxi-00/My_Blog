@@ -33,7 +33,10 @@ def _sse(event_type: str, data: dict) -> str:
 
 def _summarize_tool_output(output: Any) -> str:
     """把工具输出压成给前端芯片用的一行摘要。"""
-    text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
+    content = getattr(output, "content", None)
+    text = content if isinstance(content, str) else (
+        output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
+    )
     try:
         parsed = json.loads(text)
         if isinstance(parsed, list):

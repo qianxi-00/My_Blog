@@ -16,6 +16,7 @@ import json
 from typing import List
 
 from langchain.agents import create_agent
+from langchain_core.messages import AIMessageChunk
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from sqlalchemy import select
@@ -31,6 +32,38 @@ from .rag_retriever import (
 )
 
 _KNOWN_PROVIDERS = {"mynewapi", "cpa", "openrouter", "deepseek", "xem"}
+
+
+class ReasoningChatOpenAI(ChatOpenAI):
+    """ChatOpenAI 的 provider 子类：透传 OpenAI 兼容网关在 delta.reasoning_content 里输出的思考增量。
+
+    上游 BaseChatOpenAI 明确不提取第三方字段（"Use a provider-specific subclass"）；
+    langchain-core 的 content_blocks 约定 additional_kwargs["reasoning_content"]
+    → 标准 reasoning content block（Ollama/DeepSeek/XAI/Groq 同款），v3 事件流的
+    .reasoning 投影即由此驱动。每块只放本块增量，桥接层逐块转 reasoning-delta。
+    """
+
+    def _convert_chunk_to_generation_chunk(  # type: ignore[override]
+        self,
+        chunk: dict,
+        default_chunk_class: type,
+        base_generation_info: dict | None,
+    ):
+        generation = super()._convert_chunk_to_generation_chunk(
+            chunk, default_chunk_class, base_generation_info
+        )
+        if generation is None:
+            return None
+        choices = chunk.get("choices") or (chunk.get("chunk") or {}).get("choices") or []
+        if choices:
+            delta = choices[0].get("delta") or {}
+            reasoning_delta = delta.get("reasoning_content")
+            if reasoning_delta and isinstance(generation.message, AIMessageChunk):
+                prev = generation.message.additional_kwargs.get("reasoning_content", "")
+                if not isinstance(prev, str):
+                    prev = ""
+                generation.message.additional_kwargs["reasoning_content"] = prev + reasoning_delta
+        return generation
 
 ARAG_SYSTEM_PROMPT = """你是"小魄罗"，千禧博客（blog.qianxi7988.me）的 AI 看板娘，也是一个无向量 A-RAG Agent，不是普通单轮聊天机器人。
 
@@ -57,7 +90,7 @@ def _primary_model_id() -> str:
 
 
 def _make_model() -> ChatOpenAI:
-    return ChatOpenAI(
+    return ReasoningChatOpenAI(
         model=_primary_model_id(),
         base_url=settings.OPENAI_API_BASE,
         api_key=settings.OPENAI_API_KEY,
