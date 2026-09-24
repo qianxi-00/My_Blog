@@ -299,7 +299,7 @@ async def send_message_agentic(
     history = list(reversed(result.scalars().all()))
     history_msgs = [{"role": msg.role, "content": msg.content} for msg in history]
 
-    agent = build_arag_agent(db)
+    agent = build_arag_agent()
 
     async def generate():
         final_text = ""

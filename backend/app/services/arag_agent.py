@@ -5,25 +5,28 @@
 - agent 循环交给 LangChain create_agent；流式走 astream_events(version="v3")
   → stream.messages 给 reasoning/text 增量，stream.tool_calls 给工具执行生命周期
 - 模型经 llm_router 之外的直连配置（OPENAI_API_BASE / OPENAI_API_KEY，生产指向 NewAPI grok-4.7）
+
+注意：create_agent 的 ToolNode 会并行执行同轮多个工具调用，因此每个工具
+都通过 async_session_maker 开独立短会话，绝不共享请求级 AsyncSession。
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, List
+from typing import List
 
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.database import async_session_maker
 from ..models.article import Article
 from .rag_retriever import (
-    search_article_blocks,
-    search_articles,
-    search_hotspots,
+    search_article_blocks as rag_search_blocks,
+    search_articles as rag_search_articles,
+    search_hotspots as rag_search_hotspots,
     slice_text_around,
 )
 
@@ -64,7 +67,30 @@ def _make_model() -> ChatOpenAI:
     )
 
 
-def _build_tools(db: AsyncSession) -> list:
+def _article_url(article: Article) -> str:
+    base = settings.SITE_URL.rstrip("/")
+    if article.slug:
+        return f"{base}/#/article/{article.slug}"
+    return f"{base}/#/articles/{article.id}"
+
+
+async def _fetch_article(article: str) -> Article | None:
+    key = (article or "").strip()
+    if not key:
+        return None
+    async with async_session_maker() as db:
+        if key.isdigit():
+            result = await db.execute(select(Article).where(Article.id == int(key)))
+        else:
+            result = await db.execute(select(Article).where(Article.slug == key))
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        await db.refresh(row)
+        return row
+
+
+def _build_tools() -> list:
     @tool
     async def search_blog_articles(query: str, top_k: int = 5) -> str:
         """在已发布博客文章中做关键词检索，返回标题、链接、摘要、分类和相关性得分。找站内文章证据的第一步。
@@ -73,7 +99,8 @@ def _build_tools(db: AsyncSession) -> list:
             query: 检索关键词或用户问题
             top_k: 返回数量，默认 5，最多 10
         """
-        results = await search_articles(db, query, top_k=max(1, min(int(top_k), 10)))
+        async with async_session_maker() as db:
+            results = await rag_search_articles(db, query, top_k=max(1, min(int(top_k), 10)))
         return json.dumps(results, ensure_ascii=False)
 
     @tool
@@ -84,7 +111,8 @@ def _build_tools(db: AsyncSession) -> list:
             query: 检索关键词或改写后的关键词
             top_k: 返回块数量，默认 8，最多 12
         """
-        results = await search_article_blocks(db, query, top_k=max(1, min(int(top_k), 12)))
+        async with async_session_maker() as db:
+            results = await rag_search_blocks(db, query, top_k=max(1, min(int(top_k), 12)))
         return json.dumps(results, ensure_ascii=False)
 
     @tool
@@ -96,7 +124,7 @@ def _build_tools(db: AsyncSession) -> list:
             start: 正文起始偏移，来自证据块的 start 字段
             max_chars: 窗口长度，默认 5000
         """
-        row = await _fetch_article(db, article)
+        row = await _fetch_article(article)
         if row is None:
             return json.dumps({"error": "article not found"}, ensure_ascii=False)
         payload = {
@@ -115,7 +143,7 @@ def _build_tools(db: AsyncSession) -> list:
             article: 文章 id（纯数字）或 slug
             max_chars: 最大返回字符数，默认 12000
         """
-        row = await _fetch_article(db, article)
+        row = await _fetch_article(article)
         if row is None:
             return json.dumps({"error": "article not found"}, ensure_ascii=False)
         content = row.content_md or ""
@@ -137,34 +165,23 @@ def _build_tools(db: AsyncSession) -> list:
             query: 检索关键词或用户问题
             top_k: 返回数量，默认 5，最多 10
         """
-        results = await search_hotspots(db, query, top_k=max(1, min(int(top_k), 10)))
+        async with async_session_maker() as db:
+            results = await rag_search_hotspots(db, query, top_k=max(1, min(int(top_k), 10)))
         return json.dumps(results, ensure_ascii=False)
 
-    return [search_blog_articles, search_article_blocks, read_article_window, read_blog_article, search_blog_hotspots]
+    return [
+        search_blog_articles,
+        search_article_blocks,
+        read_article_window,
+        read_blog_article,
+        search_blog_hotspots,
+    ]
 
 
-def _article_url(article: Article) -> str:
-    base = settings.SITE_URL.rstrip("/")
-    if article.slug:
-        return f"{base}/#/article/{article.slug}"
-    return f"{base}/#/articles/{article.id}"
-
-
-async def _fetch_article(db: AsyncSession, article: str) -> Article | None:
-    key = (article or "").strip()
-    if not key:
-        return None
-    if key.isdigit():
-        result = await db.execute(select(Article).where(Article.id == int(key)))
-    else:
-        result = await db.execute(select(Article).where(Article.slug == key))
-    return result.scalar_one_or_none()
-
-
-def build_arag_agent(db: AsyncSession):
-    """构建绑定当前请求 DB 会话的 A-RAG agent（CompiledStateGraph）。"""
+def build_arag_agent():
+    """构建 A-RAG agent（CompiledStateGraph）；工具内部自开会话，无外部 db 依赖。"""
     return create_agent(
         model=_make_model(),
-        tools=_build_tools(db),
+        tools=_build_tools(),
         system_prompt=ARAG_SYSTEM_PROMPT,
     )
