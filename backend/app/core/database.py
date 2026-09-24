@@ -23,8 +23,12 @@ if not db_url.startswith("sqlite"):
         "max_overflow": 20,
     })
 else:
+    # aiosqlite 方言默认 NullPool（无池）；显式启用有界异步池
+    from sqlalchemy.pool import AsyncAdaptedQueuePool
+
     # SQLite 需要设置 check_same_thread=False；timeout 是驱动层锁等待秒数
     engine_kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
+    engine_kwargs["poolclass"] = AsyncAdaptedQueuePool
     engine_kwargs.update({
         "pool_pre_ping": True,
         "pool_size": 20,
