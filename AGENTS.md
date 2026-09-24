@@ -28,7 +28,8 @@
 
 | 组件 | 位置 / 事实 |
 |---|---|
-| 后端容器 | `qianxi-blog`，镜像 `qianxi-blog:arag1`（2026-09-24 晚起，源码与 GitHub master 一致，构建上下文 `/data/blog/arag-src`）。768MB/1CPU，`--restart unless-stopped`，`blog-net` 网络，只绑 `127.0.0.1:8000`。**回退镜像**：`qianxi-blog:20260924`（Poro 版） |
+| 后端容器 | `qianxi-blog`，镜像 `qianxi-blog:arag2`（2026-09-24 晚并发优化版，构建上下文 `/data/blog/arag-src`）。768MB/**2CPU**，uvicorn **`--workers 2`**（GIL 决定单进程最多 1 核，多核必须多 worker；docker run 时用 CMD 覆盖参数，镜像 CMD 仍是单 worker 供 HF 兼容）。`--restart unless-stopped`，`blog-net`，只绑 `127.0.0.1:8000`。**回退镜像**：`qianxi-blog:20260924`（Poro 版） |
+| 并发优化（2026-09-24 实测） | SQLite 已切 **WAL**（`app/core/database.py` 连接事件监听自动 PRAGMA：journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000；写不再锁全库）；aiosqlite 方言默认 NullPool，已显式 `AsyncAdaptedQueuePool`（pool_size=20/max_overflow=30）；bcrypt 登录验证改 `asyncio.to_thread`（原先同步 100-300ms 阻塞事件循环）；A-RAG SSE 有并发护栏 `asyncio.Semaphore(8)`/worker（双 worker 合计 16 路，超限回友好提示）。压测（ab，同机 2 核）：1worker/1CPU=42.7rps/750ms → 2worker/2CPU=70.6rps/453ms（直连）、62.6rps/0 错误（公网 HTTPS 全路径）。单请求 ~15ms；剩余上限是宿主机 2 核本身，再要翻倍只能升配或加只读副本 |
 | A-RAG 聊天 | 公开问答已从 PoroRagAgent 伪流式升级为 **LangChain create_agent**（2026-09-24）。新端点 `POST /api/v1/chat/message/agentic`（SSE，事件 `reasoning`/`tool_start`/`tool_result`/`text`/`done`/`error`）。实现：`backend/app/services/arag_agent.py`（5 个检索工具：文章/证据块/读窗口/读全文/热点；工具**各自开独立 DB 会话**，因为 ToolNode 并行调用工具）；`ReasoningChatOpenAI` 子类负责把网关 `delta.reasoning_content` 透传进事件流（langgraph v3 messages 通道不透传，靠子类回调直推 SSE 队列）。旧端点 `/chat/message/stream`（Poro 伪流式）保留给桌宠主动气泡。前端 `DesktopPet` 聊天面板 + `AgentProcessStrip` 渲染思考/工具芯片。**nginx /api/ 已加 `proxy_buffering off`（SSE 依赖，别删）**。注意 `openai` SDK 已升 `3.19.2`（langchain-openai 1.6.6 要求 >=2.45） |
 | 数据库 | 容器挂载 `/data/blog/data:/data`，库文件 `/data/blog/data/blog.db`。2026-09-24 从 HF 导出（integrity ok：23 文 / 567 热点 / 558 published） |
 | 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
