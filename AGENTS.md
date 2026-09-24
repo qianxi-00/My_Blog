@@ -30,12 +30,13 @@
 |---|---|
 | 后端容器 | `qianxi-blog`，镜像 `qianxi-blog:20260924`（源码 `/data/blog/src`，来自 HF 镜像提取版，含 `llm_router`）。512MB/1CPU，`--restart unless-stopped`，只绑 `127.0.0.1:8000` |
 | 数据库 | 容器挂载 `/data/blog/data:/data`，库文件 `/data/blog/data/blog.db`。2026-09-24 从 HF 导出（integrity ok：23 文 / 567 热点 / 558 published） |
-| 前端 | `/var/www/blog/dist`，本地构建后分批上传。**Live2D 144MB 尚未上传，看板娘暂缺资源** |
+| 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
 | nginx | `/etc/nginx/sites-available/blog`（独立文件，别动 `new-api` 那份）。80 端口有 `^~ /.well-known/acme-challenge/` 例外 + 301，**别删这个例外，删了证书续不了** |
 | 证书 | Let's Encrypt `blog.qianxi7988.me`，2026-12-23 到期，certbot 自动续期（webroot=`/var/www/blog/dist`） |
 | 运行配置 | `/data/blog/runtime.env`（600 root-only）：JWT_SECRET_KEY（强随机，2026-09-24 轮换）、`LLM_MODEL_CHAIN=grok-4.7`、`REDIS_ENABLED=false`、NewAPI 地址 `http://new-api:3000/v1` |
 | 备份 | `/data/blog/backup-db.sh`，cron 每天 04:30 热备份到 `/data/blog/backups/`，保留 14 天 |
 | AI 日报 | `/data/blog/scripts/fetch_ai_daily.py` + `/etc/cron.d/blog-ai-daily`：每 30 分钟拉 `aihot.virxact.com` 公共 API，直写 `/var/www/blog/dist/data/`（2026-09-24 恢复；此前新旧站都冻结在 2026-07-09，因为旧机制随 openclaw/旧服务器消亡）。日志 `/data/blog/logs/ai-daily-fetch.log` |
+| 提示词同步 | `/data/blog/scripts/sync_coze_prompts.py` + `/etc/cron.d/blog-coze-sync`：每天 05:10 拉扣子（api.coze.cn）机器人人设提示词 → 公开投稿接口入库 `pending`，后台审核后上架。PAT 在 `/data/blog/coze.env`（600 root-only，**最长 30 天过期**，过期后日志记 401，去扣子后台重新生成覆盖该文件即恢复）。状态 `/data/blog/coze-sync-state.json`（title+sha256 去重），日志 `/data/blog/logs/coze-prompt-sync.log` |
 | AI 网络桥 | docker 网络 `blog-net`：`qianxi-blog` 与 `new-api` 都挂在上面。**拆掉这个网络 AI 就断**（new-api 只发布在宿主机 `127.0.0.1:3001`，容器从 `172.17.0.1` 够不到，2026-09-24 实测 Connection refused） |
 
 **回退方式**：把 Cloudflare DNS 的 A 记录改回橙云代理（原 Worker 路由 `blog.qianxi7988.me/* → qianxi-blog-site` 仍在）。数据回退需注意：新站库从导出后一直在被写（浏览量、聊天），回退前先备份新库。
@@ -72,7 +73,7 @@
 3. 管理端新上传的图片会写进容器层（`/app/uploads`），nginx 不服务它——与旧架构行为一致（旧站上传也只活在 HF 容器里）， durable 副本仍要靠 `frontend/public/uploads` 进 Git。
 4. `chat.py` 的 `get_session_history` 没有路由装饰器，`GET /chat/session/{id}/history` 不是现行接口。
 5. APScheduler 在依赖里但无调度器；热点抓取 `trigger_mode` 写死 manual。
-6. **提示词库无更新管线**：24 条止于 2026-06-09（新旧站完全一致，非迁移丢失）；代码里只有用户投稿+审核，没有自动生成机制。要自动生成需新做功能。
+6. **提示词同步已恢复（2026-09-24）**：扣子 → 投稿接口 cron 每日同步（见现行生产表）。当前扣子账号只有 2 个机器人：AI面试知识库（1879 字人设，已投递待审核）、海龟汤主理人（人设为空，逻辑在工作流里、API 不暴露工作流节点提示词，同步不了）。6 月那批 14 条电商提示词的源机器人已不在账号里。
 
 ## 验证（改完必跑）
 
