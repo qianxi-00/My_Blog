@@ -67,7 +67,7 @@
 ## 已知缺口（截至 2026-09-24）
 
 1. **Live2D 是死代码**：`Live2DWaifu` 未被任何组件 import（2026-09-24 核实，主 bundle 无 live2d 引用），站点宠物是静态 `DesktopPet`（codex-pets 海报，已上传生效）。`frontend/public/live2d/` 144MB 不需要上传，可择机从源码里删。
-2. **141 个内联图（热点/文章正文里的 SVG/PNG）在旧站也不存在**（旧站对它们回退到 SPA HTML，一样是坏图）——预存问题，可能要查 COS 桶 `openclaw-1388341148`。
+2. **141 个内联图已排查定案（2026-09-24）**：5 个从图床 My_image 找回并安装（字节级验证 200）；**136 个永久丢失**——仓库 public、本地 dist、旧 Worker 部署包、COS 桶（545 对象）、My_image（1370 文件）、过期旧服务器 8.148.252.27 全部查尽，原件只存在于已消亡的 HF 容器层与旧服务器。是否清除 analysis_md 里的死引用，等千禧拍板。
 3. 管理端新上传的图片会写进容器层（`/app/uploads`），nginx 不服务它——与旧架构行为一致（旧站上传也只活在 HF 容器里）， durable 副本仍要靠 `frontend/public/uploads` 进 Git。
 4. `chat.py` 的 `get_session_history` 没有路由装饰器，`GET /chat/session/{id}/history` 不是现行接口。
 5. APScheduler 在依赖里但无调度器；热点抓取 `trigger_mode` 写死 manual。
@@ -94,9 +94,9 @@ Invoke-WebRequest https://blog.qianxi7988.me/api/v1/chat/prompt-lab -Method Post
 
 ## 待办（未获确认不动）
 
-1. 7/19 版差异回仓已完成（2026-09-24，`f05e117`）。
-2. 旧栈处置：HF Space 与 Worker `qianxi-blog-site` 保留多久后删除；workers.dev 旧站仍公开可访问。
-3. 前端 dist 与旧 Worker assets 的同源性核对。
-4. 141 个内联图从 COS 找回。
-5. 一键备份扩展（目前只有 DB：源码、nginx 配置、runtime.env 的备份策略）。
-6. 择机删除前端死代码 live2d 目录（144MB）。
+1. ~~7/19 版差异回仓~~ 已完成（2026-09-24，`f05e117` + `d4ae1bd`）。
+2. 旧栈处置：HF Space 与 Worker `qianxi-blog-site` 保留多久后删除；workers.dev 旧站仍公开可访问（建议保留一周作回退后删）。
+3. 前端 dist 与旧 Worker assets 的同源性核对（1790B vs 1955B，旧 assets 可能含未回仓前端改动）。
+4. ~~内联图找回~~ 已定案：5 个已恢复，136 个永久丢失；待拍板是否清除 analysis_md 里的死引用。
+5. ~~备份扩展~~ 已完成（2026-09-24）：每日 DB 热备份 + nginx 站点/runtime.env/cron 配置快照 + 源码变化时重打包，DB/配置保 14 天、源码保最近 2 份。
+6. 择机删除前端死代码 live2d 目录（144MB，无引用）。
