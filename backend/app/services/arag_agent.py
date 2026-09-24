@@ -13,12 +13,13 @@
 from __future__ import annotations
 
 import json
-from typing import List
+from typing import Callable, List
 
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessageChunk
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from pydantic import PrivateAttr
 from sqlalchemy import select
 
 from ..core.config import settings
@@ -39,9 +40,14 @@ class ReasoningChatOpenAI(ChatOpenAI):
 
     上游 BaseChatOpenAI 明确不提取第三方字段（"Use a provider-specific subclass"）；
     langchain-core 的 content_blocks 约定 additional_kwargs["reasoning_content"]
-    → 标准 reasoning content block（Ollama/DeepSeek/XAI/Groq 同款），v3 事件流的
-    .reasoning 投影即由此驱动。每块只放本块增量，桥接层逐块转 reasoning-delta。
+    → 标准 reasoning content block（Ollama/DeepSeek/XAI/Groq 同款）。
+
+    实测发现 langgraph 1.2 的 v3 messages 通道不透传该合成块，所以这里额外
+    提供同步回调 _on_reasoning，供 SSE 端点直接把思考增量推进事件队列。
+    回调在模型流式协程内被调用，必须使用非阻塞操作（如 queue.put_nowait）。
     """
+
+    _on_reasoning: Callable[[str], None] | None = PrivateAttr(default=None)
 
     def _convert_chunk_to_generation_chunk(  # type: ignore[override]
         self,
@@ -63,6 +69,12 @@ class ReasoningChatOpenAI(ChatOpenAI):
                 if not isinstance(prev, str):
                     prev = ""
                 generation.message.additional_kwargs["reasoning_content"] = prev + reasoning_delta
+                cb = self._on_reasoning
+                if cb is not None:
+                    try:
+                        cb(reasoning_delta)
+                    except Exception:
+                        pass
         return generation
 
 ARAG_SYSTEM_PROMPT = """你是"小魄罗"，千禧博客（blog.qianxi7988.me）的 AI 看板娘，也是一个无向量 A-RAG Agent，不是普通单轮聊天机器人。
@@ -89,8 +101,8 @@ def _primary_model_id() -> str:
     return ref
 
 
-def _make_model() -> ChatOpenAI:
-    return ReasoningChatOpenAI(
+def _make_model(on_reasoning: Callable[[str], None] | None = None) -> ChatOpenAI:
+    model = ReasoningChatOpenAI(
         model=_primary_model_id(),
         base_url=settings.OPENAI_API_BASE,
         api_key=settings.OPENAI_API_KEY,
@@ -98,6 +110,9 @@ def _make_model() -> ChatOpenAI:
         max_retries=2,
         timeout=180,
     )
+    if on_reasoning is not None:
+        model._on_reasoning = on_reasoning  # pydantic PrivateAttr 直接赋值
+    return model
 
 
 def _article_url(article: Article) -> str:
@@ -211,10 +226,13 @@ def _build_tools() -> list:
     ]
 
 
-def build_arag_agent():
-    """构建 A-RAG agent（CompiledStateGraph）；工具内部自开会话，无外部 db 依赖。"""
+def build_arag_agent(on_reasoning: Callable[[str], None] | None = None):
+    """构建 A-RAG agent（CompiledStateGraph）；工具内部自开会话，无外部 db 依赖。
+
+    on_reasoning：同步回调，收到模型思考增量（在流式协程内调用，用 put_nowait）。
+    """
     return create_agent(
-        model=_make_model(),
+        model=_make_model(on_reasoning),
         tools=_build_tools(),
         system_prompt=ARAG_SYSTEM_PROMPT,
     )

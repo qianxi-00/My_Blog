@@ -302,20 +302,18 @@ async def send_message_agentic(
     history = list(reversed(result.scalars().all()))
     history_msgs = [{"role": msg.role, "content": msg.content} for msg in history]
 
-    agent = build_arag_agent()
-
     async def generate():
         final_text = ""
         try:
-            stream = await agent.astream_events({"messages": history_msgs}, version="v3")
-
             queue: asyncio.Queue = asyncio.Queue()
+            # langgraph v3 messages 通道不透传 reasoning，改由模型子类回调直接入队
+            agent = build_arag_agent(
+                on_reasoning=lambda delta: queue.put_nowait(("reasoning", {"content": delta})),
+            )
+            stream = await agent.astream_events({"messages": history_msgs}, version="v3")
 
             async def pump_messages():
                 async for message in stream.messages:
-                    async for delta in message.reasoning:
-                        if delta:
-                            await queue.put(("reasoning", {"content": delta}))
                     async for delta in message.text:
                         if delta:
                             await queue.put(("text", {"content": delta}))
