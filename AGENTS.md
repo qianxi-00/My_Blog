@@ -1,10 +1,10 @@
 # 博客维护约定
 
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
-本文件写的是 2026-09-24 只读核对 + 当日迁移后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
+本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-26 用户系统上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
 仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`。
-核对时 HEAD 是 `0af3aa9`（2026-07-09，`fix: render hotspot markdown details`）。
+当前 HEAD `47102c5`（2026-09-26 `feat: 开放注册与用户投稿…`）**= 生产运行版**（后端镜像即由该提交的 `backend/` 导出树构建）。
 
 ## 先看这里（2026-09-24 迁移后）
 
@@ -28,11 +28,11 @@
 
 | 组件 | 位置 / 事实 |
 |---|---|
-| 后端容器 | `qianxi-blog`，镜像 `qianxi-blog:arag2`（2026-09-24 晚并发优化版，构建上下文 `/data/blog/arag-src`）。768MB/**2CPU**，uvicorn **`--workers 2`**（GIL 决定单进程最多 1 核，多核必须多 worker；docker run 时用 CMD 覆盖参数，镜像 CMD 仍是单 worker 供 HF 兼容）。`--restart unless-stopped`，`blog-net`，只绑 `127.0.0.1:8000`。**回退镜像**：`qianxi-blog:20260924`（Poro 版） |
+| 后端容器 | `qianxi-blog`，镜像 **`qianxi-blog:users2`**（2026-09-26 用户系统版；构建源 = 仓库提交 `47102c5` 的 `git archive HEAD backend` 导出树，产物与推送代码已逐文件 sha256 对齐）。768MB/**2CPU**，uvicorn **`--workers 2 --proxy-headers --forwarded-allow-ips='*'`**（GIL 决定单进程最多 1 核，多核必须多 worker；docker run 时用 CMD 覆盖参数，镜像 CMD 仍是单 worker 供 HF 兼容；**proxy-headers 不能漏，限流靠它拿真实访客 IP**）。`--restart unless-stopped`，`blog-net`，只绑 `127.0.0.1:8000`。**回退镜像**：`qianxi-blog:users1`（同功能但 `auth.py` 早一版）→ `qianxi-blog:arag2`（并发优化版）→ `qianxi-blog:20260924`（Poro 版） |
 | 并发优化（2026-09-24 实测） | SQLite 已切 **WAL**（`app/core/database.py` 连接事件监听自动 PRAGMA：journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000；写不再锁全库）；aiosqlite 方言默认 NullPool，已显式 `AsyncAdaptedQueuePool`（pool_size=20/max_overflow=30）；bcrypt 登录验证改 `asyncio.to_thread`（原先同步 100-300ms 阻塞事件循环）；A-RAG SSE 有并发护栏 `asyncio.Semaphore(8)`/worker（双 worker 合计 16 路，超限回友好提示）。压测（ab，同机 2 核）：1worker/1CPU=42.7rps/750ms → 2worker/2CPU=70.6rps/453ms（直连）、62.6rps/0 错误（公网 HTTPS 全路径）。单请求 ~15ms；剩余上限是宿主机 2 核本身，再要翻倍只能升配或加只读副本 |
 | A-RAG 聊天 | 公开问答已从 PoroRagAgent 伪流式升级为 **LangChain create_agent**（2026-09-24）。新端点 `POST /api/v1/chat/message/agentic`（SSE，事件 `reasoning`/`tool_start`/`tool_result`/`text`/`done`/`error`）。实现：`backend/app/services/arag_agent.py`（5 个检索工具：文章/证据块/读窗口/读全文/热点；工具**各自开独立 DB 会话**，因为 ToolNode 并行调用工具）；`ReasoningChatOpenAI` 子类负责把网关 `delta.reasoning_content` 透传进事件流（langgraph v3 messages 通道不透传，靠子类回调直推 SSE 队列）。旧端点 `/chat/message/stream`（Poro 伪流式）保留给桌宠主动气泡。前端 `DesktopPet` 聊天面板 + `AgentProcessStrip` 渲染思考/工具芯片。**nginx /api/ 已加 `proxy_buffering off`（SSE 依赖，别删）**。注意 `openai` SDK 已升 `3.19.2`（langchain-openai 1.6.6 要求 >=2.45） |
 | 数据库 | 容器挂载 `/data/blog/data:/data`，库文件 `/data/blog/data/blog.db`。2026-09-24 从 HF 导出（integrity ok：23 文 / 567 热点 / 558 published） |
-| 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
+| 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。当前产物 `assets/index-Bo3ZI1QE.js`（2,969,873 B，169 个 asset 文件，2026-09-26 含用户系统）。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
 | nginx | `/etc/nginx/sites-available/blog`（独立文件，别动 `new-api` 那份）。80 端口有 `^~ /.well-known/acme-challenge/` 例外 + 301，**别删这个例外，删了证书续不了** |
 | 证书 | Let's Encrypt `blog.qianxi7988.me`，2026-12-23 到期，certbot 自动续期（webroot=`/var/www/blog/dist`） |
 | 运行配置 | `/data/blog/runtime.env`（600 root-only）：JWT_SECRET_KEY（强随机，2026-09-24 轮换）、`LLM_MODEL_CHAIN=grok-4.7`、`REDIS_ENABLED=false`、NewAPI 地址 `http://new-api:3000/v1` |
@@ -40,6 +40,21 @@
 | AI 日报 | `/data/blog/scripts/fetch_ai_daily.py` + `/etc/cron.d/blog-ai-daily`：每 30 分钟拉 `aihot.virxact.com` 公共 API，直写 `/var/www/blog/dist/data/`（2026-09-24 恢复；此前新旧站都冻结在 2026-07-09，因为旧机制随 openclaw/旧服务器消亡）。日志 `/data/blog/logs/ai-daily-fetch.log` |
 | 提示词同步 | `/data/blog/scripts/sync_coze_prompts.py` + `/etc/cron.d/blog-coze-sync`：每天 05:10 拉扣子（api.coze.cn）机器人人设提示词 → 公开投稿接口入库 `pending`，后台审核后上架。PAT 在 `/data/blog/coze.env`（600 root-only，**最长 30 天过期**，过期后日志记 401，去扣子后台重新生成覆盖该文件即恢复）。状态 `/data/blog/coze-sync-state.json`（title+sha256 去重），日志 `/data/blog/logs/coze-prompt-sync.log` |
 | AI 网络桥 | docker 网络 `blog-net`：`qianxi-blog` 与 `new-api` 都挂在上面。**拆掉这个网络 AI 就断**（new-api 只发布在宿主机 `127.0.0.1:3001`，容器从 `172.17.0.1` 够不到，2026-09-24 实测 Connection refused） |
+
+## 用户系统（2026-09-26 上线，镜像 `qianxi-blog:users2`）
+
+- **`users` 是全站唯一人员表**：管理员已并入（保留原 `admins.id`：`qianxi`=1、`admin`=3，均 `super_admin`/`active`）。`admins` 表**停用但不删不重命名**（SQLite 外键重排风险）。角色 `user/admin/super_admin`，状态 `active/banned`，密码哈希两者同构（bcrypt），旧管理端口令照用。
+- **权限只信数据库行**：token 里只有 `sub=user_id`，角色每次请求从 `users` 读；封禁用户下一次请求即 401/403。
+- **投稿审核流**：`draft → pending_review →(管理员) published/rejected`。用户端点 `POST/PUT /api/v1/users/me/articles`、`POST …/{id}/submit`、`DELETE …/{id}`；管理端点 `GET /api/v1/articles/review/pending`、`PUT /api/v1/articles/{id}/review`（驳回必须带非空 `review_note`，重复审核返回 400）。非 `pending_review` 的文章不出现在公开列表。
+- **评论双轨**：登录用户评论写 `user_id`（展示账号昵称/头像），访客匿名评论不变；删评论限本人或管理员，越权 403。`CommentResponse` 增加 `user_id/username/user_display_name`。
+- **注册**：默认开放，站点设置 `user_registration_enabled`（`true/false`，`PUT /api/v1/settings/…`）可随时关；用户名 `^[a-zA-Z0-9_-]{3,30}$`、密码 ≥8 位、邮箱选填且不校验。
+- **作者邮箱脱敏**：`AuthorResponse` 对 `role=user` 的作者把 email 置空，管理员联系方式保留。
+- **限流**（`backend/app/core/ratelimit.py`，进程内计数、**每 worker 独立**，故双 worker 实际额度≈2×）：评论 5 次/分/IP、投稿提交 3 次/天/用户、注册 5 次/小时/IP。
+- ⚠️ **限流依赖真实访客 IP**：uvicorn 必须带 `--proxy-headers --forwarded-allow-ips='*'`（nginx 已传 `X-Real-IP`/`X-Forwarded-For`）。漏了参数时容器只看到 docker 网关 IP，**全站共用一个限流桶**（2026-09-26 实测踩过）。
+- 迁移脚本 `/data/blog/migrate_users.py`（一次性：admins→users 保 id、重建 articles 表加 `pending_review/rejected` 与 `review_note`、comments 补 `user_id` 并回填；库中已有 `users` 表则拒绝执行）。**迁移必须在应用停止时做**。迁移前库备份：`/data/blog/backups/pre-user-system-20260926-204453/`。
+- **回退**：`bash /data/blog/rollback_users.sh /data/blog/backups/pre-user-system-20260926-204453`（停容器 → 还原迁移前库 → 起 `qianxi-blog:arag2`）。
+- 管理后台新增两个 tab（`frontend/pages/AdminDashboard.tsx` + `frontend/components/UserAdminPanels.tsx`）：「用户文章审核」通过/驳回、「用户管理」搜索/封禁/解封。
+- 上线当天验收证据：E2E 脚本 `/tmp/e2e_users.py`（本机留档 `C:\Users\QianXi\.dsh-ops\blog\e2e_users.py`）在 `users2` 上 **52/0**；生产 UI 实走 注册→投稿→（后台）审核→公网可见；同口径保活压测 **71.5rps / p50 390ms / 0 错**（并发优化基线 70.55rps）。
 
 **回退方式**：把 Cloudflare DNS 的 A 记录改回橙云代理（原 Worker 路由 `blog.qianxi7988.me/* → qianxi-blog-site` 仍在）。数据回退需注意：新站库从导出后一直在被写（浏览量、聊天），回退前先备份新库。
 
@@ -51,12 +66,13 @@
 - admin 独享的 agent SSE 与文章摘要接口没有管理员口令未实测；agent 与摘要共用 `llm_router`（openai SDK 3.x 接口兼容，prompt-lab 已验证同 SDK）。
 - 不要改 NewAPI 渠道/超时；不要动 `43.128.75.66` 与 `43.160.202.101` 上的 CPA、Grok 注册机、openclaw。
 
-## 源码三份，不要混
+## 源码与仓库（2026-09-26 对齐后）
 
-- GitHub `qianxi-00/My_Blog`（master `0af3aa9`，2026-07-09）= 官方唯一维护源，**落后于线上**。
-- HF 实际运行版（2026-07-19，`efd1ddef`）比仓库多：`app/services/llm_router.py`、`.dockerignore`，改了 `config.py`、`openai_service.py`、`agent/service.py`、`hot_topic_service.py`、`Dockerfile`；种子分片 12 片→13 片（全部哈希不同，多 `db_part_12.dat`）。**这些还没回仓库**（待办）。
-- 新服务器跑的就是这份 7/19 版（`/data/blog/src` = 本地 `C:\Users\QianXi\.dsh-ops\blog\img-app\app` 同源）。
-- 前端注意：新站 dist（1790B index）与旧 Worker assets（1955B index）**字节不同，未核对是否同源**——旧 assets 可能含未回仓的前端改动。
+- GitHub `qianxi-00/My_Blog` master `47102c5` = 官方唯一维护源，**已与生产一致**（后端镜像是从该提交 `git archive HEAD backend` 导出树构建的，逐文件 sha256 核过）。
+- 历史遗留的 7/19 HF 差异（`llm_router.py`、`.dockerignore`、`config.py` 等）**已回仓**（`f05e117` 起）。HF 版只剩旧栈回退价值，不要再当"更新的版本"。
+- 服务器仓库 `/data/blog/repo-tmp`（`origin` 走 deploy key `/root/.ssh/github_my_blog_deploy_repo`）是推送出口。
+- ⚠️ **推送方式**：本机没有该仓库的 GitHub 授权（dsh-git-forge 里 `F:\ProGram\DSH_Temporary` 无账号），所以走**服务器代推**：把改动文件按**字节**复制进 `/data/blog/repo-tmp`（父提交跟远端 master）→ `git add -A && git -c core.autocrlf=false commit` → `git push`。**不要用 patch 硬打**：仓库 blob 是 CRLF，本机克隆在 `AGENTS.md`、`core/database.py`、`core/security.py`、`requirements.txt`、`frontend/api/chat.ts` 这几个文件上与远端仅行尾不同，硬打会产生大段假 diff（2026-09-26 实测）。
+- 推送后本地对齐：`git -c core.autocrlf=false fetch root@101.32.163.17:/data/blog/repo-tmp master && git -c core.autocrlf=false reset --hard FETCH_HEAD`。
 
 ## 数据事实
 
@@ -68,7 +84,7 @@
 | 仓库 `backend/data/db_part_0..12.dat` | 13 片，种子完整集 |
 | 文章 Markdown `/data/My_Blog/Articles` | 11 个 .md，与线上 23 篇文章**不是同一批**，别混 |
 
-## 已知缺口（截至 2026-09-24）
+## 已知缺口（截至 2026-09-26）
 
 1. **Live2D 是死代码**：`Live2DWaifu` 未被任何组件 import（2026-09-24 核实，主 bundle 无 live2d 引用），站点宠物是静态 `DesktopPet`（codex-pets 海报，已上传生效）。`frontend/public/live2d/` 144MB 不需要上传，可择机从源码里删。
 2. **141 个内联图已排查定案（2026-09-24）**：5 个从图床 My_image 找回并安装（字节级验证 200）；**136 个永久丢失**——仓库 public、本地 dist、旧 Worker 部署包、COS 桶（545 对象）、My_image（1370 文件）、过期旧服务器 8.148.252.27 全部查尽，原件只存在于已消亡的 HF 容器层与旧服务器。是否清除 analysis_md 里的死引用，等千禧拍板。
@@ -76,6 +92,7 @@
 4. `chat.py` 的 `get_session_history` 没有路由装饰器，`GET /chat/session/{id}/history` 不是现行接口。
 5. APScheduler 在依赖里但无调度器；热点抓取 `trigger_mode` 写死 manual。
 6. **提示词同步已恢复（2026-09-24）**：扣子 → 投稿接口 cron 每日同步（见现行生产表）。当前扣子账号只有 2 个机器人：AI面试知识库（1879 字人设，已投递待审核）、海龟汤主理人（人设为空，逻辑在工作流里、API 不暴露工作流节点提示词，同步不了）。6 月那批 14 条电商提示词的源机器人已不在账号里。
+7. **旧数据遗留（非本次引入）**：`chat_messages` 有 5 行指向已删除的 `chat_sessions`（198 条消息中），`PRAGMA foreign_key_check` 会报出来（前几行就是它，不是用户系统的锅——那部分 0 悬空）。外键未强制，线上无影响，清理与否等拍板。
 
 ## 验证（改完必跑）
 
