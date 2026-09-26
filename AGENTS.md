@@ -72,7 +72,12 @@
 - 历史遗留的 7/19 HF 差异（`llm_router.py`、`.dockerignore`、`config.py` 等）**已回仓**（`f05e117` 起）。HF 版只剩旧栈回退价值，不要再当"更新的版本"。
 - 服务器仓库 `/data/blog/repo-tmp`（`origin` 走 deploy key `/root/.ssh/github_my_blog_deploy_repo`）是推送出口。
 - ⚠️ **推送方式**：本机没有该仓库的 GitHub 授权（dsh-git-forge 里 `F:\ProGram\DSH_Temporary` 无账号），所以走**服务器代推**：把改动文件按**字节**复制进 `/data/blog/repo-tmp`（父提交跟远端 master）→ `git add -A && git -c core.autocrlf=false commit` → `git push`。**不要用 patch 硬打**：仓库 blob 是 CRLF，本机克隆在 `AGENTS.md`、`core/database.py`、`core/security.py`、`requirements.txt`、`frontend/api/chat.ts` 这几个文件上与远端仅行尾不同，硬打会产生大段假 diff（2026-09-26 实测）。
-- 推送后本地对齐：`git -c core.autocrlf=false fetch root@101.32.163.17:/data/blog/repo-tmp master && git -c core.autocrlf=false reset --hard FETCH_HEAD`。
+- 推送后本地对齐（**注意两侧都是浅克隆**：本机 `.git/shallow` 与服务器仓库都只有最近约 10 个提交，完整历史只在 GitHub 上，查旧历史用网页/`gh`，别指望本地 `git log`）：
+  ```bash
+  git -c core.autocrlf=false fetch --depth=10 relay master   # relay = root@101.32.163.17:/data/blog/repo-tmp
+  git -c core.autocrlf=false reset --hard relay/master
+  ```
+  直接用 `git fetch <url> master` 取 FETCH_HEAD 在浅克隆上会失败（`shallow roots are not allowed to be updated`，2026-09-26 实测），必须先 `git remote add relay …` 再按上面的写法。
 
 ## 数据事实
 
