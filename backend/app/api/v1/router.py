@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from .auth import router as auth_router
 from .admins import router as admins_router
+from .users import router as users_router
 from .articles import router as articles_router
 from .comments import router as comments_router
 from .prompts import router as prompts_router
@@ -22,6 +23,7 @@ api_router = APIRouter()
 
 # 注册所有子路由
 api_router.include_router(auth_router, prefix="/auth", tags=["认证"])
+api_router.include_router(users_router, prefix="/users", tags=["用户"])
 api_router.include_router(admins_router, prefix="/admins", tags=["管理员"])
 api_router.include_router(articles_router, prefix="/articles", tags=["文章"])
 api_router.include_router(comments_router, prefix="/comments", tags=["评论"])

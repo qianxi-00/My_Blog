@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..core.database import Base
 
 if TYPE_CHECKING:
-    from .admin import Admin
+    from .user import User
     from .comment import Comment
     from .image import ArticleImage
 
@@ -33,16 +33,17 @@ class Article(Base):
     
     author_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("admins.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True
     )
-    
+
     status: Mapped[str] = mapped_column(
-        Enum("draft", "published", "scheduled", name="article_status_enum"),
+        Enum("draft", "pending_review", "published", "rejected", "scheduled", name="article_status_enum"),
         nullable=False,
         default="draft"
     )
+    review_note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # 审核驳回理由
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -64,7 +65,25 @@ class Article(Base):
     )
     
     # 关联关系
-    author: Mapped["Admin"] = relationship("Admin", back_populates="articles")
+    # 2026-09-24 用户系统改造：作者从 admins 表改指 users 表，保留 `author` 名字，
+    # 全项目 article.author.xxx 的读路径零改动。
+    author: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[author_id],
+        back_populates="articles",
+        lazy="selectin",
+        overlaps="author_user",
+    )
+    # user.py（已定案）的 User.articles 声明 back_populates="author_user"，
+    # SQLAlchemy 要求本表存在同名关系才能完成 mapper 配置；
+    # author_user 仅作为该配对的只读镜像，业务代码一律使用 author。
+    author_user: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[author_id],
+        back_populates="articles",
+        viewonly=True,
+        overlaps="author",
+    )
     tags: Mapped[List["Tag"]] = relationship(
         "Tag",
         secondary="article_tags",

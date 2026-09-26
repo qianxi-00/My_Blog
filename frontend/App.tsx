@@ -31,6 +31,11 @@ import HotspotManager from './pages/HotspotManager';
 import HotspotEditor from './pages/HotspotEditor';
 import HotspotUploadPage from './pages/HotspotUploadPage';
 import AiDaily from './pages/AiDaily';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import UserCenter from './pages/UserCenter';
+import AuthorPage from './pages/AuthorPage';
+import WritePage from './pages/WritePage';
 
 const App: React.FC = () => {
 // ... existing imports
@@ -55,10 +60,18 @@ const App: React.FC = () => {
                 <Route path="hotspots" element={<HotspotsList />} />
                 <Route path="ai-daily" element={<AiDaily />} />
                 <Route path="hotspots/:id" element={<HotspotDetail />} />
+                {/* 用户系统路由 */}
+                <Route path="user" element={<UserCenter />} />
+                <Route path="user/:username" element={<AuthorPage />} />
+                <Route path="write" element={<WritePage />} />
               </Route>
 
               {/* Unsubscribe (独立页面，不使用 PublicLayout) */}
               <Route path="/unsubscribe/:token" element={<Unsubscribe />} />
+
+              {/* Login / Register（独立全屏页面） */}
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
 
               {/* Admin Login */}
               <Route path="/admin/login" element={<AdminLogin />} />

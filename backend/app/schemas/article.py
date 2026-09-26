@@ -5,7 +5,7 @@
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class TagBase(BaseModel):
@@ -61,6 +61,22 @@ class ArticleUpdate(BaseModel):
     like_count: Optional[int] = Field(None, ge=0, description="点赞量")
 
 
+class UserArticleUpdate(BaseModel):
+    """用户更新自己的文章请求模型（仅 draft/rejected 状态可用）"""
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    summary: Optional[str] = None
+    content_md: Optional[str] = None
+    cover_image: Optional[str] = Field(None, max_length=500)
+    category: Optional[str] = Field(None, max_length=50)
+    tags: Optional[List[str]] = None
+
+
+class ArticleReviewAction(BaseModel):
+    """审核文章请求模型"""
+    action: str = Field(..., description="审核动作: approve 或 reject")
+    review_note: Optional[str] = Field(None, max_length=500, description="驳回理由，reject 时必填")
+
+
 class ArticlePublish(BaseModel):
     """发布文章请求模型"""
     scheduled_at: Optional[datetime] = Field(None, description="定时发布时间，为空则立即发布")
@@ -78,8 +94,17 @@ class AuthorResponse(BaseModel):
     github: Optional[str] = None
     bilibili: Optional[str] = None
     email: Optional[str] = None
-    
+    role: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _hide_plain_user_email(self):
+        """普通用户（role == "user"）的邮箱不在公开文章接口暴露；
+        管理员/超管保留（原行为：文章侧栏展示站长联系方式）"""
+        if self.role == "user":
+            self.email = None
+        return self
 
 
 class ArticleResponse(BaseModel):
@@ -96,6 +121,7 @@ class ArticleResponse(BaseModel):
     author: AuthorResponse
     tags: List[TagResponse] = []
     status: str
+    review_note: Optional[str] = None
     is_pinned: bool
     scheduled_at: Optional[datetime] = None
     published_at: Optional[datetime] = None
@@ -120,6 +146,7 @@ class ArticleListResponse(BaseModel):
     author: AuthorResponse
     tags: List[TagResponse] = []
     status: str
+    review_note: Optional[str] = None
     is_pinned: bool
     published_at: Optional[datetime] = None
     read_time_minutes: Optional[int] = None

@@ -9,17 +9,21 @@ import hashlib
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...core.database import get_db
 from ...core.deps import get_current_admin
+from ...core.ratelimit import rate_limit
 from ...core.redis import cache_delete_pattern
-from ...models.admin import Admin
+from ...core.security import decode_access_token
+from ...models.admin import Admin  # noqa: F401  # Admin 模型休眠保留（历史数据引用），认证已切 users
 from ...models.article import Article
 from ...models.comment import Comment, CommentLike, CommentReport
 from ...models.hot_topic import HotTopic
+from ...models.user import User
 from ...schemas.comment import (
     CommentCreate,
     CommentTargetCreate,
@@ -33,6 +37,27 @@ from ...schemas.comment import (
 )
 
 router = APIRouter()
+
+# 游客身份的评论也走这个 Bearer 解析（无 token 即访客）
+_comment_security = HTTPBearer(auto_error=False)
+
+
+async def get_comment_author(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_comment_security),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """评论场景的可选登录用户：无 token / token 无效一律按访客处理，不报错。"""
+    if credentials is None:
+        return None
+    payload = decode_access_token(credentials.credentials)
+    user_id = (payload or {}).get("sub")
+    if user_id is None:
+        return None
+    result = await db.execute(select(User).where(User.id == int(user_id)))
+    user = result.scalar_one_or_none()
+    if user is None or user.status != "active":
+        return None
+    return user
 
 SUPPORTED_COMMENT_TARGETS = {"article", "hotspot"}
 
@@ -69,6 +94,7 @@ def build_comment_tree(comments: List[Comment]) -> List[CommentResponse]:
 
     # 第一遍：创建所有评论的响应对象
     for comment in comments:
+        user = comment.user
         response = CommentResponse(
             id=comment.id,
             article_id=comment.article_id,
@@ -76,10 +102,13 @@ def build_comment_tree(comments: List[Comment]) -> List[CommentResponse]:
             target_id=comment.target_id,
             parent_id=comment.parent_id,
             nickname=comment.nickname,
-            avatar_url=comment.avatar_url,
+            avatar_url=(user.avatar_url if user and user.avatar_url else comment.avatar_url),
             content=comment.content,
             is_admin_reply=comment.is_admin_reply,
             admin_display_name=comment.admin.display_name if comment.admin else None,
+            user_id=comment.user_id,
+            username=user.username if user else None,
+            user_display_name=user.display_name if user else None,
             status=comment.status,
             like_count=comment.like_count,
             is_reported=comment.is_reported,
@@ -207,7 +236,7 @@ async def _get_target_comments(
 
     result = await db.execute(
         select(Comment)
-        .options(selectinload(Comment.admin))
+        .options(selectinload(Comment.admin), selectinload(Comment.user))
         .where(Comment.target_type == normalized_type)
         .where(Comment.target_id == resolved_target.id)
         .where(Comment.status == "approved")
@@ -225,6 +254,7 @@ async def _create_target_comment(
     comment_data: CommentCreate,
     request: Request,
     db: AsyncSession,
+    author: User | None = None,
 ) -> CommentResponse:
     normalized_type, resolved_target = await _resolve_comment_target(db, target_type, target_id, require_published=True)
 
@@ -241,9 +271,19 @@ async def _create_target_comment(
                 detail="父评论不存在",
             )
 
-    nickname = comment_data.nickname.strip() if comment_data.nickname else None
-    if not nickname:
-        nickname = generate_default_nickname()
+    if author is not None:
+        # 登录用户：身份以资料为准，忽略请求里的昵称/邮箱
+        nickname = author.display_name or author.username
+        email = author.email
+        avatar_url = author.avatar_url or generate_avatar_url(author.username)
+        user_id = author.id
+    else:
+        nickname = comment_data.nickname.strip() if comment_data.nickname else None
+        if not nickname:
+            nickname = generate_default_nickname()
+        email = comment_data.email
+        avatar_url = generate_avatar_url(comment_data.email, nickname)
+        user_id = None
 
     article_id = resolved_target.id if normalized_type == "article" else None
 
@@ -253,9 +293,10 @@ async def _create_target_comment(
         target_id=resolved_target.id,
         parent_id=comment_data.parent_id,
         nickname=nickname,
-        email=comment_data.email,
-        avatar_url=generate_avatar_url(comment_data.email, nickname),
+        email=email,
+        avatar_url=avatar_url,
         content=comment_data.content,
+        user_id=user_id,
         status="approved",
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
@@ -285,6 +326,9 @@ async def _create_target_comment(
         avatar_url=comment.avatar_url,
         content=comment.content,
         is_admin_reply=False,
+        user_id=author.id if author else None,
+        username=author.username if author else None,
+        user_display_name=(author.display_name or author.username) if author else None,
         status=comment.status,
         like_count=0,
         is_reported=False,
@@ -308,9 +352,11 @@ async def create_comment_by_target(
     comment_data: CommentTargetCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    author: User | None = Depends(get_comment_author),
+    _rl: None = Depends(rate_limit("comment", 5, 60, "ip")),
 ):
-    """通用评论提交接口（支持 article / hotspot）"""
-    return await _create_target_comment(comment_data.target_type, comment_data.target_id, comment_data, request, db)
+    """通用评论提交接口（支持 article / hotspot；登录用户自动绑定身份）"""
+    return await _create_target_comment(comment_data.target_type, comment_data.target_id, comment_data, request, db, author)
 
 
 @router.get("/target/{target_type}/{target_id}", response_model=CommentListResponse)
@@ -330,9 +376,11 @@ async def create_target_comment(
     comment_data: CommentCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    author: User | None = Depends(get_comment_author),
+    _rl: None = Depends(rate_limit("comment", 5, 60, "ip")),
 ):
-    """按目标类型提交评论（article / hotspot）"""
-    return await _create_target_comment(target_type, target_id, comment_data, request, db)
+    """按目标类型提交评论（article / hotspot；登录用户自动绑定身份）"""
+    return await _create_target_comment(target_type, target_id, comment_data, request, db, author)
 
 
 @router.get("/article/{article_id}", response_model=CommentListResponse)
@@ -350,9 +398,11 @@ async def create_comment(
     comment_data: CommentCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    author: User | None = Depends(get_comment_author),
+    _rl: None = Depends(rate_limit("comment", 5, 60, "ip")),
 ):
-    """提交文章评论（无需审核，直接发布）"""
-    return await _create_target_comment("article", article_id, comment_data, request, db)
+    """提交文章评论（无需审核，直接发布；登录用户自动绑定身份）"""
+    return await _create_target_comment("article", article_id, comment_data, request, db, author)
 
 
 @router.get("/hotspot/{target_id}", response_model=CommentListResponse)
@@ -370,9 +420,11 @@ async def create_hotspot_comment(
     comment_data: CommentCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    author: User | None = Depends(get_comment_author),
+    _rl: None = Depends(rate_limit("comment", 5, 60, "ip")),
 ):
-    """提交热点评论（无需审核，直接发布）"""
-    return await _create_target_comment("hotspot", target_id, comment_data, request, db)
+    """提交热点评论（无需审核，直接发布；登录用户自动绑定身份）"""
+    return await _create_target_comment("hotspot", target_id, comment_data, request, db, author)
 
 
 @router.post("/{comment_id}/like")
@@ -475,7 +527,7 @@ async def report_comment(
 @router.get("/pending", response_model=List[CommentPendingResponse])
 async def get_pending_comments(
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """获取待审核评论（管理员）"""
     result = await db.execute(
@@ -493,7 +545,7 @@ async def get_pending_comments(
 @router.get("/reported", response_model=List[ReportedCommentResponse])
 async def get_reported_comments(
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """获取被举报的评论（管理员）"""
     result = await db.execute(
@@ -527,7 +579,7 @@ async def get_reported_comments(
 @router.get("/approved", response_model=List[CommentPendingResponse])
 async def get_approved_comments(
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """获取已通过评论（管理员）"""
     result = await db.execute(
@@ -546,7 +598,7 @@ async def get_approved_comments(
 async def approve_comment(
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """审核通过评论（管理员）"""
     result = await db.execute(select(Comment).where(Comment.id == comment_id))
@@ -566,7 +618,7 @@ async def approve_comment(
 async def reject_comment(
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """拒绝评论（管理员）"""
     result = await db.execute(select(Comment).where(Comment.id == comment_id))
@@ -586,7 +638,7 @@ async def reject_comment(
 async def dismiss_report(
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """驳回举报（举报无效，保留评论）"""
     result = await db.execute(select(Comment).where(Comment.id == comment_id))
@@ -613,7 +665,7 @@ async def dismiss_report(
 async def confirm_report(
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """确认举报有效（删除评论及其回复）"""
     result = await db.execute(
@@ -644,14 +696,20 @@ async def confirm_report(
 async def delete_comment(
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    author: User | None = Depends(get_comment_author),
 ):
-    """删除评论（管理员）"""
+    """删除评论（管理员可删任意；普通用户只能删自己发的）"""
+    if author is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
+
     result = await db.execute(select(Comment).where(Comment.id == comment_id))
     comment = result.scalar_one_or_none()
 
     if not comment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评论不存在")
+
+    if not author.is_admin_role and comment.user_id != author.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只能删除自己的评论")
 
     article_id = comment.article_id
     target_type = comment.target_type
@@ -672,7 +730,7 @@ async def admin_reply_comment(
     comment_id: int,
     reply_data: AdminReplyCreate,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ):
     """管理员回复评论"""
     result = await db.execute(select(Comment).where(Comment.id == comment_id))
@@ -691,6 +749,7 @@ async def admin_reply_comment(
         content=reply_data.content,
         is_admin_reply=True,
         admin_id=admin.id,
+        user_id=admin.id,
         status="approved",
     )
 

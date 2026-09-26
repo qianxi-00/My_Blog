@@ -9,35 +9,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.database import async_session_maker
 from ..core.security import get_password_hash
-from ..models.admin import Admin
 from ..models.settings import SiteSetting, DEFAULT_SETTINGS
+from ..models.user import User
 
 
 async def init_super_admin():
     """
-    初始化超级管理员
+    初始化超级管理员（users 表，2026-09-24 用户系统改造后管理员与用户同表）
     如果不存在则创建
     """
     async with async_session_maker() as session:
         # 检查是否已存在超级管理员
         result = await session.execute(
-            select(Admin).where(Admin.username == settings.SUPER_ADMIN_USERNAME)
+            select(User).where(User.username == settings.SUPER_ADMIN_USERNAME)
         )
         existing_admin = result.scalar_one_or_none()
-        
+
         if existing_admin:
             print(f"✅ 超级管理员 '{settings.SUPER_ADMIN_USERNAME}' 已存在")
             return
-        
+
         # 创建超级管理员
-        admin = Admin(
+        admin = User(
             username=settings.SUPER_ADMIN_USERNAME,
             password_hash=await get_password_hash(settings.SUPER_ADMIN_PASSWORD),
             display_name="超级管理员",
             role="super_admin",
-            is_active=True
+            status="active",
         )
-        
+
         session.add(admin)
         await session.commit()
         print(f"✅ 已创建超级管理员 '{settings.SUPER_ADMIN_USERNAME}'")

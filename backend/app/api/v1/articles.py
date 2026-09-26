@@ -16,7 +16,7 @@ from ...core.database import get_db
 from ...core.deps import get_current_admin, get_current_admin_optional
 from ...core.config import settings
 from ...core.redis import cache_get, cache_set, cache_delete, cache_delete_pattern, CacheKeys
-from ...models.admin import Admin
+from ...models.user import User
 from ...models.article import Article, Tag, ArticleTag, ArticleLike
 from ...models.subscriber import Subscriber
 from ...schemas.article import (
@@ -24,7 +24,7 @@ from ...schemas.article import (
     ArticleResponse, ArticleListResponse, TagResponse,
     ArchiveGroup, ArchiveItem, CategoryCount,
     SummaryGenerateRequest, SummaryGenerateResponse,
-    ArticleSeriesItem
+    ArticleSeriesItem, ArticleReviewAction,
 )
 from ...schemas.common import PaginatedResponse
 from ...services.markdown_service import parse_markdown, extract_frontmatter, estimate_read_time
@@ -65,7 +65,7 @@ async def get_articles(
     sort_by: Optional[str] = Query(None, description="排序方式: time(默认按时间), views(按浏览量), likes(按点赞量)"),
     sort_order: Optional[str] = Query(None, description="排序方向: desc(降序,默认), asc(升序)"),
     db: AsyncSession = Depends(get_db),
-    admin: Optional[Admin] = Depends(get_current_admin_optional)
+    admin: Optional[User] = Depends(get_current_admin_optional)
 ):
     """
     获取文章列表（分页）
@@ -282,11 +282,137 @@ async def get_series_articles(
     return resp
 
 
+@router.get("/review/pending", response_model=PaginatedResponse[ArticleListResponse])
+async def get_pending_review_articles(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """
+    待审核用户投稿列表（2026-09-24 用户系统改造）
+    注意：本路由必须注册在 /{article_id} 之前，否则 "review" 会被当成文章 ID
+    """
+    query = (
+        select(Article)
+        .options(selectinload(Article.author), selectinload(Article.tags))
+        .where(Article.status == "pending_review")
+    )
+
+    total = (await db.execute(
+        select(func.count()).select_from(query.order_by(None).subquery())
+    )).scalar() or 0
+
+    query = query.order_by(Article.updated_at.asc(), Article.id.asc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    articles = (await db.execute(query)).scalars().all()
+
+    return PaginatedResponse(
+        data=[ArticleListResponse.model_validate(a) for a in articles],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=(total + page_size - 1) // page_size
+    )
+
+
+@router.put("/{article_id}/review", response_model=ArticleResponse)
+async def review_article(
+    article_id: int,
+    review_data: ArticleReviewAction,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """
+    审核用户投稿（通过 / 驳回）
+
+    - approve：渲染 markdown、补 published_at、置 published，并按既有发布流程通知订阅者
+    - reject：必须带 review_note，置 rejected（用户可在用户中心看到驳回理由并重新编辑）
+    """
+    action = (review_data.action or "").strip().lower()
+    if action not in ("approve", "reject"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="action 只支持 approve / reject"
+        )
+    if action == "reject" and not (review_data.review_note or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="驳回必须填写理由"
+        )
+
+    result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.author), selectinload(Article.tags))
+        .where(Article.id == article_id)
+    )
+    article = result.scalar_one_or_none()
+
+    if not article:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文章不存在"
+        )
+    if article.status != "pending_review":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只有待审核的文章可以审核"
+        )
+
+    if action == "approve":
+        content_html, toc_html = parse_markdown(article.content_md)
+        article.content_html = content_html
+        article.toc_html = toc_html
+        article.read_time_minutes = estimate_read_time(article.content_md)
+        article.status = "published"
+        article.published_at = datetime.now()
+        article.review_note = None
+
+        # 与 /publish 保持一致：新文章通知订阅者
+        if email_service.is_configured():
+            subscribers_result = await db.execute(
+                select(Subscriber).where(
+                    Subscriber.is_active == True,
+                    Subscriber.is_frozen == False
+                )
+            )
+            subscribers = subscribers_result.scalars().all()
+            if subscribers:
+                article_url = f"{settings.SITE_URL}/#/articles/{article.id}"
+                article_summary = article.summary or (
+                    article.content_md[:200] + "..." if article.content_md else ""
+                )
+                for subscriber in subscribers:
+                    background_tasks.add_task(
+                        email_service.send_new_article_notification,
+                        subscriber.email,
+                        subscriber.unsubscribe_token,
+                        article.title,
+                        article_summary,
+                        article_url
+                    )
+    else:
+        article.status = "rejected"
+        article.review_note = review_data.review_note.strip()
+
+    await db.commit()
+    await _invalidate_article_caches(article.id)
+
+    result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.author), selectinload(Article.tags))
+        .where(Article.id == article.id)
+    )
+    article = result.scalar_one()
+    return ArticleResponse.model_validate(article)
+
+
 @router.get("/{article_id}", response_model=ArticleResponse)
 async def get_article(
     article_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: Optional[Admin] = Depends(get_current_admin_optional)
+    admin: Optional[User] = Depends(get_current_admin_optional)
 ):
     """
     获取文章详情
@@ -393,7 +519,7 @@ async def get_article_like_status(
 async def create_article(
     article_data: ArticleCreate,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin)
+    admin: User = Depends(get_current_admin)
 ):
     """
     创建文章
@@ -471,7 +597,7 @@ async def update_article(
     article_id: int,
     article_data: ArticleUpdate,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin)
+    admin: User = Depends(get_current_admin)
 ):
     """
     更新文章（作者或超级管理员）
@@ -546,7 +672,7 @@ async def update_article(
 async def delete_article(
     article_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin)
+    admin: User = Depends(get_current_admin)
 ):
     """
     删除文章（作者或超级管理员）
@@ -580,7 +706,7 @@ async def publish_article(
     publish_data: ArticlePublish,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin)
+    admin: User = Depends(get_current_admin)
 ):
     """
     发布文章（作者或超级管理员）
@@ -656,7 +782,7 @@ async def publish_article(
 async def upload_markdown(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    admin: Admin = Depends(get_current_admin)
+    admin: User = Depends(get_current_admin)
 ):
     """
     上传 Markdown 文件创建文章
@@ -775,7 +901,7 @@ async def upload_markdown(
 @router.post("/generate-summary", response_model=SummaryGenerateResponse)
 async def generate_summary(
     request: SummaryGenerateRequest,
-    admin: Admin = Depends(get_current_admin)
+    admin: User = Depends(get_current_admin)
 ):
     """
     使用 LLM 生成文章摘要

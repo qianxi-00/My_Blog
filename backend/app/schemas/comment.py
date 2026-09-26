@@ -61,6 +61,10 @@ class CommentResponse(BaseModel):
     content: str
     is_admin_reply: bool = False
     admin_display_name: Optional[str] = None  # 管理员回复时显示
+    # 登录用户评论的身份字段（访客评论为 None，前端优先渲染这些）
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    user_display_name: Optional[str] = None
     status: str
     like_count: int = 0
     is_reported: bool = False

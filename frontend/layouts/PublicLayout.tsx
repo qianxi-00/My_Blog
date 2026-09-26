@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { Button } from '../components/Shared';
+import Avatar from '../components/Avatar';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import DesktopPet from '../components/DesktopPet';
 
 import { getPublicSettings, PublicSettings } from '../api/stats';
@@ -11,8 +13,10 @@ const PublicLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
+  const { user, isAuthenticated, isLoading, isAdmin, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [settings, setSettings] = useState<PublicSettings | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -42,6 +46,12 @@ const PublicLayout: React.FC = () => {
     { label: '提示词', path: '/prompts' },
     { label: '论坛', path: '/forum' },
   ];
+
+  const handleLogout = async () => {
+    setIsUserMenuOpen(false);
+    setIsMobileMenuOpen(false);
+    await logout();
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 relative transition-colors duration-300">
@@ -122,11 +132,78 @@ const PublicLayout: React.FC = () => {
                 )}
               </button>
 
-              <Link to="/admin">
-                <Button size="sm" variant="ghost" className="hidden sm:flex text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
-                  <Icons.User className="w-4 h-4" />
-                </Button>
-              </Link>
+              {/* User Menu / Login Entry */}
+              {isLoading ? (
+                <Link to="/login">
+                  <Button size="sm" variant="ghost" className="hidden sm:flex text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <Icons.User className="w-4 h-4" />
+                  </Button>
+                </Link>
+              ) : isAuthenticated && user ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                    className="flex items-center gap-2 p-1 pr-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                    title="账号菜单"
+                  >
+                    <Avatar name={user.display_name || user.username} avatarUrl={user.avatar_url} className="w-7 h-7 text-sm" />
+                    <Icons.ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isUserMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setIsUserMenuOpen(false)}></div>
+                      <div className="absolute right-0 top-full mt-2 z-20 w-44 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg py-1.5">
+                        <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 mb-1.5">
+                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{user.display_name || user.username}</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500 truncate">@{user.username}</p>
+                        </div>
+                        <Link
+                          to="/user"
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="block px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                        >
+                          我的主页
+                        </Link>
+                        <Link
+                          to="/write"
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="block px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                        >
+                          写文章
+                        </Link>
+                        {isAdmin && (
+                          <Link
+                            to="/admin"
+                            onClick={() => setIsUserMenuOpen(false)}
+                            className="block px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                          >
+                            管理后台
+                          </Link>
+                        )}
+                        <div className="border-t border-slate-100 dark:border-slate-700 my-1.5"></div>
+                        <button
+                          onClick={handleLogout}
+                          className="block w-full text-left px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                        >
+                          退出登录
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <Link to="/login" className="hidden sm:block">
+                    <Button size="sm" variant="ghost" className="text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                      登录
+                    </Button>
+                  </Link>
+                  <Link to="/register" className="hidden sm:block">
+                    <Button size="sm">注册</Button>
+                  </Link>
+                </>
+              )}
               <button
                 className="md:hidden p-2 text-slate-600 dark:text-slate-400"
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -150,6 +227,65 @@ const PublicLayout: React.FC = () => {
                 {link.label}
               </Link>
             ))}
+            <div className="border-t border-slate-100 dark:border-slate-700 my-2 pt-2 space-y-2">
+              {isAuthenticated && user ? (
+                <>
+                  <div className="flex items-center gap-3 px-4 py-2">
+                    <Avatar name={user.display_name || user.username} avatarUrl={user.avatar_url} className="w-8 h-8 text-base" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{user.display_name || user.username}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 truncate">@{user.username}</p>
+                    </div>
+                  </div>
+                  <Link
+                    to="/user"
+                    className="block py-2.5 px-4 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 rounded-xl transition-colors"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    我的主页
+                  </Link>
+                  <Link
+                    to="/write"
+                    className="block py-2.5 px-4 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 rounded-xl transition-colors"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    写文章
+                  </Link>
+                  {isAdmin && (
+                    <Link
+                      to="/admin"
+                      className="block py-2.5 px-4 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 rounded-xl transition-colors"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                    >
+                      管理后台
+                    </Link>
+                  )}
+                  <button
+                    onClick={handleLogout}
+                    className="block w-full text-left py-2.5 px-4 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-red-500 rounded-xl transition-colors"
+                  >
+                    退出登录
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="block py-2.5 px-4 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 rounded-xl transition-colors"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    登录
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="block py-2.5 px-4 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-primary-600 rounded-xl transition-colors"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    注册
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
         )}
       </header>

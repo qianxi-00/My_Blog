@@ -51,4 +51,6 @@ DEFAULT_SETTINGS = [
     {"key": "contact_github", "value": "", "type": "string", "description": "GitHub 链接"},
     {"key": "contact_qq", "value": "", "type": "string", "description": "QQ 号"},
     {"key": "contact_bilibili", "value": "", "type": "string", "description": "B站链接"},
+    # 2026-09-24 用户系统：注册开关（缺省开启；管理后台通过 PUT /settings/user_registration_enabled 改）
+    {"key": "user_registration_enabled", "value": "true", "type": "bool", "description": "开放用户注册"},
 ]

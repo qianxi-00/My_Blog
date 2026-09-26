@@ -8,6 +8,15 @@ import { getStatsOverview, getDailyStats, getPopularArticles, StatsOverview, Dai
 import { getFileUrl } from '../api/config';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { AdminUserPanel, UserArticleReviewPanel } from '../components/UserAdminPanels';
+
+type DashboardTab = 'overview' | 'user-articles' | 'users';
+
+const DASHBOARD_TABS: { key: DashboardTab; label: string }[] = [
+  { key: 'overview', label: '概览' },
+  { key: 'user-articles', label: '用户文章审核' },
+  { key: 'users', label: '用户管理' },
+];
 
 const StatCard: React.FC<StatCardProps> = ({ label, value, trend, trendUp, icon }) => (
   <Card className="p-6">
@@ -34,6 +43,7 @@ const AdminDashboard: React.FC = () => {
   const [popularArticles, setPopularArticles] = useState<PopularArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartDays, setChartDays] = useState<7 | 30>(7);
+  const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
 
   const fetchData = async () => {
     setLoading(true);
@@ -96,6 +106,28 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
+        {DASHBOARD_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 font-medium transition-all border-b-2 -mb-[2px] ${activeTab === tab.key
+              ? 'text-cyan-600 dark:text-cyan-400 border-cyan-600 dark:border-cyan-400'
+              : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'user-articles' && <UserArticleReviewPanel />}
+      {activeTab === 'users' && <AdminUserPanel />}
+
+      {/* 概览：以下为原有内容，结构保持不变 */}
+      {activeTab === 'overview' && (
+        <>
       {/* Stats Grid */}
       {loading ? (
         <div className="text-center py-10 text-slate-400 dark:text-slate-500">加载中...</div>
@@ -258,6 +290,8 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
       </Card>
+        </>
+      )}
     </div>
   );
 };

@@ -11,6 +11,15 @@ export interface LoginRequest {
 export interface LoginResponse {
     access_token: string;
     token_type: string;
+    expires_in?: number;
+    /** 登录响应附带当前用户对象（后端 AdminLoginResponse.admin，字段与 AdminInfo 一致，role 放宽） */
+    admin?: LoginUserInfo;
+}
+
+/** 登录/注册响应里的用户对象：管理员与注册用户共用 */
+export interface LoginUserInfo extends Omit<AdminInfo, 'role' | 'is_active'> {
+    role: 'super_admin' | 'admin' | 'user';
+    is_active?: boolean;
 }
 
 export interface AdminInfo {

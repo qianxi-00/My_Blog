@@ -9,6 +9,13 @@ import { recordPageView } from '../api/stats';
 import { getFileUrl } from '../api/config';
 import FloatingActions from '../components/FloatingActions';
 import ArticleSidebar from '../components/ArticleSidebar';
+import Avatar from '../components/Avatar';
+import { useAuth } from '../contexts/AuthContext';
+
+// 评论对象可能附带登录用户身份（additive：有 user 就按用户身份渲染，没有就按访客渲染）
+interface CommentWithUser extends Comment {
+  user?: { username: string; display_name?: string; avatar_url?: string };
+}
 
 // 提取 Markdown 中的标题，生成目录
 const extractHeadings = (markdown: string) => {
@@ -54,8 +61,9 @@ const REPORT_REASONS = [
 const ArticleDetail: React.FC = () => {
   const { id, slug } = useParams();
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
   const [article, setArticle] = useState<Article | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
+  const [comments, setComments] = useState<CommentWithUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [commentText, setCommentText] = useState('');
   const [nickname, setNickname] = useState('');
@@ -252,7 +260,8 @@ const ArticleDetail: React.FC = () => {
     }
     setSubmitting(true);
     try {
-      await submitComment(article.id, { nickname: nickname.trim() || undefined, content: commentText });
+      // 登录用户不带 nickname/email，服务端使用其资料
+      await submitComment(article.id, isAuthenticated ? { content: commentText } : { nickname: nickname.trim() || undefined, content: commentText });
       setCommentText('');
       await refreshComments();
     } catch (error: any) {
@@ -263,16 +272,14 @@ const ArticleDetail: React.FC = () => {
   };
 
   const handleSubmitReply = async (parentId: number) => {
-    if (!article || !replyText.trim() || !replyNickname.trim()) {
+    if (!article || !replyText.trim() || (!isAuthenticated && !replyNickname.trim())) {
       alert('请填写昵称和回复内容');
       return;
     }
     try {
-      await submitComment(article.id, {
-        nickname: replyNickname,
-        content: replyText,
-        parent_id: parentId
-      });
+      await submitComment(article.id, isAuthenticated
+        ? { content: replyText, parent_id: parentId }
+        : { nickname: replyNickname, content: replyText, parent_id: parentId });
       setReplyText('');
       setReplyingTo(null);
       setExpandedReplies(prev => ({ ...prev, [parentId]: true }));
@@ -374,7 +381,9 @@ const ArticleDetail: React.FC = () => {
     );
   }
 
-  const getCommentDisplayName = (comment: Comment) => comment.is_admin_reply ? '作者' : (comment.nickname || '匿名读者');
+  const getCommentDisplayName = (comment: CommentWithUser) => comment.is_admin_reply
+    ? '作者'
+    : (comment.user?.display_name || comment.user?.username || comment.nickname || '匿名读者');
 
   // 渲染单条回复
   const countAllComments = (list: Comment[]): number =>
@@ -382,7 +391,7 @@ const ArticleDetail: React.FC = () => {
 
   const MAX_REPLY_DEPTH = 2; // 默认最多展示 2 层回复，更深的折叠
 
-  const renderReply = (reply: Comment, depth: number = 1) => {
+  const renderReply = (reply: CommentWithUser, depth: number = 1) => {
     const isLong = reply.content.length > COMMENT_MAX_LEN;
     const isTextExpanded = expandedTexts.has(reply.id);
     const nestedReplies = reply.replies || [];
@@ -399,18 +408,24 @@ const ArticleDetail: React.FC = () => {
     return (
       <div key={reply.id} className="py-3 transition-colors">
         <div className="flex gap-3">
-          <img
-            src={getFileUrl(reply.avatar_url) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${getCommentDisplayName(reply)}`}
-            alt={getCommentDisplayName(reply)}
-            className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 transition-colors"
-          />
+          {reply.user ? (
+            <Avatar name={getCommentDisplayName(reply)} avatarUrl={reply.user.avatar_url} className="w-7 h-7 text-sm" />
+          ) : (
+            <img
+              src={getFileUrl(reply.avatar_url) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${getCommentDisplayName(reply)}`}
+              alt={getCommentDisplayName(reply)}
+              className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 transition-colors"
+            />
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className={`text-sm font-medium transition-colors ${reply.is_admin_reply ? 'text-primary-600 dark:text-primary-400' : 'text-slate-700 dark:text-slate-300'}`}>
                 {getCommentDisplayName(reply)}
               </span>
-              {reply.is_admin_reply && (
+              {reply.is_admin_reply ? (
                 <span className="px-1.5 py-0.5 text-[10px] bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-300 rounded transition-colors">作者</span>
+              ) : reply.user && (
+                <span className="px-1.5 py-0.5 text-[10px] bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 rounded border border-cyan-100 dark:border-cyan-800 transition-colors">用户</span>
               )}
               <span className="text-xs text-slate-400 dark:text-slate-500 transition-colors">{new Date(reply.created_at).toLocaleDateString('zh-CN')}</span>
             </div>
@@ -463,7 +478,7 @@ const ArticleDetail: React.FC = () => {
   };
 
   // 渲染评论
-  const renderComment = (comment: Comment) => {
+  const renderComment = (comment: CommentWithUser) => {
     const replies = comment.replies || [];
     const isExpanded = expandedReplies[comment.id];
     const visibleReplies = isExpanded ? replies : replies.slice(0, 2);
@@ -472,18 +487,24 @@ const ArticleDetail: React.FC = () => {
     return (
       <div key={comment.id} className="py-5 border-b border-slate-100 dark:border-slate-800 last:border-b-0 transition-colors">
         <div className="flex gap-3">
-          <img
-            src={getFileUrl(comment.avatar_url) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${getCommentDisplayName(comment)}`}
-            alt={getCommentDisplayName(comment)}
-            className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 transition-colors"
-          />
+          {comment.user ? (
+            <Avatar name={getCommentDisplayName(comment)} avatarUrl={comment.user.avatar_url} className="w-10 h-10 text-lg" />
+          ) : (
+            <img
+              src={getFileUrl(comment.avatar_url) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${getCommentDisplayName(comment)}`}
+              alt={getCommentDisplayName(comment)}
+              className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 transition-colors"
+            />
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
               <span className={`font-medium transition-colors ${comment.is_admin_reply ? 'text-primary-600 dark:text-primary-400' : 'text-slate-800 dark:text-slate-200'}`}>
                 {getCommentDisplayName(comment)}
               </span>
-              {comment.is_admin_reply && (
+              {comment.is_admin_reply ? (
                 <span className="px-2 py-0.5 text-[10px] bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-300 rounded-full font-medium transition-colors">作者</span>
+              ) : comment.user && (
+                <span className="px-2 py-0.5 text-[10px] bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 rounded-full font-medium border border-cyan-100 dark:border-cyan-800 transition-colors">用户</span>
               )}
               <span className="text-xs text-slate-400 dark:text-slate-500 transition-colors">{new Date(comment.created_at).toLocaleDateString('zh-CN')}</span>
             </div>

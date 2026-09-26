@@ -15,6 +15,7 @@ from ..core.database import Base
 if TYPE_CHECKING:
     from .article import Article
     from .admin import Admin
+    from .user import User
 
 
 COMMENT_TARGET_TYPES = ("article", "hotspot")
@@ -57,6 +58,15 @@ class Comment(Base):
     avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # 登录用户评论绑定（2026-09-24 用户系统改造；访客评论 user_id 为 NULL，nickname 字段两种路径都保留：
+    # 登录用户的 nickname 冗余存 display_name，列表渲染优先用 user 关系）
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     is_admin_reply: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     admin_id: Mapped[Optional[int]] = mapped_column(
         Integer,
@@ -83,6 +93,7 @@ class Comment(Base):
     # 关联关系
     article: Mapped[Optional["Article"]] = relationship("Article", back_populates="comments")
     admin: Mapped[Optional["Admin"]] = relationship("Admin", back_populates="comments")
+    user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id], back_populates="comments")
 
     # 自关联 - 嵌套回复
     parent: Mapped[Optional["Comment"]] = relationship(
