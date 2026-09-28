@@ -25,8 +25,12 @@ class PromptCreate(PromptBase):
 
 
 class PromptUserSubmit(PromptBase):
-    """用户提交 Prompt 请求模型"""
-    submitted_by: str = Field(..., min_length=1, max_length=50, description="提交者昵称")
+    """用户提交 Prompt 请求模型
+
+    2026-09-26 二期：提交者由登录账号决定（端点写 author_id + display_name），
+    不再从请求体收 submitted_by —— 前端已无此输入框，留着会 422 全挂。
+    """
+    pass
 
 
 class PromptUpdate(BaseModel):

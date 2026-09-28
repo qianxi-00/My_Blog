@@ -25,6 +25,8 @@ from ...schemas.admin import (
     AdminCreate, AdminUpdate, AdminPasswordUpdate, AdminResponse, AdminUserListItem
 )
 from ...schemas.common import PaginatedResponse
+# 复用文章删除时的缓存失效（articles.py 不反向 import 本模块，无循环风险）
+from .articles import _invalidate_article_caches
 
 router = APIRouter()
 
@@ -358,14 +360,22 @@ async def set_user_email(
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: int,
+    with_content: bool = False,
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_super_admin)
 ):
     """
-    删除用户（仅超管）：其文章/评论/提示词归属置空（内容保留），再删行。
-    不能删自己、不能删最后一个超级管理员。
-    注意：Article.author_id 的 FK 是 ondelete=CASCADE，必须先把归属置空再删行，
-    否则会级联删掉该用户的全部文章。
+    删除用户（仅超管）。不能删自己、不能删最后一个超级管理员。
+
+    内容归属（2026-09-26 二期实测修正）：
+    - 评论 / 提示词：user_id / author_id 可空 → 置空保留内容；
+    - 文章：Article.author_id 是 NOT NULL（模型 nullable=False，线上库同），**置空会
+      直接 IntegrityError**。所以文章按「显式确认」处理：
+        · 该用户有文章且未带 with_content=true → 409，附带文章/评论/提示词数量，让前台先确认；
+        · 带 with_content=true → 逐篇走 ORM db.delete()（与 DELETE /articles/{id} 同路径，
+          连二级表 article_tags 一并清理）+ 失效文章缓存。
+      注意：本应用从未设置 PRAGMA foreign_keys，SQLite 默认 FK 关闭，ondelete=CASCADE
+      实际不会触发，因此这里不能依赖级联、也不能用批量 delete(Article)。
     """
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
@@ -384,15 +394,52 @@ async def delete_user(
                 detail="不能删除最后一个超级管理员"
             )
 
-    # 内容置空保留（先于删行，规避 CASCADE）
-    await db.execute(update(Article).where(Article.author_id == user_id).values(author_id=None))
+    counts = {
+        "articles": (await db.execute(
+            select(func.count()).select_from(Article).where(Article.author_id == user_id)
+        )).scalar() or 0,
+        "comments": (await db.execute(
+            select(func.count()).select_from(Comment).where(Comment.user_id == user_id)
+        )).scalar() or 0,
+        "prompts": (await db.execute(
+            select(func.count()).select_from(Prompt).where(Prompt.author_id == user_id)
+        )).scalar() or 0,
+    }
+
+    if counts["articles"] and not with_content:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"该用户还有 {counts['articles']} 篇文章（评论 {counts['comments']} 条、"
+                f"提示词 {counts['prompts']} 个）。文章作者不能为空，删除用户会一并删除这些文章；"
+                f"确认请带 with_content=true 重试。"
+            ),
+        )
+
+    # 文章：逐篇 ORM 删除（与 DELETE /articles/{id} 完全同路径）+ 清缓存
+    if counts["articles"]:
+        articles = (await db.execute(
+            select(Article).where(Article.author_id == user_id)
+        )).scalars().all()
+        for article in articles:
+            await db.delete(article)
+        await db.flush()  # 让后续计数/删除在同一事务里看到结果
+        for article in articles:
+            await _invalidate_article_caches(article.id)
+
+    # 评论 / 提示词：可空 → 置空保留
     await db.execute(update(Comment).where(Comment.user_id == user_id).values(user_id=None))
     await db.execute(update(Prompt).where(Prompt.author_id == user_id).values(author_id=None))
 
     await db.delete(user)
     await db.commit()
 
-    return {"message": "已删除（其内容归属已置空保留）"}
+    return {
+        "message": "已删除" + ("（其文章已一并删除）" if counts["articles"] else "（其内容归属已置空保留）"),
+        "deleted_articles": counts["articles"],
+        "orphaned_comments": counts["comments"],
+        "orphaned_prompts": counts["prompts"],
+    }
 
 
 # ==================== 管理员管理 ====================

@@ -52,6 +52,7 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
     const [showEmailInput, setShowEmailInput] = useState(false);
     const [showDelete, setShowDelete] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState('');
+    const [contentConflict, setContentConflict] = useState<string | null>(null);
 
     const isSuper = me?.role === 'super_admin';
 
@@ -128,11 +129,27 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
     const handleDelete = () => {
         if (!detail) return;
         if (deleteConfirm !== detail.username) return;
-        run('delete', () => deleteUser(detail.id), () => {
-            showToast('已删除（其内容归属已置空保留）', 'success');
+        doDelete(false);
+    };
+
+    // 删除用户：该用户还有文章时后端返回 409（文章作者不能为空），
+    // 这里不弹通用错误，而是显示后端给的数量说明 + 二次确认「连同文章删除」。
+    const doDelete = async (withContent: boolean) => {
+        if (!detail) return;
+        setActing('delete');
+        setContentConflict(null);
+        try {
+            await deleteUser(detail.id, withContent);
+            showToast(withContent ? '用户与其文章已删除' : '用户已删除（内容归属已置空保留）', 'success');
             onClose();
             onChanged();
-        });
+        } catch (e: any) {
+            const msg = e.response?.data?.detail || '删除失败';
+            if (e.response?.status === 409) setContentConflict(msg);
+            else showToast(msg, 'error');
+        } finally {
+            setActing('');
+        }
     };
 
     return (
@@ -249,7 +266,7 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
                             {isSuper && showDelete && (
                                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 space-y-2">
                                     <div className="text-xs text-red-600 dark:text-red-400">
-                                        高危操作：输入用户名 <span className="font-mono font-bold">{detail.username}</span> 以确认删除（其文章/评论/提示词保留但归属置空，不可逆）：
+                                        高危操作：输入用户名 <span className="font-mono font-bold">{detail.username}</span> 以确认删除（评论/提示词保留但归属置空，不可逆）：
                                     </div>
                                     <div className="flex gap-2">
                                         <input
@@ -267,6 +284,20 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
                                             {acting === 'delete' ? '删除中...' : '永久删除'}
                                         </button>
                                     </div>
+
+                                    {/* 该用户还有文章：后端 409 说明 + 二次确认一并删除 */}
+                                    {contentConflict && (
+                                        <div className="space-y-2 pt-2 border-t border-red-200 dark:border-red-800">
+                                            <div className="text-xs text-red-700 dark:text-red-300">{contentConflict}</div>
+                                            <button
+                                                onClick={() => doDelete(true)}
+                                                disabled={!!acting}
+                                                className="w-full px-4 py-2 bg-red-700 text-white rounded-lg text-sm font-medium hover:bg-red-800 disabled:opacity-40 transition-colors"
+                                            >
+                                                {acting === 'delete' ? '删除中...' : '连同其文章一起删除（不可逆）'}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

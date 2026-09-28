@@ -281,9 +281,16 @@ export const setUserEmail = async (id: number, email: string): Promise<{ message
     return response.data;
 };
 
-// 删除用户（仅超管；内容归属置空保留）
-export const deleteUser = async (id: number): Promise<{ message: string }> => {
-    const response = await api.delete(`/admins/users/${id}`);
+// 删除用户（仅超管）
+// withContent=false：该用户还有文章时后端返回 409（文章作者不能为空），由抽屉二次确认；
+// withContent=true：连同其文章一并删除（评论/提示词仍置空保留）。
+export const deleteUser = async (
+    id: number,
+    withContent = false,
+): Promise<{ message: string; deleted_articles?: number }> => {
+    const response = await api.delete(`/admins/users/${id}`, {
+        params: withContent ? { with_content: true } : undefined,
+    });
     return response.data;
 };
 
