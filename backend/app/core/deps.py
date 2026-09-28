@@ -90,7 +90,7 @@ async def get_current_user(
         iat = payload.get("iat")
         if iat is not None:
             try:
-                issued_at = datetime.fromtimestamp(int(iat), tz=timezone.utc)
+                issued_at = datetime.fromtimestamp(float(iat), tz=timezone.utc)
                 changed_at = user.password_changed_at.replace(tzinfo=timezone.utc)
                 if issued_at < changed_at:
                     raise HTTPException(

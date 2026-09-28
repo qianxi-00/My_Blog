@@ -66,7 +66,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         )
 
     # iat（签发时间）：改密 / 重置后旧 token 依据它立即失效（deps.get_current_user）
-    to_encode.update({"exp": expire, "iat": int(datetime.now(timezone.utc).timestamp())})
+    # 必须是浮点微秒精度而非 int：password_changed_at 是微秒精度，若 iat 按秒截断，
+    # 「改密后同一秒内重新登录」拿到的 token 会被误判为旧 token 而 401。
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc).timestamp()})
     encoded_jwt = jwt.encode(
         to_encode,
         settings.JWT_SECRET_KEY,
