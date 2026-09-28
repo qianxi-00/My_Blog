@@ -84,11 +84,13 @@ async def login(
         )
     
     # 记录最后登录时间（2026-09-26 二期）
-    # 必须用 Python 值（utc_now_naive）而不是 func.now()：SQL 表达式赋值会让 flush 后
-    # last_login_at/updated_at（onupdate）标记为过期，随后的 pydantic 同步序列化
-    # 读到过期属性 -> MissingGreenlet -> 500。utc_now_naive 与 SQLite 存储口径一致。
+    # 用 Python 值（utc_now_naive）而非 func.now()：SQL 表达式赋值 + updated_at 的
+    # onupdate=func.now() 都会让属性在 flush 后处于过期态，随后的同步序列化
+    # （AdminResponse.model_validate）读过期属性会触发 lazy IO -> MissingGreenlet -> 500。
+    # commit 后 refresh 一次，跟本文件注册路径/仓库既有约定一致。
     user.last_login_at = utc_now_naive()
     await db.commit()
+    await db.refresh(user)
     
     # 生成 Token
     expires_delta = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
