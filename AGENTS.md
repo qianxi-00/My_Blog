@@ -4,7 +4,7 @@
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-26 用户系统上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
 仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`。
-当前 HEAD `47102c5`（2026-09-26 `feat: 开放注册与用户投稿…`）**= 生产运行版**（后端镜像即由该提交的 `backend/` 导出树构建）。
+当前生产镜像 **`qianxi-blog:users3`**（构建源 = 仓库提交 `c508593` 的 `git archive HEAD backend` 导出树，产物与推送代码逐文件 sha256 对齐；前端产物 `assets/index-bv2iCR9h.js`）。上一个可用版本 `users2`（提交 `47102c5`）保留作回退。
 
 ## 先看这里（2026-09-24 迁移后）
 
@@ -28,11 +28,11 @@
 
 | 组件 | 位置 / 事实 |
 |---|---|
-| 后端容器 | `qianxi-blog`，镜像 **`qianxi-blog:users2`**（2026-09-26 用户系统版；构建源 = 仓库提交 `47102c5` 的 `git archive HEAD backend` 导出树，产物与推送代码已逐文件 sha256 对齐）。768MB/**2CPU**，uvicorn **`--workers 2 --proxy-headers --forwarded-allow-ips='*'`**（GIL 决定单进程最多 1 核，多核必须多 worker；docker run 时用 CMD 覆盖参数，镜像 CMD 仍是单 worker 供 HF 兼容；**proxy-headers 不能漏，限流靠它拿真实访客 IP**）。`--restart unless-stopped`，`blog-net`，只绑 `127.0.0.1:8000`。**回退镜像**：`qianxi-blog:users1`（同功能但 `auth.py` 早一版）→ `qianxi-blog:arag2`（并发优化版）→ `qianxi-blog:20260924`（Poro 版） |
+| 后端容器 | `qianxi-blog`，镜像 **`qianxi-blog:users3`**（2026-09-28 三级权限 + 邮箱认证版；构建源 = 仓库提交 `c508593` 的 `git archive HEAD backend` 导出树，产物与推送代码已逐文件 sha256 对齐）。768MB/**2CPU**，uvicorn **`--workers 2 --proxy-headers --forwarded-allow-ips='*'`**（GIL 决定单进程最多 1 核，多核必须多 worker；docker run 时用 CMD 覆盖参数，镜像 CMD 仍是单 worker 供 HF 兼容；**proxy-headers 不能漏，限流靠它拿真实访客 IP**）。`--restart unless-stopped`，`blog-net`，只绑 `127.0.0.1:8000`。**回退镜像**：`qianxi-blog:users2`（用户系统一期）→ `qianxi-blog:users1` → `qianxi-blog:arag2`（并发优化版）→ `qianxi-blog:20260924`（Poro 版） |
 | 并发优化（2026-09-24 实测） | SQLite 已切 **WAL**（`app/core/database.py` 连接事件监听自动 PRAGMA：journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000；写不再锁全库）；aiosqlite 方言默认 NullPool，已显式 `AsyncAdaptedQueuePool`（pool_size=20/max_overflow=30）；bcrypt 登录验证改 `asyncio.to_thread`（原先同步 100-300ms 阻塞事件循环）；A-RAG SSE 有并发护栏 `asyncio.Semaphore(8)`/worker（双 worker 合计 16 路，超限回友好提示）。压测（ab，同机 2 核）：1worker/1CPU=42.7rps/750ms → 2worker/2CPU=70.6rps/453ms（直连）、62.6rps/0 错误（公网 HTTPS 全路径）。单请求 ~15ms；剩余上限是宿主机 2 核本身，再要翻倍只能升配或加只读副本 |
 | A-RAG 聊天 | 公开问答已从 PoroRagAgent 伪流式升级为 **LangChain create_agent**（2026-09-24）。新端点 `POST /api/v1/chat/message/agentic`（SSE，事件 `reasoning`/`tool_start`/`tool_result`/`text`/`done`/`error`）。实现：`backend/app/services/arag_agent.py`（5 个检索工具：文章/证据块/读窗口/读全文/热点；工具**各自开独立 DB 会话**，因为 ToolNode 并行调用工具）；`ReasoningChatOpenAI` 子类负责把网关 `delta.reasoning_content` 透传进事件流（langgraph v3 messages 通道不透传，靠子类回调直推 SSE 队列）。旧端点 `/chat/message/stream`（Poro 伪流式）保留给桌宠主动气泡。前端 `DesktopPet` 聊天面板 + `AgentProcessStrip` 渲染思考/工具芯片。**nginx /api/ 已加 `proxy_buffering off`（SSE 依赖，别删）**。注意 `openai` SDK 已升 `3.19.2`（langchain-openai 1.6.6 要求 >=2.45） |
 | 数据库 | 容器挂载 `/data/blog/data:/data`，库文件 `/data/blog/data/blog.db`。2026-09-24 从 HF 导出（integrity ok：23 文 / 567 热点 / 558 published） |
-| 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。当前产物 `assets/index-Bo3ZI1QE.js`（2,969,873 B，169 个 asset 文件，2026-09-26 含用户系统）。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
+| 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。当前产物 `assets/index-bv2iCR9h.js`（3,018,307 B，2026-09-28 含用户与权限独立页 + 忘记密码 + 邮箱绑定 + 我的提示词）。旧主包仍留在 dist（避免强缓存用户白屏）。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
 | nginx | `/etc/nginx/sites-available/blog`（独立文件，别动 `new-api` 那份）。80 端口有 `^~ /.well-known/acme-challenge/` 例外 + 301，**别删这个例外，删了证书续不了** |
 | 证书 | Let's Encrypt `blog.qianxi7988.me`，2026-12-23 到期，certbot 自动续期（webroot=`/var/www/blog/dist`） |
 | 运行配置 | `/data/blog/runtime.env`（600 root-only）：JWT_SECRET_KEY（强随机，2026-09-24 轮换）、`LLM_MODEL_CHAIN=grok-4.7`、`REDIS_ENABLED=false`、NewAPI 地址 `http://new-api:3000/v1` |
@@ -58,6 +58,39 @@
 - 上线当天验收证据（全部当次现跑）：E2E 在最终镜像 `users2` 上 **52/0**；登出探针 5/0（普通用户 200，此前是 403）；生产 UI 实走 注册→投稿→（后台）审核→公网可见；公网保活压测 **73.3rps / p50 374ms / 0 错**（并发优化基线 62.6rps 公网、70.6rps 直连）。
 
 **回退方式**：把 Cloudflare DNS 的 A 记录改回橙云代理（原 Worker 路由 `blog.qianxi7988.me/* → qianxi-blog-site` 仍在）。数据回退需注意：新站库从导出后一直在被写（浏览量、聊天），回退前先备份新库。
+
+## 用户系统二期：三级权限 + 邮箱认证（2026-09-28 上线，镜像 `qianxi-blog:users3`）
+
+**权限矩阵（`user` / `admin` / `super_admin`）**——判据只有一条：**数据库里的 `users.role`**（token 只带 `sub=user_id`）。
+
+| 能力 | user | admin | super_admin |
+|---|---|---|---|
+| 增删改**自己**的文章（草稿/待审范围内） | ✅ | ✅ | ✅ |
+| 删**自己**的评论 | ✅ | ✅ | ✅ |
+| 删**别人**的评论 | ❌ 403「只能删除自己的评论」 | ✅ | ✅ |
+| 审核文章（通过/驳回） | ❌ | ✅ | ✅ |
+| 封禁/解封用户、重置其密码、看用户列表与详情 | ❌ | ✅ | ✅ |
+| 改角色、改他人邮箱、删用户、管理员账号管理 | ❌ | ❌ | ✅ |
+| 增删改**自己**的提示词投稿（仅 `pending`/`rejected`） | ✅ | ✅ | ✅ |
+| 提示词审核/删除任意提示词 | ❌ | ✅ | ✅ |
+
+- **管理入口搬成侧栏独立页**：`/admin/users`（前端 `pages/AdminAccounts.tsx`，侧栏「用户与权限」）。后台仪表盘的旧 tab（用户管理/管理员账号）已移除，能力全部平移到该页：统计卡、状态/角色筛选、搜索（含邮箱）、排序（注册时间/最后登入/文章数）、详情抽屉（`components/UserDetailDrawer.tsx`：改角色、重置密码、绑定邮箱、封禁、删除）、管理员账号增删改密。
+- **最后登入时间**：`users.last_login_at`，登录成功时写（`auth.py` 登录分支）。列表与详情都展示。
+- **改密踢会话**：`users.password_changed_at` 由自助改密/重置密码写；`deps.get_current_user` 比对 token 的 `iat`（`core/security.py` 里 `iat` 必须是**浮点秒**——曾经用 `int()` 截断，导致「同一秒内改完密码再登录」被自己签发的 token 判为过期而 401，`044dd6b` 修掉）。
+- **邮箱认证**（对齐主服务器 new-api 的做法）：`services/verification_service.py` + `email_codes` 表（存 sha256(code)，10 分钟有效、最多试 5 次、60 秒重发冷却、单邮箱 5 次/天、单 IP 10 次/小时）。用途三类：注册、重置密码、绑邮箱。
+  - **注册强制邮箱验证**（站点设置 `email_verification_required=true`；置 false 可退回一期「只填用户名口令」）。两步式：`POST /auth/register/code` 发码 → `POST /auth/register` 带 `code` 落地。
+  - **自助重置密码**：`POST /auth/password/reset/code`（对不存在的邮箱**也返回 200**，防枚举）→ `POST /auth/password/reset`。
+  - **绑定/更换邮箱**：`POST /users/me/email/code` + `PUT /users/me/email`。
+  - **白名单**：`email_domain_whitelist`（站点设置，逗号分隔，空=不限）与 new-api 保持一致：`gmail.com,163.com,126.com,qq.com,icloud.com,foxmail.com`。
+  - **SMTP 走主服务器 new-api 那套 Brevo relay**（`smtp-relay.brevo.com:465`，账号 `aaa2f9001@smtp-brevo.com`，发件 `noreply@qianxi7988.me`）。**凭据只在 `/data/blog/runtime.env`（600）里，密文不落库不进 Git**；`SMTP_HOST/PORT/USER/PASSWORD/FROM_EMAIL/FROM_NAME/USE_TLS` 七个键。发信是 stdlib smtplib（阻塞）→ `asyncio.to_thread`；发失败会回滚验证码并返回「邮件发送失败，请稍后再试」。
+- **提示词投稿改为登录用户投稿**：`POST /prompts/submit` 需登录（`get_current_user`），提交者从账号取（不再让前端填昵称），限流 **3 次/天/用户**；新增用户自域接口 `GET/PUT/DELETE /users/me/prompts[/{id}]`（只能动自己的，且只限 `pending`/`rejected`）。**`prompts.author_id` 外键已从 `admins.id` 改指 `users.id`**（`scripts/migrate_users_v3.py` 重建表，25 行零改动迁移）。
+- **删用户的语义（别照文档想当然）**：`Article.author_id` 是 **NOT NULL**（模型与线上库一致），所以文章**不能**「归属置空保留」。当前实现：该用户有文章时 `DELETE /admins/users/{id}` 返回 **409** 并附文章/评论/提示词数量，前端抽屉显示说明 + 「连同其文章一起删除」二次确认（`?with_content=true`）；确认后逐篇走 ORM `db.delete()`（与 `DELETE /articles/{id}` 同路径）+ 清文章缓存。评论/提示词可空，仍按**置空保留**。守卫：不能删自己、不能删最后一个超管。
+- ⚠️ **外键级联在这里是假的**：`core/database.py` 只设了 WAL/synchronous/busy_timeout，**从未 `PRAGMA foreign_keys=ON`**，SQLite 默认关闭 → 模型里的 `ondelete="CASCADE"` 不生效。删行必须走 ORM 关系或手工清子表，**不要**用批量 `delete(Article)`。
+- **迁移脚本** `/data/blog/migrate_users_v3.py`（幂等，可反复跑）：users 加三列（`email_verified`/`last_login_at`/`password_changed_at`）+ 建 `email_codes`（2 索引）+ 回填有邮箱的存量账号 `email_verified=1` + 重建 `prompts` 表把 FK 指到 `users.id`。**必须在应用停止时跑**。切换前备份：`/data/blog/backups/pre-v2-20260928-163845/`（27MB，integrity ok）。
+- **回退**：`bash /data/blog/rollback_users2_v2.sh /data/blog/backups/pre-v2-20260928-163845`（停容器 → 还原库 → 起 `qianxi-blog:users2`）。前端回退文件留在 `/data/blog/backups/frontend-pre-v2-20260928-163845/index.html`（旧主包仍在 dist，无需回滚包）。
+- **限流新增**：注册发码/绑邮箱发码 10 次/小时/IP、自助重置 5 次/小时/IP、提示词投稿 3 次/天/用户。**双 worker 各持一份进程内桶 → 实际额度约 2×**（验收脚本据此探测 429，不要写死"第 4 次必被拦"）。
+- **验收脚本**（服务器 `/data/blog/scripts/acceptance/`，本机留档 `C:\Users\QianXi\.dsh-ops\blog\`）：`e2e_users.py`、`e2e_email_auth.py`、`e2e_admin_users.py`（跑法 `python3 <脚本> <base_url> <db_path> [容器名]`），配套 `run_all_e2e.sh`（重建演练容器后三套连跑，必须先重建：限流桶是进程内的，不重建会吃上一轮的 429）。**别放 /tmp**：重启即失，而且 **`/tmp` 上跑不了 WAL 模式的 SQLite**（-shm 需要 mmap/共享内存支持，实测 `disk I/O error` → `readonly database`；演练库和副本一律放 `/data` 或 `/root`）。
+- **上线验收证据（2026-09-28 当次现跑）**：演练容器 `users3` 上三套 **users 55/0 + email 46/0 + admin 101/0**；**生产**（`127.0.0.1:8000` + 真实库）email **46/0**、admin **101/0**，跑后库无 e2e 残留（users 2 / 文章 23 / 评论 42 / 提示词 25，integrity ok）；公网回归全 200（首页/文章/标签/分类/归档/提示词/设置/热点/logo/ai-daily），`/admins/users` 未登录 401；A-RAG 流式事件正常（`text`/`done`/`tool_*`）。
 
 ## AI 链路（2026-09-24 实测通过）
 
