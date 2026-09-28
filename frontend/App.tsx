@@ -38,10 +38,12 @@ import UserCenter from './pages/UserCenter';
 import AuthorPage from './pages/AuthorPage';
 import WritePage from './pages/WritePage';
 import AdminAccounts from './pages/AdminAccounts';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
 // ... existing imports
   return (
+    <ErrorBoundary>
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
@@ -104,6 +106,7 @@ const App: React.FC = () => {
         </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
+    </ErrorBoundary>
   );
 };
 

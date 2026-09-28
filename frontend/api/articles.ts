@@ -76,6 +76,7 @@ export interface ArticleCreate {
     category?: string;
     is_pinned?: boolean;
     tags?: string[];  // 标签名数组（后端期望的格式）
+    status?: string;  // draft/published/scheduled —— 保存草稿=下架、发布时由编辑器给出
 }
 
 export interface ArticleUpdate extends Partial<ArticleCreate> { }
@@ -183,6 +184,8 @@ export const updateArticle = async (id: number, data: ArticleUpdate): Promise<Ar
     if (data.category !== undefined) payload.category = data.category;
     if (data.is_pinned !== undefined) payload.is_pinned = data.is_pinned;
     if (data.tags !== undefined) payload.tags = data.tags;  // 标签名数组
+    // status 以前被丢掉：编辑器点"保存草稿"提示"已下架"，线上其实还挂着（2026-09-28 修）
+    if (data.status !== undefined) payload.status = data.status;
 
     const response = await api.put(`/articles/${id}`, payload);
     return response.data;

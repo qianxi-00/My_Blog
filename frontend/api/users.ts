@@ -52,7 +52,8 @@ export interface UserArticle {
     summary?: string;
     content_md?: string;
     category?: string;
-    tags?: string[];
+    /** 列表接口返回的是标签对象数组（ArticleListResponse.tags: TagResponse[]），单篇接口也是；写回后端时必须转成名字 */
+    tags?: Array<string | { id?: number; name: string; slug?: string }>;
     cover_image?: string;
     status: UserArticleStatus;
     review_note?: string;
@@ -143,6 +144,12 @@ export const getMyArticles = async (params?: {
     page_size?: number;
 }): Promise<PaginatedResponse<UserArticle>> => {
     const response = await api.get('/users/me/articles', { params });
+    return response.data;
+};
+
+// 单篇完整内容（编辑页用；列表接口 ArticleListResponse 不含 content_md）
+export const getMyArticle = async (id: number): Promise<UserArticle> => {
+    const response = await api.get<UserArticle>(`/users/me/articles/${id}`);
     return response.data;
 };
 

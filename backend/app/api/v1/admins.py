@@ -650,8 +650,8 @@ async def update_password(
             detail="管理员不存在"
         )
 
-    # 非超级管理员需要验证旧密码
-    if current_admin.role != "super_admin":
+    # 改自己密码必须验证旧密码（任何角色）；超管改他人可免（后台重置场景）
+    if admin.id == current_admin.id or current_admin.role != "super_admin":
         if not password_data.old_password:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -663,8 +663,9 @@ async def update_password(
                 detail="旧密码错误"
             )
 
-    # 更新密码
+    # 更新密码（同时写 password_changed_at，旧 token 立即失效）
     admin.password_hash = await get_password_hash(password_data.new_password)
+    admin.password_changed_at = utc_now_naive()
     await db.commit()
 
     return {"message": "密码修改成功"}

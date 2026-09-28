@@ -45,10 +45,13 @@ _TOOL_MAP: Dict[str, Any] = {
 #  构建完整的工具列表（供 OpenAI function-calling 使用）
 # ------------------------------------------------------------------ #
 
-def build_all_tools() -> List[Dict[str, Any]]:
+def build_all_tools(role: str = "admin") -> List[Dict[str, Any]]:
     """
     返回所有 Skill + Tool 的 OpenAI function-calling schema
     顺序：Skill 在前（AI 优先选择），Tool 在后（兜底）
+
+    execute_sql 直接读写数据库（绕过所有接口层权限），只对 super_admin 暴露；
+    普通 admin 连 schema 都拿不到，模型不会生成该调用。
     """
     schemas: List[Dict[str, Any]] = []
 
@@ -58,7 +61,8 @@ def build_all_tools() -> List[Dict[str, Any]]:
 
     # 添加兜底 Tool
     schemas.extend(call_api_tool.TOOL_SCHEMAS)
-    schemas.extend(execute_sql_tool.TOOL_SCHEMAS)
+    if role == "super_admin":
+        schemas.extend(execute_sql_tool.TOOL_SCHEMAS)
 
     return schemas
 
@@ -72,6 +76,7 @@ async def dispatch(
     args: Dict[str, Any],
     token: str,
     db: AsyncSession,
+    role: str = "admin",
 ) -> Tuple[Dict[str, Any], str]:
     """
     根据名称分派到对应 Skill 或 Tool 执行
@@ -88,7 +93,13 @@ async def dispatch(
     # 退化到 Tool
     tool_module = _TOOL_MAP.get(name)
     if tool_module is not None:
-        result = await tool_module.execute(args=args, token=token, db=db)
+        # 双保险：即使模型给出了未注册的调用（手改历史/旧的会话记录），也拦在这里
+        if name == "execute_sql" and role != "super_admin":
+            return {"ok": False, "error": "execute_sql 仅超级管理员可用"}, "tool"
+        result = await tool_module.execute(
+            args=args, token=token, db=db,
+            allow_write_allowed=(role == "super_admin"),
+        )
         return result, "tool"
 
     return {"ok": False, "error": f"未知工具: {name}"}, "tool"

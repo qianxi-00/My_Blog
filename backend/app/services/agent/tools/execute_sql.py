@@ -49,11 +49,12 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
 async def execute(
     args: Dict[str, Any],
     db: AsyncSession,
+    allow_write_allowed: bool = False,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
-    """执行任意 SQL 语句"""
+    """执行任意 SQL 语句（写权限由服务端按调用者角色决定，不采信模型给的 allow_write）"""
     sql = args.get("sql", "")
-    allow_write = bool(args.get("allow_write", False))
+    allow_write = bool(allow_write_allowed and args.get("allow_write", False))
     return await execute_sql(db, sql, allow_write)
 
 

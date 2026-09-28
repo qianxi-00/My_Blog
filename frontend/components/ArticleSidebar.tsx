@@ -246,7 +246,7 @@ const ArticleSidebar: React.FC<ArticleSidebarProps> = ({ article, relatedArticle
                             {relatedArticles.slice(0, 5).map((item) => (
                                 <Link
                                     key={item.id}
-                                    to={`/article/${item.slug || item.id}`}
+                                    to={`/articles/${item.id}`}
                                     className="block group"
                                 >
                                     <div className="text-sm text-slate-700 dark:text-slate-300 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors line-clamp-2">

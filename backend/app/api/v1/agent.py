@@ -74,6 +74,7 @@ async def chat_with_agent(
                 user_content=request.content,
                 token=token,
                 history_messages=history_messages,
+                role=current_admin.role,
             ):
                 yield _sse_event(event["type"], event["data"])
         except Exception as exc:

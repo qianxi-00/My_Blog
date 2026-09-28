@@ -24,6 +24,7 @@ import {
     updateMyPrompt,
     deleteMyPrompt,
 } from '../api/users';
+import { errorText } from '../utils/errors';
 
 type ArticleTab = 'all' | UserArticleStatus;
 
@@ -132,7 +133,7 @@ const ProfileSection: React.FC<{
             setMsg({ type: 'success', text: '个人资料已更新' });
         } catch (error: any) {
             if (!onAuthError(error)) {
-                setMsg({ type: 'error', text: error.response?.data?.detail || '更新失败' });
+                setMsg({ type: 'error', text: errorText(error, '更新失败') });
             }
         } finally {
             setLoading(false);
@@ -222,7 +223,7 @@ const PasswordSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ o
             setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' });
         } catch (error: any) {
             if (!onAuthError(error)) {
-                setMsg({ type: 'error', text: error.response?.data?.detail || '修改失败' });
+                setMsg({ type: 'error', text: errorText(error, '修改失败') });
             }
         } finally {
             setLoading(false);
@@ -257,11 +258,11 @@ const PasswordSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ o
                     <input
                         type="password"
                         required
-                        minLength={6}
+                        minLength={8}
                         value={passwordData.newPassword}
                         onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                         className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none dark:text-slate-100"
-                        placeholder="至少 6 位字符"
+                        placeholder="至少 8 位字符"
                     />
                 </div>
                 <div>
@@ -269,7 +270,7 @@ const PasswordSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ o
                     <input
                         type="password"
                         required
-                        minLength={6}
+                        minLength={8}
                         value={passwordData.confirmPassword}
                         onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                         className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none dark:text-slate-100"
@@ -336,7 +337,7 @@ const ArticleSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ on
             await fetchArticles();
         } catch (error: any) {
             if (!onAuthError(error)) {
-                alert(error.response?.data?.detail || '提交审核失败');
+                alert(errorText(error, '提交审核失败'));
             }
         } finally {
             setActingId(null);
@@ -351,7 +352,7 @@ const ArticleSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ on
             await fetchArticles();
         } catch (error: any) {
             if (!onAuthError(error)) {
-                alert(error.response?.data?.detail || '删除失败');
+                alert(errorText(error, '删除失败'));
             }
         } finally {
             setActingId(null);
@@ -528,7 +529,7 @@ const EmailBindSection: React.FC<{
             startCooldown();
         } catch (error: any) {
             if (!onAuthError(error)) {
-                setMsg({ type: 'error', text: error.response?.data?.detail || '验证码发送失败' });
+                setMsg({ type: 'error', text: errorText(error, '验证码发送失败') });
             }
         } finally {
             setSending(false);
@@ -547,7 +548,7 @@ const EmailBindSection: React.FC<{
             setCode('');
         } catch (error: any) {
             if (!onAuthError(error)) {
-                setMsg({ type: 'error', text: error.response?.data?.detail || '绑定失败' });
+                setMsg({ type: 'error', text: errorText(error, '绑定失败') });
             }
         } finally {
             setLoading(false);
@@ -658,7 +659,7 @@ const MyPromptsSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ 
             await fetchPrompts();
         } catch (error: any) {
             if (!onAuthError(error)) {
-                setMsg({ type: 'error', text: error.response?.data?.detail || '删除失败' });
+                setMsg({ type: 'error', text: errorText(error, '删除失败') });
             }
         } finally {
             setActingId(null);
@@ -685,7 +686,7 @@ const MyPromptsSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ 
             await fetchPrompts();
         } catch (error: any) {
             if (!onAuthError(error)) {
-                setMsg({ type: 'error', text: error.response?.data?.detail || '保存失败' });
+                setMsg({ type: 'error', text: errorText(error, '保存失败') });
             }
         } finally {
             setActingId(null);

@@ -14,7 +14,7 @@ import random
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
@@ -104,9 +104,13 @@ async def send_code(
     email: str,
     purpose: str,
     ip: str | None = None,
+    deliver: bool = True,
 ) -> int:
     """
     生成并发送验证码，返回有效期秒数。
+
+    deliver=False 时只做校验与落库（占住冷却/频率额度），不真发信——
+    用于"邮箱不存在也不能让调用方看出来"的场景（如自助重置密码发码）。
 
     Raises:
         VerificationError: 域名不允许 / 冷却中 / 超频率
@@ -160,11 +164,12 @@ async def send_code(
     await db.commit()
 
     subject, html_content, text_content = _code_email(email, code, purpose)
-    ok = await asyncio.to_thread(email_service.send_email, email, subject, html_content, text_content)
-    if not ok:
-        await db.delete(row)
-        await db.commit()
-        raise RuntimeError("邮件发送失败，请稍后再试")
+    if deliver:
+        ok = await asyncio.to_thread(email_service.send_email, email, subject, html_content, text_content)
+        if not ok:
+            await db.delete(row)
+            await db.commit()
+            raise RuntimeError("邮件发送失败，请稍后再试")
 
     return CODE_TTL_SECONDS
 
@@ -196,11 +201,24 @@ async def verify_code(db: AsyncSession, email: str, purpose: str, code: str) -> 
         raise VerificationError("验证码已作废，请重新获取")
 
     if row.code_hash != _hash_code(code):
-        row.attempts += 1
+        # 原子自增，避免并发丢更新；行内旧值只用于拼提示文案
+        await db.execute(
+            update(EmailCode)
+            .where(EmailCode.id == row.id)
+            .values(attempts=EmailCode.attempts + 1)
+        )
         await db.commit()
+        row.attempts += 1
         remain = CODE_MAX_ATTEMPTS - row.attempts
         hint = f"，还可尝试 {remain} 次" if remain > 0 else "，已作废请重新获取"
         raise VerificationError(f"验证码错误{hint}")
 
-    row.used_at = now
+    # 原子消费：条件更新 + rowcount，避免同一验证码并发双花
+    result = await db.execute(
+        update(EmailCode)
+        .where(EmailCode.id == row.id, EmailCode.used_at.is_(None))
+        .values(used_at=now)
+    )
     await db.commit()
+    if result.rowcount == 0:
+        raise VerificationError("验证码错误或已过期，请重新获取")

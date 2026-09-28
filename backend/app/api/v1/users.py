@@ -350,6 +350,26 @@ async def create_my_article(
     return article
 
 
+@router.get("/me/articles/{article_id}", response_model=ArticleResponse)
+async def get_my_article(
+    article_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    取自己单篇文章的完整内容（编辑页用）。
+    列表接口是简化模型 ArticleListResponse，不含 content_md，编辑页必须走这个端点。
+    """
+    article = await _get_own_article(article_id, user, db)
+
+    result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.author), selectinload(Article.tags))
+        .where(Article.id == article.id)
+    )
+    return result.scalar_one()
+
+
 @router.put("/me/articles/{article_id}", response_model=ArticleResponse)
 async def update_my_article(
     article_id: int,

@@ -82,6 +82,7 @@ class AgentService:
         user_content: str,
         token: str,
         history_messages: List[AgentMessage],
+        role: str = "admin",
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Agent 聊天（SSE 事件流），支持流式 thinking"""
 
@@ -144,7 +145,7 @@ class AgentService:
                     stream = await client.chat.completions.create(
                         model=ep.model_id,
                         messages=llm_messages,
-                        tools=build_all_tools(),
+                        tools=build_all_tools(role=role),
                         tool_choice="auto",
                         max_tokens=settings.AGENT_MAX_TOKENS,
                         temperature=settings.AGENT_TEMPERATURE,
@@ -256,6 +257,7 @@ class AgentService:
                         args=parsed_args,
                         token=token,
                         db=db,
+                        role=role,
                     )
 
                     yield {

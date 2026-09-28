@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...core.database import get_db
-from ...core.deps import get_current_admin
+from ...core.deps import get_current_admin, token_is_stale
 from ...core.ratelimit import rate_limit
 from ...core.redis import cache_delete_pattern
 from ...core.security import decode_access_token
@@ -56,6 +56,9 @@ async def get_comment_author(
     result = await db.execute(select(User).where(User.id == int(user_id)))
     user = result.scalar_one_or_none()
     if user is None or user.status != "active":
+        return None
+    # 与 get_current_user 一致：改密/重置后旧 token 在这里同样失效（否则会出现"接口登出了、评论还能发"）
+    if token_is_stale(user, payload):
         return None
     return user
 

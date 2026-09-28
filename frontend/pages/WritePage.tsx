@@ -17,6 +17,7 @@ import {
     createMyArticle,
     updateMyArticle,
     submitMyArticle,
+    getMyArticle,
     getMyArticles,
 } from '../api/users';
 import { uploadImage } from '../api/upload';
@@ -81,14 +82,8 @@ const WriteForm: React.FC<{ navigate: (to: string) => void; articleId: number | 
         const fetchArticle = async () => {
             setLoading(true);
             try {
-                const response = await getMyArticles({ page: 1, page_size: 100 });
-                const list = Array.isArray(response) ? response : (response.data || []);
-                const article: UserArticle | undefined = list.find((a) => a.id === articleId);
-                if (!article) {
-                    alert('未找到这篇文章，或它不属于你');
-                    navigate('/user');
-                    return;
-                }
+                // 单篇接口才有 content_md（列表接口是简化模型）——以前走列表导致正文恒空、编辑功能实际不可用
+                const article: UserArticle = await getMyArticle(articleId);
                 if (article.status !== 'draft' && article.status !== 'rejected') {
                     alert('仅草稿/已驳回的文章可以编辑');
                     navigate('/user');
@@ -99,7 +94,8 @@ const WriteForm: React.FC<{ navigate: (to: string) => void; articleId: number | 
                 setContent(article.content_md || '');
                 setCategory(article.category || '');
                 setCoverImage(article.cover_image || '');
-                setSelectedTagNames(article.tags || []);
+                // 后端 tags 是对象数组，直接渲染对象会抛错并白屏；这里统一归一化成名字
+                setSelectedTagNames((article.tags || []).map((t) => (typeof t === 'string' ? t : t.name)));
             } catch (error: any) {
                 if (!handleAuthError(error)) {
                     alert('加载文章失败');

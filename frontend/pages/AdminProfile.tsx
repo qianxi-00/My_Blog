@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { AdminInfo, updateProfile, updatePassword } from '../api/auth';
 import { uploadImage } from '../api/upload';
 import { getFileUrl } from '../api/config';
+import { errorText } from '../utils/errors';
 
 const AdminProfile: React.FC = () => {
     const { admin, refreshAdmin } = useAuth();
@@ -36,7 +37,7 @@ const AdminProfile: React.FC = () => {
             setProfileData(prev => ({ ...prev, avatar_url: result.url }));
             setMsg({ type: 'success', text: '头像上传成功，请点击下方保存按钮' });
         } catch (error: any) {
-            setMsg({ type: 'error', text: '上传失败: ' + (error.response?.data?.detail || '未知错误') });
+            setMsg({ type: 'error', text: '上传失败: ' + (errorText(error, '未知错误')) });
         } finally {
             setLoading(false);
         }
@@ -51,7 +52,7 @@ const AdminProfile: React.FC = () => {
             await refreshAdmin();
             setMsg({ type: 'success', text: '个人资料已更新' });
         } catch (error: any) {
-            setMsg({ type: 'error', text: error.response?.data?.detail || '更新失败' });
+            setMsg({ type: 'error', text: errorText(error, '更新失败') });
         } finally {
             setLoading(false);
         }
@@ -73,7 +74,7 @@ const AdminProfile: React.FC = () => {
             setMsg({ type: 'success', text: '密码已修改' });
             setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' });
         } catch (error: any) {
-            setMsg({ type: 'error', text: error.response?.data?.detail || '修改失败' });
+            setMsg({ type: 'error', text: errorText(error, '修改失败') });
         } finally {
             setLoading(false);
         }
@@ -183,11 +184,11 @@ const AdminProfile: React.FC = () => {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">新密码</label>
-                            <input type="password" required minLength={6} value={passwordData.newPassword} onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none" placeholder="至少 6 位字符" />
+                            <input type="password" required minLength={8} value={passwordData.newPassword} onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none" placeholder="至少 8 位字符" />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">确认新密码</label>
-                            <input type="password" required minLength={6} value={passwordData.confirmPassword} onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none" placeholder="再次输入新密码" />
+                            <input type="password" required minLength={8} value={passwordData.confirmPassword} onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none" placeholder="再次输入新密码" />
                         </div>
                         <div className="flex justify-end pt-4">
                             <button type="submit" disabled={loading} className="w-full px-6 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors disabled:opacity-50 font-medium">

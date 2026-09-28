@@ -9,7 +9,7 @@ import { getFileUrl } from '../api/config';
 const AdminLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { admin, isAuthenticated, isLoading, logout } = useAuth();
+  const { admin, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   // 加载中显示
@@ -24,6 +24,12 @@ const AdminLayout: React.FC = () => {
   // 未登录重定向到登录页
   if (!isAuthenticated) {
     return <Navigate to="/admin/login" replace />;
+  }
+
+  // 已登录但不是管理员（role=user）：后台整站不可见，回用户中心
+  // 后端每个管理接口都有 get_current_admin，这里只是别让普通用户看到后台框架
+  if (!isAdmin) {
+    return <Navigate to="/user" replace />;
   }
 
   const handleLogout = async () => {

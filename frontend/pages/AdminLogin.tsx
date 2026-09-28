@@ -10,15 +10,15 @@ const AdminLogin: React.FC = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { login, isAuthenticated } = useAuth();
+    const { login, logout, isAuthenticated, isAdmin } = useAuth();
     const navigate = useNavigate();
 
-    // 如果已登录，重定向到管理后台
+    // 如果已登录，按角色重定向（普通用户不进后台）
     React.useEffect(() => {
         if (isAuthenticated) {
-            navigate('/admin');
+            navigate(isAdmin ? '/admin' : '/user');
         }
-    }, [isAuthenticated, navigate]);
+    }, [isAuthenticated, isAdmin, navigate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,7 +26,13 @@ const AdminLogin: React.FC = () => {
         setLoading(true);
 
         try {
-            await login({ username, password });
+            const session = await login({ username, password });
+            // 这个入口只给 admin/super_admin：普通用户在这里登录会被请回普通入口
+            if (!session || (session.role !== 'admin' && session.role !== 'super_admin')) {
+                await logout();
+                setError('该账号不是管理员账号，请从普通登录入口登录');
+                return;
+            }
             navigate('/admin');
         } catch (err: any) {
             setError(err.response?.data?.detail || '登录失败，请检查用户名和密码');

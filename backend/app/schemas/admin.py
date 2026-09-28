@@ -76,6 +76,7 @@ class AdminUserListItem(AdminResponse):
             **AdminResponse.model_validate(user).model_dump(),
             article_count=article_count,
             comment_count=comment_count,
+            last_login_at=user.last_login_at,
         )
 
 

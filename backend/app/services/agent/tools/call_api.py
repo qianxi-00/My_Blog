@@ -55,10 +55,10 @@ TOOL_SCHEMAS: List[Dict[str, Any]] = [
 # ------------------------------------------------------------------ #
 
 def normalize_path(path: str) -> str:
-    """将相对路径或简写路径规范化为完整的内部 URL"""
+    """将相对路径或简写路径规范化为完整的内部 URL（只允许站内相对路径）"""
     path = path.strip()
-    if path.startswith("http://") or path.startswith("https://"):
-        return path
+    if path.startswith(("http://", "https://", "//")):
+        raise ValueError("call_api 只允许站内相对路径（如 /api/v1/articles），不接受绝对 URL")
     if not path.startswith("/"):
         path = f"/{path}"
     if path.startswith("/api/"):
@@ -95,7 +95,17 @@ async def call_api(
     实际的 HTTP 调用逻辑
     NOTE: 此函数同时被 Skill 层内部复用（Skill 通过调用此函数实现对 API 的封装）
     """
-    url = normalize_path(path)
+    try:
+        url = normalize_path(path)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "status_code": 400,
+            "url": path,
+            "method": method.upper(),
+            "error": str(exc),
+        }
+
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

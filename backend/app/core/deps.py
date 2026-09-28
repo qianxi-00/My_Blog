@@ -25,6 +25,27 @@ from ..models.user import User
 security = HTTPBearer(auto_error=False)
 
 
+def token_is_stale(user, payload: Optional[dict]) -> bool:
+    """
+    改密 / 重置后旧 token 是否已失效（2026-09-26 二期）：
+    token 签发时间早于最近一次密码变更时间 → 失效。
+
+    iat 异常时不误杀（token 本身已验签通过）。
+    评论等"可选登录"入口必须复用本函数，否则会出现"接口登出了、评论还能发"的不一致。
+    """
+    if user.password_changed_at is None:
+        return False
+    iat = (payload or {}).get("iat")
+    if iat is None:
+        return False
+    try:
+        issued_at = datetime.fromtimestamp(float(iat), tz=timezone.utc)
+    except (ValueError, TypeError, OSError):
+        return False
+    changed_at = user.password_changed_at.replace(tzinfo=timezone.utc)
+    return issued_at < changed_at
+
+
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db)
@@ -84,22 +105,13 @@ async def get_current_user(
             detail="账号已被禁用",
         )
 
-    # 改密 / 重置后旧 token 立即失效（2026-09-26 二期）：
-    # token 签发时间早于最近一次密码变更时间 → 401
-    if user.password_changed_at is not None:
-        iat = payload.get("iat")
-        if iat is not None:
-            try:
-                issued_at = datetime.fromtimestamp(float(iat), tz=timezone.utc)
-                changed_at = user.password_changed_at.replace(tzinfo=timezone.utc)
-                if issued_at < changed_at:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="登录状态已失效，请重新登录",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-            except (ValueError, TypeError, OSError):
-                pass  # iat 异常时不误杀（token 本身已验签通过）
+    # 改密 / 重置后旧 token 立即失效（2026-09-26 二期）：判据与 token_is_stale 共用一份
+    if token_is_stale(user, payload):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录状态已失效，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     return user
 

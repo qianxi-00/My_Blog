@@ -6,6 +6,7 @@
 - 新增 POST /register 用户注册（站点设置 user_registration_enabled 控制开关）
 """
 
+import logging
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -48,7 +49,11 @@ async def _registration_enabled(db: AsyncSession) -> bool:
     return str(setting.value).strip().lower() not in ("false", "0", "no", "off")
 
 
-@router.post("/login", response_model=AdminLoginResponse)
+logger = logging.getLogger(__name__)
+
+
+@router.post("/login", response_model=AdminLoginResponse,
+             dependencies=[Depends(rate_limit("login", limit=10, window_seconds=60, key_scope="ip"))])
 async def login(
     login_data: AdminLogin,
     db: AsyncSession = Depends(get_db)
@@ -233,14 +238,12 @@ async def password_reset_code(
     """
     email = data.email.strip().lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if user is not None:
-        try:
-            await send_code(db, email, "reset", ip=_client_ip(request))
-        except VerificationError as e:
-            # 频率类错误要如实返回（不能把"太频繁"说成"已发送"）
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
-        except RuntimeError as e:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+    try:
+        # 邮箱不存在时也走同一套域名/冷却/频率校验并落库（只是不真发信）：
+        # 任何差异化响应（"该域名不支持""发送太频繁"）都会把这个端点变成"该邮箱是否已注册"的预言机
+        await send_code(db, email, "reset", ip=_client_ip(request), deliver=user is not None)
+    except (VerificationError, RuntimeError) as e:
+        logger.warning("发送重置验证码未成功（对外统一同一句提示）: %s", e)
     return {"message": "如果该邮箱已注册，验证码已发送，请查收"}
 
 
@@ -324,13 +327,17 @@ async def update_password(
     """
     修改密码
     """
-    # 验证旧密码 (verify_password first arg is plain, second is hashed)
-    if password_in.old_password:
-        if not await verify_password(password_in.old_password, user.password_hash):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="旧密码错误"
-            )
+    # 这是"改自己的密码"：旧密码必填，不允许省略即改密（2026-09-28 修复）
+    if not password_in.old_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请提供旧密码"
+        )
+    if not await verify_password(password_in.old_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="旧密码错误"
+        )
         
     # Set new password
     user.password_hash = await get_password_hash(password_in.new_password)
