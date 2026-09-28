@@ -4,7 +4,7 @@
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-26 用户系统上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
 仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`。
-当前生产镜像 **`qianxi-blog:users3`**（构建源 = 仓库提交 `c508593` 的 `git archive HEAD backend` 导出树，产物与推送代码逐文件 sha256 对齐；前端产物 `assets/index-bv2iCR9h.js`）。上一个可用版本 `users2`（提交 `47102c5`）保留作回退。
+当前生产镜像 **`qianxi-blog:users3`**（构建源 = 仓库提交 `c508593` 的 `git archive HEAD backend` 导出树，产物与推送代码逐文件 sha256 对齐；前端产物 `assets/index-C5lckPql.js`）。上一个可用版本 `users2`（提交 `47102c5`）保留作回退。
 
 ## 先看这里（2026-09-24 迁移后）
 
@@ -32,7 +32,7 @@
 | 并发优化（2026-09-24 实测） | SQLite 已切 **WAL**（`app/core/database.py` 连接事件监听自动 PRAGMA：journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000；写不再锁全库）；aiosqlite 方言默认 NullPool，已显式 `AsyncAdaptedQueuePool`（pool_size=20/max_overflow=30）；bcrypt 登录验证改 `asyncio.to_thread`（原先同步 100-300ms 阻塞事件循环）；A-RAG SSE 有并发护栏 `asyncio.Semaphore(8)`/worker（双 worker 合计 16 路，超限回友好提示）。压测（ab，同机 2 核）：1worker/1CPU=42.7rps/750ms → 2worker/2CPU=70.6rps/453ms（直连）、62.6rps/0 错误（公网 HTTPS 全路径）。单请求 ~15ms；剩余上限是宿主机 2 核本身，再要翻倍只能升配或加只读副本 |
 | A-RAG 聊天 | 公开问答已从 PoroRagAgent 伪流式升级为 **LangChain create_agent**（2026-09-24）。新端点 `POST /api/v1/chat/message/agentic`（SSE，事件 `reasoning`/`tool_start`/`tool_result`/`text`/`done`/`error`）。实现：`backend/app/services/arag_agent.py`（5 个检索工具：文章/证据块/读窗口/读全文/热点；工具**各自开独立 DB 会话**，因为 ToolNode 并行调用工具）；`ReasoningChatOpenAI` 子类负责把网关 `delta.reasoning_content` 透传进事件流（langgraph v3 messages 通道不透传，靠子类回调直推 SSE 队列）。旧端点 `/chat/message/stream`（Poro 伪流式）保留给桌宠主动气泡。前端 `DesktopPet` 聊天面板 + `AgentProcessStrip` 渲染思考/工具芯片。**nginx /api/ 已加 `proxy_buffering off`（SSE 依赖，别删）**。注意 `openai` SDK 已升 `3.19.2`（langchain-openai 1.6.6 要求 >=2.45） |
 | 数据库 | 容器挂载 `/data/blog/data:/data`，库文件 `/data/blog/data/blog.db`。2026-09-24 从 HF 导出（integrity ok：23 文 / 567 热点 / 558 published） |
-| 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。当前产物 `assets/index-bv2iCR9h.js`（3,018,307 B，2026-09-28 含用户与权限独立页 + 忘记密码 + 邮箱绑定 + 我的提示词）。旧主包仍留在 dist（避免强缓存用户白屏）。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
+| 前端 | `/var/www/blog/dist`，本地构建后分批上传；uploads 53 个文件齐全。当前产物 `assets/index-C5lckPql.js`（3,018,521 B，2026-09-28 含用户与权限独立页 + 忘记密码 + 邮箱绑定 + 我的提示词）。旧主包仍留在 dist（避免强缓存用户白屏）。Live2D 是死代码未上传（见已知缺口 1），站点宠物为静态 DesktopPet |
 | nginx | `/etc/nginx/sites-available/blog`（独立文件，别动 `new-api` 那份）。80 端口有 `^~ /.well-known/acme-challenge/` 例外 + 301，**别删这个例外，删了证书续不了** |
 | 证书 | Let's Encrypt `blog.qianxi7988.me`，2026-12-23 到期，certbot 自动续期（webroot=`/var/www/blog/dist`） |
 | 运行配置 | `/data/blog/runtime.env`（600 root-only）：JWT_SECRET_KEY（强随机，2026-09-24 轮换）、`LLM_MODEL_CHAIN=grok-4.7`、`REDIS_ENABLED=false`、NewAPI 地址 `http://new-api:3000/v1` |
