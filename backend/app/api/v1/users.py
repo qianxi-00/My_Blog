@@ -190,7 +190,7 @@ async def update_my_prompt(
     db: AsyncSession = Depends(get_db)
 ):
     """改自己的提示词（仅 pending/rejected；已发布的找管理员）"""
-    prompt = _get_own_prompt(prompt_id, user, db)
+    prompt = await _get_own_prompt(prompt_id, user, db)
     if prompt.status not in ("pending", "rejected"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -215,7 +215,11 @@ async def update_my_prompt(
         prompt.status = "pending"
     await db.commit()
     await db.refresh(prompt)
-    return prompt
+    # 响应里有 author，必须显式预加载：默认 lazy 会在同步序列化时触发懒加载 -> MissingGreenlet
+    prompt = (await db.execute(
+        select(Prompt).options(selectinload(Prompt.author)).where(Prompt.id == prompt.id)
+    )).scalar_one()
+    return PromptResponse.model_validate(prompt)
 
 
 @router.delete("/me/prompts/{prompt_id}")
@@ -225,7 +229,7 @@ async def delete_my_prompt(
     db: AsyncSession = Depends(get_db)
 ):
     """删自己的提示词（仅 pending/rejected；已发布的找管理员）"""
-    prompt = _get_own_prompt(prompt_id, user, db)
+    prompt = await _get_own_prompt(prompt_id, user, db)
     if prompt.status not in ("pending", "rejected"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
