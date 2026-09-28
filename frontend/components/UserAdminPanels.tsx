@@ -439,7 +439,7 @@ export const AdminUserPanel: React.FC = () => {
                     <div className="p-10 text-center text-slate-400 dark:text-slate-500">没有匹配的用户</div>
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full">
+                        <table className="w-full min-w-[920px]">
                             <thead>
                                 <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
                                     <th className={th}>ID</th>
@@ -461,7 +461,11 @@ export const AdminUserPanel: React.FC = () => {
                                         <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer" onClick={() => setDetailId(user.id)}>
                                             <td className="p-4 text-sm text-slate-400 dark:text-slate-500">{user.id}</td>
                                             <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{user.username}</td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{user.display_name || '-'}</td>
+                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">
+                                                <div className="max-w-[140px] truncate" title={user.display_name || user.username}>
+                                                    {user.display_name || '-'}
+                                                </div>
+                                            </td>
                                             <td className="p-4 text-sm text-slate-500 dark:text-slate-400">
                                                 {user.email || <span className="text-slate-300 dark:text-slate-600">未绑定</span>}
                                             </td>
