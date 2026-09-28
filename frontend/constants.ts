@@ -107,6 +107,7 @@ export const SIDEBAR_ITEMS = [
   { label: '仪表盘', path: '/admin', icon: 'LayoutDashboard' },
   { label: '文章管理', path: '/admin/posts', icon: 'FileText' },
   { label: '评论审核', path: '/admin/comments', icon: 'MessageCircle' },
+  { label: '用户与权限', path: '/admin/users', icon: 'Users' },
   { label: '热点管理', path: '/admin/hotspots', icon: 'TrendingUp' },
   { label: 'Prompt 管理', path: '/admin/prompts', icon: 'Bot' },
   { label: '订阅管理', path: '/admin/subscribers', icon: 'Mail' },

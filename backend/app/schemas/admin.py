@@ -58,6 +58,27 @@ class AdminResponse(AdminBase):
         from_attributes = True
 
 
+class AdminUserListItem(AdminResponse):
+    """
+    用户管理列表项（2026-09-26 二期）：AdminResponse + 统计与最后登录。
+
+    单独建模而不改 AdminResponse 本体：AdminResponse 同时用于登录响应等处，
+    统计字段只在用户管理接口出现。
+    统计由相关子查询填充（不碰 User.articles / User.comments 关系）。
+    """
+    article_count: int = 0
+    comment_count: int = 0
+    last_login_at: Optional[datetime] = None
+
+    @classmethod
+    def from_user(cls, user, article_count: int = 0, comment_count: int = 0):
+        return cls(
+            **AdminResponse.model_validate(user).model_dump(),
+            article_count=article_count,
+            comment_count=comment_count,
+        )
+
+
 class AdminLogin(BaseModel):
     """管理员登录请求模型"""
     username: str = Field(..., description="用户名")

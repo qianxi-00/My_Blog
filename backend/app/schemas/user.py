@@ -42,11 +42,12 @@ class UserProfilePublic(UserPublicSafe):
 
 
 class UserRegister(BaseModel):
-    """注册请求模型"""
+    """注册请求模型（2026-09-26 二期：邮箱认证强制）"""
     username: str = Field(..., pattern=r"^[a-zA-Z0-9_-]{3,30}$", description="用户名：字母/数字/下划线/连字符 3-30 位")
     password: str = Field(..., min_length=8, max_length=100, description="密码，至少 8 位")
     display_name: Optional[str] = Field(None, max_length=100, description="显示名称，缺省用用户名")
-    email: Optional[EmailStr] = Field(None, description="邮箱，可选")
+    email: EmailStr = Field(..., description="邮箱，必填且需验证码验证")
+    code: str = Field(..., min_length=4, max_length=8, description="邮箱验证码（POST /auth/register/code 获取）")
 
 
 class UserLogin(BaseModel):
@@ -73,3 +74,28 @@ class UserRegisterResponse(BaseModel):
     """注册响应模型"""
     access_token: str
     user: UserPublic
+
+
+# ===== 2026-09-26 二期：邮箱认证 =====
+
+class EmailCodeRequest(BaseModel):
+    """发送邮箱验证码请求（注册 / 绑定邮箱共用）"""
+    email: EmailStr = Field(..., description="接收验证码的邮箱")
+
+
+class PasswordResetCodeRequest(BaseModel):
+    """发起自助重置密码请求"""
+    email: EmailStr = Field(..., description="账号邮箱")
+
+
+class PasswordResetRequest(BaseModel):
+    """自助重置密码请求（第二步）"""
+    email: EmailStr = Field(..., description="账号邮箱")
+    code: str = Field(..., min_length=4, max_length=8, description="邮箱验证码")
+    new_password: str = Field(..., min_length=8, max_length=100, description="新密码，至少 8 位")
+
+
+class EmailBindRequest(BaseModel):
+    """登录用户绑定 / 更换邮箱（第二步）"""
+    email: EmailStr = Field(..., description="要绑定的邮箱")
+    code: str = Field(..., min_length=4, max_length=8, description="邮箱验证码")

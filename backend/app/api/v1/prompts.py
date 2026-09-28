@@ -10,9 +10,11 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from ...core.database import get_db
-from ...core.deps import get_current_admin, get_current_admin_optional
+from ...core.deps import get_current_admin, get_current_admin_optional, get_current_user
+from ...core.ratelimit import rate_limit
 from ...models.admin import Admin
 from ...models.prompt import Prompt
+from ...models.user import User
 from ...schemas.prompt import (
     PromptCreate, PromptUserSubmit, PromptUpdate,
     PromptResponse, PromptListResponse
@@ -152,20 +154,24 @@ async def create_prompt(
     return PromptResponse.model_validate(prompt)
 
 
-@router.post("/submit", response_model=PromptResponse)
+@router.post("/submit", response_model=PromptResponse,
+             dependencies=[Depends(rate_limit("prompt_submit", limit=3, window_seconds=86400, key_scope="user"))])
 async def submit_prompt(
     prompt_data: PromptUserSubmit,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    用户提交 Prompt（需审核）
+    提交 Prompt（2026-09-26 二期：必须登录，绑定账号 + 3 次/天；进审核队列）。
+    管理员与用户本人后续在「我的提示词」/ 审核队列里处置。
     """
     prompt = Prompt(
         title=prompt_data.title,
         description=prompt_data.description,
         content=prompt_data.content,
         category=prompt_data.category,
-        submitted_by=prompt_data.submitted_by,
+        author_id=user.id,
+        submitted_by=user.display_name or user.username,
         status="pending"
     )
     

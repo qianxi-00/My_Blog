@@ -51,12 +51,8 @@ class Admin(Base):
     )
     
     # 关联关系
-    # 注：articles 关系已移除（2026-09-24 用户系统改造：文章作者改指 users 表，
-    # 由 User.articles 承接 back_populates；admins 表整体休眠，仅 prompts/comments 残留引用）
-    prompts: Mapped[List["Prompt"]] = relationship(
-        "Prompt",
-        back_populates="author"
-    )
+    # 注：articles / prompts 关系已移除（文章作者、Prompt 作者 2026-09-26 起都指 users 表，
+    # 由 User.articles / User.prompts 承接 back_populates；admins 表整体休眠，仅 comments 残留引用）
     comments: Mapped[List["Comment"]] = relationship(
         "Comment",
         back_populates="admin"

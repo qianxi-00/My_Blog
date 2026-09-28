@@ -92,3 +92,27 @@ export const getStoredAdmin = (): AdminInfo | null => {
 export const isLoggedIn = (): boolean => {
     return !!localStorage.getItem('access_token');
 };
+
+// ===== 2026-09-26 二期：邮箱认证 =====
+
+// 发送注册验证码
+export const sendRegisterCode = async (email: string): Promise<{ message: string; expires_in: number }> => {
+    const response = await api.post('/auth/register/code', { email });
+    return response.data;
+};
+
+// 发起自助重置密码（发送验证码；邮箱不存在也返回成功，防枚举）
+export const sendResetCode = async (email: string): Promise<{ message: string }> => {
+    const response = await api.post('/auth/password/reset/code', { email });
+    return response.data;
+};
+
+// 自助重置密码（第二步）
+export const resetPassword = async (data: {
+    email: string;
+    code: string;
+    new_password: string;
+}): Promise<{ message: string }> => {
+    const response = await api.post('/auth/password/reset', data);
+    return response.data;
+};

@@ -33,9 +33,11 @@ import HotspotUploadPage from './pages/HotspotUploadPage';
 import AiDaily from './pages/AiDaily';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
 import UserCenter from './pages/UserCenter';
 import AuthorPage from './pages/AuthorPage';
 import WritePage from './pages/WritePage';
+import AdminAccounts from './pages/AdminAccounts';
 
 const App: React.FC = () => {
 // ... existing imports
@@ -72,6 +74,7 @@ const App: React.FC = () => {
               {/* Login / Register（独立全屏页面） */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
 
               {/* Admin Login */}
               <Route path="/admin/login" element={<AdminLogin />} />
@@ -84,6 +87,7 @@ const App: React.FC = () => {
                 <Route path="posts/new" element={<ArticleEditor />} />
                 <Route path="posts/:id/edit" element={<ArticleEditor />} />
                 <Route path="comments" element={<CommentManager />} />
+                <Route path="users" element={<AdminAccounts />} />
                 <Route path="prompts" element={<PromptManager />} />
                 <Route path="subscribers" element={<SubscriberManager />} />
                 <Route path="ai-agent" element={<AgentChat />} />

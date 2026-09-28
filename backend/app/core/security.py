@@ -48,31 +48,42 @@ async def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     创建 JWT 访问令牌
-    
+
     Args:
         data: 要编码的数据（通常包含 sub 字段）
         expires_delta: 过期时间增量
-    
+
     Returns:
         JWT 令牌字符串
     """
     to_encode = data.copy()
-    
+
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
         )
-    
-    to_encode.update({"exp": expire})
+
+    # iat（签发时间）：改密 / 重置后旧 token 依据它立即失效（deps.get_current_user）
+    to_encode.update({"exp": expire, "iat": int(datetime.now(timezone.utc).timestamp())})
     encoded_jwt = jwt.encode(
         to_encode,
         settings.JWT_SECRET_KEY,
         algorithm=settings.JWT_ALGORITHM
     )
-    
+
     return encoded_jwt
+
+
+def utc_now_naive() -> datetime:
+    """
+    UTC naive 时间（给 SQLite 的 DateTime 列用）。
+
+    SQLite 的 CURRENT_TIMESTAMP/func.now() 就是 UTC naive；
+    密码变更时间必须同口径存储，deps 里比较时按 UTC 补 tzinfo 才不会差时区。
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def decode_access_token(token: str) -> Optional[dict]:

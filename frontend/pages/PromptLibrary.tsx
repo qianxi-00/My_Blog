@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { Card, Button, Badge } from '../components/Shared';
 import { getPrompts, submitPrompt, recordPromptUsage, Prompt, PromptCategory } from '../api/prompts';
 import { likePrompt, unlikePrompt } from '../api/prompts';
 import { runPromptLab, PromptLabResponse } from '../api/chat';
+import { useAuth } from '../contexts/AuthContext';
 
 const PromptLibrary: React.FC = () => {
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<PromptCategory | 'All'>('All');
@@ -31,7 +34,6 @@ const PromptLibrary: React.FC = () => {
     description: '',
     content: '',
     category: 'Dev' as PromptCategory,
-    submitted_by: '',
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -171,6 +173,11 @@ const PromptLibrary: React.FC = () => {
   };
 
   const handleSubmitPrompt = async () => {
+    if (!isAuthenticated) {
+      alert('投稿需要先登录（登录后可在用户中心管理自己的提示词）');
+      navigate('/login');
+      return;
+    }
     if (!submitForm.title || !submitForm.content) {
       alert('请填写标题和内容');
       return;
@@ -178,9 +185,9 @@ const PromptLibrary: React.FC = () => {
     setSubmitting(true);
     try {
       await submitPrompt(submitForm);
-      alert('提交成功！等待审核');
+      alert('提交成功！进入待审核，可在用户中心「我的提示词」跟踪进度');
       setShowSubmitModal(false);
-      setSubmitForm({ title: '', description: '', content: '', category: 'Dev', submitted_by: '' });
+      setSubmitForm({ title: '', description: '', content: '', category: 'Dev' });
     } catch (error: any) {
       alert(error.response?.data?.detail || '提交失败');
     } finally {
@@ -550,16 +557,7 @@ const PromptLibrary: React.FC = () => {
                   <option value="Academic">Academic</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">你的昵称</label>
-                <input
-                  type="text"
-                  value={submitForm.submitted_by}
-                  onChange={(e) => setSubmitForm({ ...submitForm, submitted_by: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg dark:text-white transition-colors focus:ring-2 focus:ring-primary-500 outline-none"
-                  placeholder="可选"
-                />
-              </div>
+              {/* 提交者身份已绑定登录账号（2026-09-26 二期），不再手填昵称 */}
               <Button className="w-full" onClick={handleSubmitPrompt} disabled={submitting}>
                 {submitting ? '提交中...' : '提交'}
               </Button>

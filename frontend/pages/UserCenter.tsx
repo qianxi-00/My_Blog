@@ -2,7 +2,7 @@
  * 用户中心页面（需登录）
  * 三个区块：我的资料 / 修改密码 / 我的文章（草稿/待审核/已发布/已驳回）
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { Button } from '../components/Shared';
@@ -17,6 +17,12 @@ import {
     deleteMyArticle,
     updateCurrentUser,
     updateCurrentUserPassword,
+    sendBindEmailCode,
+    bindEmail,
+    MyPrompt,
+    getMyPrompts,
+    updateMyPrompt,
+    deleteMyPrompt,
 } from '../api/users';
 
 type ArticleTab = 'all' | UserArticleStatus;
@@ -86,8 +92,14 @@ const UserCenter: React.FC = () => {
                 <PasswordSection onAuthError={handleAuthError} />
             </div>
 
+            {/* 绑定邮箱（2026-09-26 二期） */}
+            <EmailBindSection user={user} onAuthError={handleAuthError} onSaved={refreshAdmin} />
+
             {/* 我的文章 */}
             <ArticleSection onAuthError={handleAuthError} />
+
+            {/* 我的提示词（2026-09-26 二期） */}
+            <MyPromptsSection onAuthError={handleAuthError} />
         </div>
     );
 };
@@ -152,13 +164,15 @@ const ProfileSection: React.FC<{
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">邮箱</label>
-                        <input
-                            type="email"
-                            value={profileData.email || ''}
-                            onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-                            className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none transition-all dark:text-slate-100"
-                            placeholder="example@email.com"
-                        />
+                        <div className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg dark:text-slate-100 text-sm flex items-center justify-between gap-2">
+                            <span className="truncate">
+                                {user.email || <span className="text-slate-400 dark:text-slate-500">未绑定</span>}
+                                {user.email && <span className="ml-2 text-xs text-green-600 dark:text-green-400">已验证</span>}
+                            </span>
+                        </div>
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                            更换邮箱请通过下方「绑定邮箱」（验证码验证）。邮箱用于找回密码。
+                        </p>
                     </div>
                 </div>
                 <div>
@@ -465,6 +479,329 @@ const ArticleSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ on
                     >
                         下一页
                     </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ===== 绑定邮箱（2026-09-26 二期：验证码绑定） =====
+const EmailBindSection: React.FC<{
+    user: { email?: string };
+    onAuthError: (error: any) => boolean;
+    onSaved: () => Promise<void>;
+}> = ({ user, onAuthError, onSaved }) => {
+    const [show, setShow] = useState(false);
+    const [email, setEmail] = useState('');
+    const [code, setCode] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [cooldown, setCooldown] = useState(0);
+    const [msg, setMsg] = useState({ type: '', text: '' });
+    const timerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        return () => { if (timerRef.current) window.clearInterval(timerRef.current); };
+    }, []);
+
+    const startCooldown = () => {
+        setCooldown(60);
+        if (timerRef.current) window.clearInterval(timerRef.current);
+        timerRef.current = window.setInterval(() => {
+            setCooldown((c) => {
+                if (c <= 1 && timerRef.current) { window.clearInterval(timerRef.current); return 0; }
+                return c - 1;
+            });
+        }, 1000);
+    };
+
+    const handleSendCode = async () => {
+        setMsg({ type: '', text: '' });
+        if (!email.trim() || !email.includes('@')) {
+            setMsg({ type: 'error', text: '请输入正确的邮箱地址' });
+            return;
+        }
+        setSending(true);
+        try {
+            const res = await sendBindEmailCode(email.trim());
+            setMsg({ type: 'success', text: res.message || '验证码已发送，请查收邮件' });
+            startCooldown();
+        } catch (error: any) {
+            if (!onAuthError(error)) {
+                setMsg({ type: 'error', text: error.response?.data?.detail || '验证码发送失败' });
+            }
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const handleBind = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setMsg({ type: '', text: '' });
+        setLoading(true);
+        try {
+            await bindEmail({ email: email.trim(), code: code.trim() });
+            await onSaved();
+            setMsg({ type: 'success', text: '邮箱已绑定' });
+            setShow(false);
+            setCode('');
+        } catch (error: any) {
+            if (!onAuthError(error)) {
+                setMsg({ type: 'error', text: error.response?.data?.detail || '绑定失败' });
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-4">
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">绑定邮箱</h2>
+                <Button size="sm" variant="outline" onClick={() => { setShow((v) => !v); setEmail(user.email || ''); }}>
+                    {show ? '收起' : (user.email ? '更换邮箱' : '绑定邮箱')}
+                </Button>
+            </div>
+
+            {msg.text && (
+                <div className={`p-3 rounded-lg text-sm ${msg.type === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'}`}>
+                    {msg.text}
+                </div>
+            )}
+
+            {show && (
+                <form onSubmit={handleBind} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">邮箱</label>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none dark:text-slate-100"
+                            placeholder="user@example.com"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">验证码</label>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={code}
+                                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                                className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-cyan-500 outline-none dark:text-slate-100 font-mono tracking-[0.3em]"
+                                placeholder="6 位数字"
+                                required
+                                maxLength={6}
+                            />
+                            <button
+                                type="button"
+                                onClick={handleSendCode}
+                                disabled={sending || cooldown > 0}
+                                className="shrink-0 px-4 py-2 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 text-sm transition-colors"
+                            >
+                                {cooldown > 0 ? `${cooldown}s` : (sending ? '...' : '发送验证码')}
+                            </button>
+                        </div>
+                    </div>
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-purple-600 text-white rounded-lg hover:opacity-90 transition-all disabled:opacity-50 font-medium text-sm"
+                    >
+                        {loading ? '绑定中...' : '确认绑定'}
+                    </button>
+                </form>
+            )}
+        </div>
+    );
+};
+
+// ===== 我的提示词（2026-09-26 二期：提交/管理自己的） =====
+const PROMPT_STATUS_BADGES: Record<string, { label: string; className: string }> = {
+    pending: { label: '待审核', className: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800' },
+    approved: { label: '已通过', className: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' },
+    rejected: { label: '已驳回', className: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800' },
+};
+
+const MyPromptsSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ onAuthError }) => {
+    const [prompts, setPrompts] = useState<MyPrompt[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [actingId, setActingId] = useState<number | null>(null);
+    const [editingId, setEditingId] = useState<number | null>(null);
+    const [editData, setEditData] = useState({ title: '', description: '', content: '', category: 'Dev' });
+    const [msg, setMsg] = useState({ type: '', text: '' });
+
+    const fetchPrompts = async () => {
+        setLoading(true);
+        try {
+            setPrompts(await getMyPrompts());
+        } catch (error: any) {
+            if (!onAuthError(error)) {
+                setPrompts([]);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchPrompts();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleDelete = async (id: number) => {
+        if (!window.confirm('确定删除这条提示词吗？')) return;
+        setActingId(id);
+        try {
+            await deleteMyPrompt(id);
+            await fetchPrompts();
+        } catch (error: any) {
+            if (!onAuthError(error)) {
+                setMsg({ type: 'error', text: error.response?.data?.detail || '删除失败' });
+            }
+        } finally {
+            setActingId(null);
+        }
+    };
+
+    const startEdit = (p: MyPrompt) => {
+        setEditingId(p.id);
+        setEditData({ title: p.title, description: p.description || '', content: p.content, category: p.category });
+        setMsg({ type: '', text: '' });
+    };
+
+    const handleSave = async (id: number) => {
+        setActingId(id);
+        try {
+            await updateMyPrompt(id, {
+                title: editData.title,
+                description: editData.description || undefined,
+                content: editData.content,
+                category: editData.category,
+            });
+            setEditingId(null);
+            setMsg({ type: 'success', text: '已保存，重新进入待审核' });
+            await fetchPrompts();
+        } catch (error: any) {
+            if (!onAuthError(error)) {
+                setMsg({ type: 'error', text: error.response?.data?.detail || '保存失败' });
+            }
+        } finally {
+            setActingId(null);
+        }
+    };
+
+    return (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 sm:p-8">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">我的提示词</h2>
+                <Link to="/prompts">
+                    <Button size="sm" variant="outline">
+                        <Icons.Sparkles className="w-4 h-4 mr-1" /> 去 Prompt 库
+                    </Button>
+                </Link>
+            </div>
+
+            {msg.text && (
+                <div className={`p-3 rounded-lg text-sm mb-4 ${msg.type === 'success' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'}`}>
+                    {msg.text}
+                </div>
+            )}
+
+            {loading ? (
+                <div className="py-10 text-center text-slate-400 dark:text-slate-500">加载中...</div>
+            ) : prompts.length === 0 ? (
+                <div className="text-center text-slate-400 dark:text-slate-500 py-12 bg-slate-50/50 dark:bg-slate-900/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+                    <div className="text-4xl mb-3 opacity-50">✨</div>
+                    <p>还没有提交过提示词，去 Prompt 库投稿吧（3 条/天）</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {prompts.map((p) => {
+                        const badge = PROMPT_STATUS_BADGES[p.status] || PROMPT_STATUS_BADGES.pending;
+                        const manageable = p.status === 'pending' || p.status === 'rejected';
+                        return (
+                            <div key={p.id} className="bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                                            <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${badge.className}`}>{badge.label}</span>
+                                            <span className="text-xs text-slate-500 dark:text-slate-400">{p.category}</span>
+                                            <span className="text-xs text-slate-400 dark:text-slate-500">
+                                                {new Date(p.created_at).toLocaleDateString('zh-CN')}
+                                            </span>
+                                        </div>
+                                        <div className="font-bold text-slate-800 dark:text-slate-100 text-sm">{p.title}</div>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 mt-1 font-mono">{p.content}</p>
+                                    </div>
+                                    {manageable && (
+                                        <div className="flex gap-2 shrink-0">
+                                            {editingId !== p.id && (
+                                                <button
+                                                    onClick={() => startEdit(p)}
+                                                    className="h-8 px-3 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+                                                >
+                                                    编辑
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => handleDelete(p.id)}
+                                                disabled={actingId === p.id}
+                                                className="h-8 px-3 text-xs font-medium bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-all disabled:opacity-50"
+                                            >
+                                                删除
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 编辑态 */}
+                                {editingId === p.id && (
+                                    <div className="mt-3 space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3">
+                                        <input
+                                            type="text"
+                                            value={editData.title}
+                                            onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-cyan-500 outline-none"
+                                            placeholder="标题"
+                                        />
+                                        <textarea
+                                            rows={3}
+                                            value={editData.content}
+                                            onChange={(e) => setEditData({ ...editData, content: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-cyan-500 outline-none font-mono"
+                                            placeholder="Prompt 内容"
+                                        />
+                                        <div className="flex gap-2">
+                                            <select
+                                                value={editData.category}
+                                                onChange={(e) => setEditData({ ...editData, category: e.target.value })}
+                                                className="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-cyan-500 outline-none"
+                                            >
+                                                {['Dev', 'Writing', 'Business', 'Academic', 'Other'].map((c) => (
+                                                    <option key={c} value={c}>{c}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => handleSave(p.id)}
+                                                disabled={actingId === p.id}
+                                                className="px-4 py-2 bg-cyan-500 text-white rounded-lg text-sm font-medium hover:bg-cyan-600 disabled:opacity-50 transition-colors"
+                                            >
+                                                {actingId === p.id ? '保存中...' : '保存'}
+                                            </button>
+                                            <button
+                                                onClick={() => setEditingId(null)}
+                                                className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg text-sm hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                            >
+                                                取消
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>

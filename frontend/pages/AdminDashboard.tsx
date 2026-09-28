@@ -8,15 +8,15 @@ import { getStatsOverview, getDailyStats, getPopularArticles, StatsOverview, Dai
 import { getFileUrl } from '../api/config';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { AdminUserPanel, UserArticleReviewPanel } from '../components/UserAdminPanels';
+import { UserArticleReviewPanel } from '../components/UserAdminPanels';
 
-type DashboardTab = 'overview' | 'user-articles' | 'users';
+type DashboardTab = 'overview' | 'user-articles';
 
 const DASHBOARD_TABS: { key: DashboardTab; label: string }[] = [
   { key: 'overview', label: '概览' },
   { key: 'user-articles', label: '用户文章审核' },
-  { key: 'users', label: '用户管理' },
 ];
+// 用户管理已挪为侧栏独立页「用户与权限」/admin/users（2026-09-26 二期）
 
 const StatCard: React.FC<StatCardProps> = ({ label, value, trend, trendUp, icon }) => (
   <Card className="p-6">
@@ -123,7 +123,6 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {activeTab === 'user-articles' && <UserArticleReviewPanel />}
-      {activeTab === 'users' && <AdminUserPanel />}
 
       {/* 概览：以下为原有内容，结构保持不变 */}
       {activeTab === 'overview' && (

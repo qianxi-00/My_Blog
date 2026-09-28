@@ -1,27 +1,23 @@
 /**
- * 注册页面（2026-09-26 二期：邮箱验证码强制，两步）
- * 第一步：邮箱 + 发送验证码（60 秒冷却）
- * 第二步：用户名/密码/确认密码/昵称(选填) + 验证码，成功后自动登录并跳 /user
+ * 忘记密码（2026-09-26 二期：邮箱验证码自助重置，两步）
+ * 第一步：邮箱 + 发送验证码（后端对不存在的邮箱也返回成功，防枚举）
+ * 第二步：验证码 + 新密码/确认密码，成功后跳登录页
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { sendRegisterCode } from '../api/auth';
+import { sendResetCode, resetPassword } from '../api/auth';
 
-const Register: React.FC = () => {
+const ForgotPassword: React.FC = () => {
     const [step, setStep] = useState<1 | 2>(1);
     const [email, setEmail] = useState('');
     const [code, setCode] = useState('');
-    const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
-    const [displayName, setDisplayName] = useState('');
     const [error, setError] = useState('');
     const [info, setInfo] = useState('');
     const [loading, setLoading] = useState(false);
     const [sending, setSending] = useState(false);
     const [cooldown, setCooldown] = useState(0);
-    const { register } = useAuth();
     const navigate = useNavigate();
     const timerRef = useRef<number | null>(null);
 
@@ -54,10 +50,10 @@ const Register: React.FC = () => {
         }
         setSending(true);
         try {
-            const res = await sendRegisterCode(email.trim());
+            const res = await sendResetCode(email.trim());
             setInfo(res.message || '验证码已发送，请查收邮件');
             setStep(2);
-            startCooldown(res.expires_in ? Math.min(res.expires_in, 60) : 60);
+            startCooldown(60);
         } catch (err: any) {
             const detail = err.response?.data?.detail;
             setError(typeof detail === 'string' ? detail : (detail?.msg || JSON.stringify(detail) || '验证码发送失败，请稍后再试'));
@@ -77,18 +73,16 @@ const Register: React.FC = () => {
 
         setLoading(true);
         try {
-            await register({
-                username,
-                password,
-                display_name: displayName.trim() || undefined,
+            await resetPassword({
                 email: email.trim(),
                 code: code.trim(),
+                new_password: password,
             });
-            // 注册成功即自动登录，普通用户跳用户中心
-            navigate('/user');
+            // 成功后跳登录页用新密码登录
+            navigate('/login');
         } catch (err: any) {
             const detail = err.response?.data?.detail;
-            setError(typeof detail === 'string' ? detail : (detail?.msg || JSON.stringify(detail) || '注册失败，请稍后再试'));
+            setError(typeof detail === 'string' ? detail : (detail?.msg || JSON.stringify(detail) || '重置失败，请稍后再试'));
         } finally {
             setLoading(false);
         }
@@ -105,11 +99,10 @@ const Register: React.FC = () => {
                         千禧的博客
                     </h1>
                     <p className="text-slate-500 dark:text-slate-400 mt-2">
-                        {step === 1 ? '创建账号，开始你的创作之旅' : `第 2 步：完成 ${email} 的验证`}
+                        {step === 1 ? '通过注册邮箱找回密码' : `第 2 步：为 ${email} 设置新密码`}
                     </p>
                 </div>
 
-                {/* Register Form */}
                 <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-slate-200 dark:border-slate-700 shadow-xl shadow-slate-200/50 dark:shadow-none">
                     {/* Step indicator */}
                     <div className="flex items-center gap-2 mb-6">
@@ -129,21 +122,21 @@ const Register: React.FC = () => {
                             )}
 
                             <div>
-                                <label htmlFor="reg-email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                    邮箱 <span className="text-red-500">*</span>
+                                <label htmlFor="fp-email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                    注册邮箱 <span className="text-red-500">*</span>
                                 </label>
                                 <input
                                     type="email"
-                                    id="reg-email"
+                                    id="fp-email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     className={inputCls}
-                                    placeholder="用于接收验证码（QQ / 163 / Gmail 等）"
+                                    placeholder="你注册时使用的邮箱"
                                     required
                                     autoFocus
                                 />
                                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-                                    注册需要邮箱验证：我们会向该邮箱发送 6 位验证码，10 分钟内有效。
+                                    我们会向该邮箱发送 6 位验证码；为保护隐私，无论邮箱是否注册都返回相同提示。
                                 </p>
                             </div>
 
@@ -157,7 +150,6 @@ const Register: React.FC = () => {
                         </form>
                     ) : (
                         <form onSubmit={handleSubmit} className="space-y-6">
-                            {/* Error / Info Message */}
                             {error && (
                                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
                                     {error}
@@ -171,13 +163,13 @@ const Register: React.FC = () => {
 
                             {/* Code + resend */}
                             <div>
-                                <label htmlFor="reg-code" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                <label htmlFor="fp-code" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                     邮箱验证码 <span className="text-red-500">*</span>
                                 </label>
                                 <div className="flex gap-3">
                                     <input
                                         type="text"
-                                        id="reg-code"
+                                        id="fp-code"
                                         value={code}
                                         onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                                         className={`${inputCls} font-mono tracking-[0.3em]`}
@@ -197,32 +189,14 @@ const Register: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Username */}
+                            {/* New Password */}
                             <div>
-                                <label htmlFor="reg-username" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                    用户名 <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    id="reg-username"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                    className={inputCls}
-                                    placeholder="字母 / 数字 / 下划线 / 连字符，3-30 位"
-                                    required
-                                    minLength={3}
-                                    maxLength={30}
-                                />
-                            </div>
-
-                            {/* Password */}
-                            <div>
-                                <label htmlFor="reg-password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                    密码 <span className="text-red-500">*</span>
+                                <label htmlFor="fp-password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                    新密码 <span className="text-red-500">*</span>
                                 </label>
                                 <input
                                     type="password"
-                                    id="reg-password"
+                                    id="fp-password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     className={inputCls}
@@ -232,54 +206,29 @@ const Register: React.FC = () => {
                                 />
                             </div>
 
-                            {/* Confirm Password */}
+                            {/* Confirm */}
                             <div>
-                                <label htmlFor="reg-confirm" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                    确认密码 <span className="text-red-500">*</span>
+                                <label htmlFor="fp-confirm" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                                    确认新密码 <span className="text-red-500">*</span>
                                 </label>
                                 <input
                                     type="password"
-                                    id="reg-confirm"
+                                    id="fp-confirm"
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                     className={inputCls}
-                                    placeholder="再次输入密码"
+                                    placeholder="再次输入新密码"
                                     required
                                     minLength={8}
                                 />
                             </div>
 
-                            {/* Display Name */}
-                            <div>
-                                <label htmlFor="reg-display-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                    昵称 <span className="text-slate-400 dark:text-slate-500 text-xs">(选填)</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    id="reg-display-name"
-                                    value={displayName}
-                                    onChange={(e) => setDisplayName(e.target.value)}
-                                    className={inputCls}
-                                    placeholder="对外展示的昵称"
-                                    maxLength={32}
-                                />
-                            </div>
-
-                            {/* Submit Button */}
                             <button
                                 type="submit"
                                 disabled={loading}
                                 className="w-full py-3 px-4 bg-gradient-to-r from-cyan-500 to-purple-600 text-white font-medium rounded-lg hover:from-cyan-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-800 shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-lg"
                             >
-                                {loading ? (
-                                    <span className="flex items-center justify-center">
-                                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        注册中...
-                                    </span>
-                                ) : '注 册'}
+                                {loading ? '重置中...' : '重置密码'}
                             </button>
 
                             <button
@@ -294,7 +243,7 @@ const Register: React.FC = () => {
 
                     {/* Login Link */}
                     <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                        已有账号？
+                        想起密码了？
                         <Link to="/login" className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 font-medium transition-colors">
                             去登录
                         </Link>
@@ -312,4 +261,4 @@ const Register: React.FC = () => {
     );
 };
 
-export default Register;
+export default ForgotPassword;

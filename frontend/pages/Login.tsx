@@ -108,11 +108,15 @@ const Login: React.FC = () => {
                         </button>
                     </form>
 
-                    {/* Register Link */}
+                    {/* Register / Forgot Link */}
                     <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
                         没有账号？
                         <Link to="/register" className="text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 font-medium transition-colors">
                             去注册
+                        </Link>
+                        <span className="mx-2 text-slate-300 dark:text-slate-600">|</span>
+                        <Link to="/forgot-password" className="text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">
+                            忘记密码？
                         </Link>
                     </div>
 

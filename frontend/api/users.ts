@@ -23,6 +23,7 @@ export interface RegisterRequest {
     password: string;
     display_name?: string;
     email?: string;
+    code?: string;
 }
 
 export interface RegisterResponse {
@@ -188,13 +189,65 @@ export const reviewArticle = async (id: number, data: {
     return response.data;
 };
 
-// 用户管理列表
+// 用户管理列表（2026-09-26 二期：筛选/排序/统计）
 export const getAdminUsers = async (params?: {
     search?: string;
+    status?: string;
+    role?: string;
+    sort?: string;
+    order?: string;
     page?: number;
     page_size?: number;
 }): Promise<PaginatedResponse<AdminUserItem>> => {
     const response = await api.get('/admins/users', { params });
+    return response.data;
+};
+
+// 用户管理卡片统计
+export const getAdminUsersStats = async (): Promise<{
+    total: number;
+    regular: number;
+    admins: number;
+    banned: number;
+    today_new: number;
+    pending_articles: number;
+}> => {
+    const response = await api.get('/admins/users/stats');
+    return response.data;
+};
+
+// 用户详情（资料 + 统计 + 最近文章 + 最近评论）
+export interface AdminUserDetail extends AdminUserItem {
+    email_verified?: boolean;
+    last_login_at?: string;
+    stats?: {
+        articles_total: number;
+        articles_published: number;
+        articles_pending: number;
+        articles_rejected: number;
+        articles_draft: number;
+        comments_total: number;
+    };
+    recent_articles?: Array<{
+        id: number;
+        title: string;
+        status: string;
+        category?: string;
+        created_at: string;
+        published_at?: string;
+    }>;
+    recent_comments?: Array<{
+        id: number;
+        content?: string;
+        status?: string;
+        target_type?: string;
+        target_id?: number;
+        created_at: string;
+    }>;
+}
+
+export const getAdminUserDetail = async (id: number): Promise<AdminUserDetail> => {
+    const response = await api.get<AdminUserDetail>(`/admins/users/${id}`);
     return response.data;
 };
 
@@ -207,5 +260,114 @@ export const banUser = async (id: number): Promise<{ message: string }> => {
 // 解封用户（后端返回 {"message": "已解封"}）
 export const unbanUser = async (id: number): Promise<{ message: string }> => {
     const response = await api.put(`/admins/users/${id}/unban`);
+    return response.data;
+};
+
+// 重置用户密码（返回一次性临时密码）
+export const resetUserPassword = async (id: number): Promise<{ message: string; temp_password: string }> => {
+    const response = await api.put(`/admins/users/${id}/password`);
+    return response.data;
+};
+
+// 改角色（仅超管）
+export const setUserRole = async (id: number, role: 'user' | 'admin'): Promise<{ message: string; role: string }> => {
+    const response = await api.put(`/admins/users/${id}/role`, { role });
+    return response.data;
+};
+
+// 给用户绑定/更换邮箱（仅超管；空字符串解绑）
+export const setUserEmail = async (id: number, email: string): Promise<{ message: string; email?: string }> => {
+    const response = await api.put(`/admins/users/${id}/email`, { email });
+    return response.data;
+};
+
+// 删除用户（仅超管；内容归属置空保留）
+export const deleteUser = async (id: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/admins/users/${id}`);
+    return response.data;
+};
+
+// ===== 管理员账号管理（仅超管；2026-09-26 二期接上前端） =====
+
+export const getAdmins = async (): Promise<AdminUserItem[]> => {
+    const response = await api.get('/admins');
+    return response.data;
+};
+
+export const createAdmin = async (data: {
+    username: string;
+    password: string;
+    display_name?: string;
+    email?: string;
+    role?: 'admin' | 'super_admin';
+}): Promise<AdminUserItem> => {
+    const response = await api.post<AdminUserItem>('/admins', data);
+    return response.data;
+};
+
+export const updateAdmin = async (id: number, data: {
+    display_name?: string;
+    email?: string;
+    bio?: string;
+    is_active?: boolean;
+}): Promise<AdminUserItem> => {
+    const response = await api.put<AdminUserItem>(`/admins/${id}`, data);
+    return response.data;
+};
+
+export const deleteAdmin = async (id: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/admins/${id}`);
+    return response.data;
+};
+
+export const resetAdminPassword = async (id: number, data: {
+    old_password?: string;
+    new_password: string;
+}): Promise<{ message: string }> => {
+    const response = await api.put(`/admins/${id}/password`, data);
+    return response.data;
+};
+
+// ===== 绑定邮箱（登录用户） =====
+
+export const sendBindEmailCode = async (email: string): Promise<{ message: string; expires_in: number }> => {
+    const response = await api.post('/users/me/email/code', { email });
+    return response.data;
+};
+
+export const bindEmail = async (data: { email: string; code: string }): Promise<UserProfile> => {
+    const response = await api.put<UserProfile>('/users/me/email', data);
+    return response.data;
+};
+
+// ===== 我的提示词（登录用户） =====
+
+export interface MyPrompt {
+    id: number;
+    title: string;
+    description?: string;
+    content: string;
+    category: string;
+    status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
+}
+
+export const getMyPrompts = async (): Promise<MyPrompt[]> => {
+    const response = await api.get<MyPrompt[]>('/users/me/prompts');
+    return response.data;
+};
+
+export const updateMyPrompt = async (id: number, data: {
+    title?: string;
+    description?: string;
+    content?: string;
+    category?: string;
+}): Promise<MyPrompt> => {
+    const response = await api.put<MyPrompt>(`/users/me/prompts/${id}`, data);
+    return response.data;
+};
+
+export const deleteMyPrompt = async (id: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/users/me/prompts/${id}`);
     return response.data;
 };

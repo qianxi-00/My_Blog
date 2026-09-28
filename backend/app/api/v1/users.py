@@ -8,7 +8,7 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,8 +16,9 @@ from sqlalchemy.orm import selectinload
 from ...core.database import get_db
 from ...core.deps import get_current_user
 from ...core.ratelimit import rate_limit
-from ...core.security import verify_password, get_password_hash
+from ...core.security import verify_password, get_password_hash, utc_now_naive
 from ...models.article import Article, Tag
+from ...models.prompt import Prompt
 from ...models.user import User
 from ...schemas.article import (
     ArticleBase,
@@ -26,12 +27,18 @@ from ...schemas.article import (
     UserArticleUpdate,
 )
 from ...schemas.common import PaginatedResponse
+from ...schemas.prompt import PromptResponse
 from ...schemas.user import (
     UserPublic,
     UserUpdate,
     PasswordChange,
     UserProfilePublic,
     UserPublicSafe,
+    EmailCodeRequest,
+    EmailBindRequest,
+)
+from ...services.verification_service import (
+    send_code, verify_code, VerificationError,
 )
 
 router = APIRouter()
@@ -55,17 +62,16 @@ async def update_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """更新当前用户资料（display_name/bio/email/avatar_url）"""
-    # 邮箱唯一性检查
+    """更新当前用户资料（display_name/bio/avatar_url；邮箱必须走验证码绑定）"""
+    # 邮箱必须走验证码绑定（2026-09-26 二期：邮箱认证强制）
     if profile_in.email and profile_in.email != user.email:
-        existing = await db.scalar(select(User).where(User.email == profile_in.email))
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="该邮箱已被使用"
-            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="更换邮箱请使用验证码绑定（用户中心 → 绑定邮箱）"
+        )
 
     update_data = profile_in.model_dump(exclude_unset=True)
+    update_data.pop("email", None)
     for field, value in update_data.items():
         setattr(user, field, value)
 
@@ -80,7 +86,7 @@ async def change_password(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """修改当前用户密码（必须验证旧密码）"""
+    """修改当前用户密码（必须验证旧密码；成功后旧 token 立即失效）"""
     if not await verify_password(password_in.old_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -88,8 +94,146 @@ async def change_password(
         )
 
     user.password_hash = await get_password_hash(password_in.new_password)
+    user.password_changed_at = utc_now_naive()  # 踢掉所有旧 token（2026-09-26 二期）
     await db.commit()
     return {"message": "密码修改成功"}
+
+
+# ==================== /me/email 绑定邮箱（2026-09-26 二期） ====================
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+@router.post("/me/email/code",
+             dependencies=[Depends(rate_limit("email_code", limit=10, window_seconds=3600, key_scope="ip"))])
+async def send_bind_email_code(
+    data: EmailCodeRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """发送绑定/更换邮箱验证码（同 IP 10 次/小时，同邮箱 60 秒冷却 / 5 次每天）"""
+    try:
+        expires_in = await send_code(db, data.email, "bind", ip=_client_ip(request))
+    except VerificationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+    return {"message": "验证码已发送", "expires_in": expires_in}
+
+
+@router.put("/me/email", response_model=UserPublic)
+async def bind_email(
+    data: EmailBindRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """绑定 / 更换邮箱（验证码验证 + 唯一性 + 白名单）"""
+    email = data.email.strip().lower()
+
+    # 唯一性
+    existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if existing and existing.id != user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该邮箱已被使用")
+
+    # 验证码（purpose=bind）
+    try:
+        await verify_code(db, email, "bind", data.code)
+    except VerificationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.message)
+
+    user.email = email
+    user.email_verified = True
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+# ==================== /me/prompts 我的提示词（2026-09-26 二期） ====================
+
+@router.get("/me/prompts", response_model=List[PromptResponse])
+async def my_prompts(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """我的提示词（全部状态，含 pending/rejected）"""
+    result = await db.execute(
+        select(Prompt)
+        .options(selectinload(Prompt.author))
+        .where(Prompt.author_id == user.id)
+        .order_by(Prompt.created_at.desc(), Prompt.id.desc())
+    )
+    return result.scalars().all()
+
+
+async def _get_own_prompt(prompt_id: int, user: User, db: AsyncSession) -> Prompt:
+    """取自己的提示词（只能动自己的）"""
+    prompt = (await db.execute(
+        select(Prompt).where(Prompt.id == prompt_id)
+    )).scalar_one_or_none()
+    if not prompt:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="提示词不存在")
+    if prompt.author_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只能操作自己的提示词")
+    return prompt
+
+
+@router.put("/me/prompts/{prompt_id}", response_model=PromptResponse)
+async def update_my_prompt(
+    prompt_id: int,
+    data: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """改自己的提示词（仅 pending/rejected；已发布的找管理员）"""
+    prompt = _get_own_prompt(prompt_id, user, db)
+    if prompt.status not in ("pending", "rejected"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="已发布的提示词请联系管理员修改"
+        )
+
+    allowed = ("title", "description", "content", "category")
+    update_data = {k: v for k, v in data.items() if k in allowed and v is not None}
+    if not update_data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="没有可更新的字段")
+    if "category" in update_data and update_data["category"] not in ("Dev", "Writing", "Business", "Academic", "Other"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效的分类")
+    if "title" in update_data and not str(update_data["title"]).strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="标题不能为空")
+    if "content" in update_data and not str(update_data["content"]).strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="内容不能为空")
+
+    # 驳回后重新编辑 → 回到待审核
+    for field, value in update_data.items():
+        setattr(prompt, field, value)
+    if prompt.status == "rejected":
+        prompt.status = "pending"
+    await db.commit()
+    await db.refresh(prompt)
+    return prompt
+
+
+@router.delete("/me/prompts/{prompt_id}")
+async def delete_my_prompt(
+    prompt_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """删自己的提示词（仅 pending/rejected；已发布的找管理员）"""
+    prompt = _get_own_prompt(prompt_id, user, db)
+    if prompt.status not in ("pending", "rejected"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="已发布的提示词请联系管理员删除"
+        )
+    await db.delete(prompt)
+    await db.commit()
+    return {"message": "删除成功"}
 
 
 # ==================== /me/articles 用户文章管线 ====================

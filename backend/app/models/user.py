@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.database import Base
@@ -52,6 +52,11 @@ class User(Base):
         default="active",
     )
 
+    # 2026-09-26 二期（邮箱认证 + 三级权限）
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime,
@@ -63,18 +68,24 @@ class User(Base):
     if TYPE_CHECKING:
         from .article import Article
         from .comment import Comment
+        from .prompt import Prompt
 
+    # lazy 用默认 "select"（2026-09-26：原 selectin 会在列用户时把全部文章含草稿和
+    # 评论捞进内存；需要关系的地方已用显式 selectinload，不走这里）
     articles: Mapped[list["Article"]] = relationship(
         "Article",
         foreign_keys="Article.author_id",
         back_populates="author_user",
-        lazy="selectin",
     )
     comments: Mapped[list["Comment"]] = relationship(
         "Comment",
         foreign_keys="Comment.user_id",
         back_populates="user",
-        lazy="selectin",
+    )
+    prompts: Mapped[list["Prompt"]] = relationship(
+        "Prompt",
+        foreign_keys="Prompt.author_id",
+        back_populates="author_user",
     )
 
     @property

@@ -51,7 +51,9 @@ import {
   Heart,
   ExternalLink,
   PanelRightOpen,
-  PanelRightClose
+  PanelRightClose,
+  Users,
+  KeyRound
 } from 'lucide-react';
 
 export const Icons = {
@@ -107,6 +109,8 @@ export const Icons = {
   ExternalLink,
   PanelRightOpen,
   PanelRightClose,
+  Users,
+  KeyRound,
   // Custom Icons
   QQ: (props: React.SVGProps<SVGSVGElement>) => (
     <svg viewBox="0 0 24 24" fill="currentColor" {...props}>

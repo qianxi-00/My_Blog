@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..core.database import Base
 
 if TYPE_CHECKING:
-    from .admin import Admin
+    from .user import User
 
 
 class Prompt(Base):
@@ -31,7 +31,8 @@ class Prompt(Base):
     
     author_id: Mapped[Optional[int]] = mapped_column(
         Integer,
-        ForeignKey("admins.id", ondelete="SET NULL"),
+        # 2026-09-26 二期：从休眠的 admins 表改指 users（迁移保 id，历史值一一对应）
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True
     )
@@ -60,7 +61,7 @@ class Prompt(Base):
     )
     
     # 关联关系
-    author: Mapped[Optional["Admin"]] = relationship("Admin", back_populates="prompts")
+    author: Mapped[Optional["User"]] = relationship("User", foreign_keys=author_id, back_populates="prompts")
     
     def __repr__(self) -> str:
         return f"<Prompt(id={self.id}, title='{self.title}', category='{self.category}')>"
