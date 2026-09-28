@@ -85,7 +85,7 @@ class User(Base):
     prompts: Mapped[list["Prompt"]] = relationship(
         "Prompt",
         foreign_keys="Prompt.author_id",
-        back_populates="author_user",
+        back_populates="author",
     )
 
     @property
