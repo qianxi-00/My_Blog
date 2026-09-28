@@ -10,7 +10,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 
 from ...core.database import get_db
 from ...core.config import settings
@@ -84,7 +84,10 @@ async def login(
         )
     
     # 记录最后登录时间（2026-09-26 二期）
-    user.last_login_at = func.now()
+    # 必须用 Python 值（utc_now_naive）而不是 func.now()：SQL 表达式赋值会让 flush 后
+    # last_login_at/updated_at（onupdate）标记为过期，随后的 pydantic 同步序列化
+    # 读到过期属性 -> MissingGreenlet -> 500。utc_now_naive 与 SQLite 存储口径一致。
+    user.last_login_at = utc_now_naive()
     await db.commit()
     
     # 生成 Token

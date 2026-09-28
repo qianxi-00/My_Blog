@@ -52,7 +52,8 @@ DEFAULT_SETTINGS = [
     {"key": "contact_qq", "value": "", "type": "string", "description": "QQ 号"},
     {"key": "contact_bilibili", "value": "", "type": "string", "description": "B站链接"},
     # 2026-09-24 用户系统：注册开关（缺省开启；管理后台通过 PUT /settings/user_registration_enabled 改）
-    {"key": "user_registration_enabled", "value": "true", "type": "bool", "description": "开放用户注册"},
+    # type 必须是 Enum 合法值 "boolean"（写 "bool" 会在 SQLAlchemy Enum 校验时 LookupError）
+    {"key": "user_registration_enabled", "value": "true", "type": "boolean", "description": "开放用户注册"},
     # 2026-09-26 二期：邮箱认证（注册/重置密码强制；type 用 Enum 合法的 "boolean"）
     {"key": "email_verification_required", "value": "true", "type": "boolean", "description": "注册需要邮箱验证码验证"},
     {"key": "email_domain_whitelist", "value": "gmail.com,163.com,126.com,qq.com,icloud.com,foxmail.com", "type": "string", "description": "允许的邮箱域名（逗号分隔）"},
