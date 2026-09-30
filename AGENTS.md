@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `f8dac7e`）。
-当前生产镜像 **`qianxi-blog:users9`**（2026-09-30 五期之三「修 DetachedInstanceError」版）。前端产物 `assets/index-kBQz4WVk.js`、助手 chunk `AgentChat-Cq69Vs_7.js`。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `87b4fbf` / `ec8d545` / `f8dac7e` **均已推 GitHub**，`origin/master` = `f8dac7e`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `fd52cae`）。
+当前生产镜像 **`qianxi-blog:users11`**（2026-09-30 六期「两个 AI 技能扩充」版）。前端产物 `assets/index-Bcx8G2sS.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` **均已推 GitHub**，`origin/master` = `fd52cae`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -93,6 +93,59 @@
 - **限流新增**：注册发码/绑邮箱发码 10 次/小时/IP、自助重置 5 次/小时/IP、提示词投稿 3 次/天/用户。**双 worker 各持一份进程内桶 → 实际额度约 2×**（验收脚本据此探测 429，不要写死"第 4 次必被拦"）。
 - **验收脚本**（服务器 `/data/blog/scripts/acceptance/`，本机留档 `C:\Users\QianXi\.dsh-ops\blog\`）：`e2e_users.py`、`e2e_email_auth.py`、`e2e_admin_users.py`（跑法 `python3 <脚本> <base_url> <db_path> [容器名]`），配套 `run_all_e2e.sh`（重建演练容器后三套连跑，必须先重建：限流桶是进程内的，不重建会吃上一轮的 429）。**别放 /tmp**：重启即失，而且 **`/tmp` 上跑不了 WAL 模式的 SQLite**（-shm 需要 mmap/共享内存支持，实测 `disk I/O error` → `readonly database`；演练库和副本一律放 `/data` 或 `/root`）。
 - **上线验收证据（2026-09-28 当次现跑）**：演练容器 `users3` 上三套 **users 55/0 + email 46/0 + admin 101/0**；**生产**（`127.0.0.1:8000` + 真实库）email **46/0**、admin **101/0**，跑后库无 e2e 残留（users 2 / 文章 23 / 评论 42 / 提示词 25，integrity ok）；公网回归全 200（首页/文章/标签/分类/归档/提示词/设置/热点/logo/ai-daily），`/admins/users` 未登录 401；A-RAG 流式事件正常（`text`/`done`/`tool_*`）。
+
+## 六期：两个 AI 的技能扩充（2026-09-30，镜像 `qianxi-blog:users11`）
+
+后台 AI 工具 **24 → 54**，看板娘工具 **5 → 9**。提交 `f0f8cd9` / `4e03fdb` / `fd52cae`。
+
+### 一、先修 bug：articles 技能的三个静默错误
+
+加技能前盘点 API 时发现的，**比新技能更要紧**——它们不报错，只是结果不对：
+
+| 技能 | 原来传 | 后端实际 | 后果 |
+|---|---|---|---|
+| `search_articles` | `keyword=` | `GET /articles` 的参数叫 `search` | FastAPI 静默忽略未知 query，**"带关键词搜索"和"不带"返回全量**，AI 一直以为自己在搜索 |
+| `manage_article(create)` | `content=` | `ArticleCreate` 必填 `content_md` | 建文必 422 |
+| `manage_article(update)` | `content=` | 同上 | Pydantic 吞掉未知字段，**改正文"以为改了其实没改"** |
+| body 白名单 | 只有 5 个字段 | 后端还支持 `summary`/`cover_image`/`is_pinned`/`scheduled_at`/`slug` | 即使后端支持也调不到 |
+
+**验证**：修复后 `keyword=RAG` → total=1、`keyword=不存在关键词zzz999` → total=0；修复前这两种都会返回全量 23 篇。
+
+> **教训**：skill 是对 HTTP 路由的薄封装，**参数名必须对着路由签名抄**。这类错误不抛异常，只会让 AI 拿到错误结果再据此编造答案，比崩溃难发现得多。加/改 skill 后务必「逐个真实 dispatch 一次」。
+
+### 二、新增技能
+
+| 模块 | 数量 | 覆盖 |
+|---|---|---|
+| `hotspots`（新） | 8 | 日报列表/元信息/精选/详情/来源/增删改发布隐藏/手动触发抓取/任务历史 —— **此前 14 条路由一个 skill 都没接**，AI 完全不知道站点的 AI 日报存在 |
+| `forum`（新） | 6 | 版块/主题/回帖查看 + 置顶/锁帖/改名/删除。**刻意不暴露"建主题/发回帖"**——那是访客自助（带昵称邮箱和蜜罐反机器人），AI 不该替访客发帖 |
+| `batch`（新） | 4 | 批量审评论/处理举报/改文章/审提示词。全站**没有任何接受 `ids` 列表的路由**，AI 想"一次过 20 条"只能循环单条；这里做循环+汇总，单条失败不中断整批，`failed` 列表如实回报 |
+| `users`（新） | 4 | 统计/搜索/详情/封禁/解封/重置密码/改角色/换邮箱/删除 —— 用户系统二三期做了一整套后台管理，但 `skills/admins.py` 只覆盖管理员账号，注册用户这块 AI 只能靠 `call_api` 盲猜 `/admins/users/*` |
+| `articles`（增补） | +5 | 待审投稿、投稿审核（驳回强制给原因）、AI 生成摘要、重算阅读时长、置顶/下架 |
+| `subscribers`（增补） | +2 | 轻量总数统计；查找长期不活跃订阅者（后端无分页筛选，只能拉全量本地过滤；**技能只负责"看清楚"，不做任何清理动作**） |
+
+### 三、看板娘 A-RAG：5 → 9
+
+她此前只有检索类工具，访客问「你们都写什么」「最近更新了什么」「最火的是哪篇」都没法答——只能靠关键词硬搜。新增 4 个**导航类**工具：`list_blog_topics`（分类/标签及文章数）、`list_latest_articles`、`list_popular_articles`、`get_site_facts`。这些只给标题与链接，访客要读正文时再走 `search` + `read_blog_article`。system prompt 补了「导航类问题用专门工具」的分流规则，并明确她是只读的。
+
+### 四、两个容易漏的连带修改
+
+1. **`SYSTEM_PROMPT_AGENT` 原先把 Tool 清单写死成「call_api / execute_sql」两个**——新增工具后模型不会知道它们存在。改成按业务域列出全部技能，并补上「批量优先用 `batch_*`」「字段名照抄 schema（`content_md` / `topic_date` / `analysis_md`）」。
+2. **前端 `SKILL_LABELS`** 补全 54 个技能的中文名，新技能在界面不再显示英文标识符。
+
+### 五、工具返回体积要收着点（实测踩到）
+
+- `GET /hotspots/meta` 返回**全部分类与标签的分面计数**，实测 **78,484 字符**，塞给模型会撑爆上下文。前端要用这个接口所以**不改后端**，在 skill 层裁剪（分类留 20、标签留 30）→ 21,328 字符
+- `list_blog_topics` 全量分类+标签实测 **55,790 字符** → 截断到 **1,069 字符**（-98%）
+
+> **规律**：加 skill 时顺手看一眼返回体大小。后端接口是为前端设计的（一次给全），给模型用必须裁剪。
+
+### 六、验证
+
+- 后台技能逐个真实 dispatch：**20/22 直接通过**；另 2 个（`get_hotspot_detail`/`get_hotspot_sources`）用 `hotspot_id=1` 报 404 是**该 ID 不存在**，换真实存在的 16 后两个都 200
+- 参数校验类行为也逐个验过：缺 `content_md` / 缺 `role` / 缺 `slug`+`topic_date` 都给出可读提示，不会发出无效请求
+- 看板娘 9 个工具：**6/6 通过**
+- 生产数据零变化、integrity ok、`tool_calls` 非法 JSON 0 条；公网冒烟全 200/401 符合预期
 
 ## 五期：后台 AI 助手（`/#/admin/ai-agent`）修复 + Cherry Studio 式界面（2026-09-30，镜像 `qianxi-blog:users7`）
 
