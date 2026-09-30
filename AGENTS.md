@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `87b4fbf`）。
-当前生产镜像 **`qianxi-blog:users8`**（2026-09-30 五期之二「AI 助手界面美化 + `get_db` 写锁泄漏修复」版）。前端产物 `assets/index-kBQz4WVk.js`、助手 chunk `AgentChat-Cq69Vs_7.js`。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `87b4fbf` **均已推 GitHub**，`origin/master` = `87b4fbf`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `f8dac7e`）。
+当前生产镜像 **`qianxi-blog:users9`**（2026-09-30 五期之三「修 DetachedInstanceError」版）。前端产物 `assets/index-kBQz4WVk.js`、助手 chunk `AgentChat-Cq69Vs_7.js`。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `87b4fbf` / `ec8d545` / `f8dac7e` **均已推 GitHub**，`origin/master` = `f8dac7e`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -143,18 +143,36 @@
 
 **真机 DOM 复验**（比截图可靠，截图工具的 DPR 缩放会误导）：折叠头「技能 站点概览 完成」→ 摘要「5 今日访问 · 1 今日访客 · 23 文章总数 · 42 评论总数 · 0 待审评论 · 16 今日 AI 调用」；表格表头全中文。
 
-### 六、顺带修掉的写锁泄漏（`database is locked`）
+### 六、SSE 与依赖 teardown 的时序坑（`DetachedInstanceError`，镜像 users9）
 
-- **症状**：agent 界面点发送直接 500，错误是 `INSERT INTO agent_sessions ... database is locked`；宿主机上稳定复现，重启容器才恢复。
-- **根因**：`core/database.py` 的 `get_db` 只 `session.close()` 不显式 `rollback`。SQLite 只有单写者，SSE 长请求异常结束时连接带着未提交事务回到池里，写锁跟着留池中，后面所有 INSERT 全挂。
-- **修法**：`finally` 里先 `await session.rollback()`（try/except 包住）再 close。
-- **注意**：我自己的诊断脚本（`docker exec` 里崩溃的 python + 误连生产库的 `qianxi-e2e` 容器）也造成过同样的锁死。**演练容器必须显式指定独立 `DATABASE_URL`**，`e2e_setup_users3.sh` 只是建了个 `e2e-users5.db` 文件但没改环境变量，容器仍连生产库 —— 这条已经踩过一次，务必注意。
+**症状**：后台 AI 助手发消息后，助手气泡里直接显示
+`Instance <AgentSession at 0x...> is not bound to a Session; attribute refresh operation cannot proceed`。
+
+**根因**（踩了两次才定位到，完整记下来）：
+
+1. FastAPI 的 `StreamingResponse`，**依赖清理是在响应开始发送后执行的，不等生成器跑完**。
+2. 所以在 `get_db` 的 `finally` 里加任何会 detach 对象的操作，都会让 SSE 生成器**第一行之前**就失效。
+3. 而 `service.py` 在 `db.commit()` 之后仍读 `session.id` / `session.title` —— `commit` 默认 `expire_on_commit=True`，访问过期属性会触发 refresh，打到已 close 的 session 上就炸。
+
+**我犯的错**：为了让一次 `database is locked` 消失，在 `get_db` 里加了 `await session.rollback()`。
+**事后查明那次锁死不是产品缺陷** —— 是我自己的演练容器 `DATABASE_URL` 没隔离、连到了生产库（`e2e_setup_users3.sh` 只建了 `e2e-users5.db` 文件，没改环境变量），加上 `docker exec` 里崩溃的 python 留下的悬挂事务。
+**为一次性、由自己操作造成的故障去改核心依赖，是这次两个线上 bug 的根源。**
+
+**最终修法**（`get_db` 保持原样，只在代码里留一条警告注释说明为什么不能加 rollback）：
+
+- `chat_stream` 入口把 `session_id` / `current_title` 存成局部变量，整个流不再碰 ORM 对象
+- 自动命名改走 `UPDATE` 语句，而不是给对象赋值
+- `api/v1/agent.py` 同样把 `session_id`、`current_admin.role` 提前取出
+- **`api/v1/chat.py` 的 `/message/stream` 有完全相同的 4 处**（`session.id` ×2、`session.title =` 等），一并改掉 —— A-RAG 桌宠聊天是同款雷
+- 异常不再只转成 SSE 事件：补 `logger.exception`，否则线上出问题日志里什么都没有
+
+**验证**：在用户那个已有 14 条历史的真实会话上发消息（正是报错的那条路径）→ `event: done`、Detached 错误 0、工具真调用、回答为真实数据（23 篇 / 42 条）；新会话路径同样正常；浏览器里实发一条消息，`hasDetached: false`。自动命名也生效了（会话标题已变成首条提问）。
 
 ### 七、遗留
 
-1. **会话无归属**：`agent_sessions` 是后台专用（admin 才能访问），暂不加归属字段。
-2. **旧会话标题全是"新对话"**：后端不会用首条消息自动命名。可加，但属体验项，未获确认不动。
-3. **验证 AI 助手需要 admin token**：目前靠服务器上签发 30 分钟短期 JWT + 临时引导页 `_t.html`（用完即删，已确认 `/_t.html` 回退到 index.html 不含 token）。若要长期做界面回归，建议加一个仅本地可用的调试入口。
+1. **演练容器必须显式指定独立 `DATABASE_URL`**：`e2e_setup_users3.sh` 只建库文件不改 env，容器仍连生产库。已因此锁死过一次。**用之前先确认这个脚本的 env 处理。**
+2. **会话无归属**：`agent_sessions` 是后台专用（admin 才能访问），暂不加归属字段。
+3. **验证 AI 助手需要 admin token**：目前靠服务器签发 30 分钟短期 JWT + 临时引导页 `_t.html`（用完即删，已确认 `/_t.html` 回退到 index.html 不含 token）。若要长期做界面回归，建议加一个仅本地可用的调试入口。
 
 ## 用户系统四期：XSS 收口 + 契约补齐 + 首屏性能（2026-09-30，镜像 `qianxi-blog:users5`）
 
