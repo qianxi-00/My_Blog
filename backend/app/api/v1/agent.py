@@ -3,12 +3,13 @@
 """
 
 import json
-from typing import AsyncGenerator
+from datetime import datetime
+from typing import AsyncGenerator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,7 +17,13 @@ from ...core.database import get_db
 from ...core.deps import get_current_admin, security
 from ...models.admin import Admin
 from ...models.agent import AgentSession, AgentMessage
-from ...schemas.agent import AgentChatRequest, AgentSessionResponse, AgentSessionWithMessages, AgentMessageResponse
+from ...schemas.agent import (
+    AgentChatRequest,
+    AgentSessionRename,
+    AgentSessionResponse,
+    AgentSessionWithMessages,
+    AgentMessageResponse,
+)
 from ...services.agent import AgentService
 
 router = APIRouter()
@@ -94,17 +101,37 @@ async def chat_with_agent(
 
 @router.get("/sessions", response_model=list[AgentSessionResponse])
 async def get_sessions(
+    keyword: Optional[str] = None,
+    limit: int = 100,
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin),
 ):
-    """获取 Agent 会话列表"""
+    """获取 Agent 会话列表（2026-09-30 加 keyword 搜索与 message_count）"""
     _ = current_admin
-    result = await db.execute(
-        select(AgentSession)
-        .order_by(AgentSession.updated_at.desc(), AgentSession.created_at.desc())
-    )
-    sessions = result.scalars().all()
-    return [AgentSessionResponse.model_validate(item) for item in sessions]
+    limit = max(1, min(limit, 500))
+
+    query = select(
+        AgentSession,
+        func.count(AgentMessage.id).label("message_count"),
+    ).outerjoin(AgentMessage, AgentMessage.session_id == AgentSession.id)
+
+    if keyword:
+        query = query.where(AgentSession.title.contains(keyword.strip()))
+    query = query.group_by(AgentSession.id).order_by(
+        AgentSession.updated_at.desc(), AgentSession.created_at.desc()
+    ).limit(limit)
+
+    rows = (await db.execute(query)).all()
+    return [
+        AgentSessionResponse(
+            id=item.id,
+            title=item.title,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+            message_count=count or 0,
+        )
+        for item, count in rows
+    ]
 
 
 @router.get("/sessions/{session_id}", response_model=AgentSessionWithMessages)
@@ -135,6 +162,31 @@ async def get_session_detail(
         updated_at=session.updated_at,
         messages=[AgentMessageResponse.model_validate(msg) for msg in session.messages],
     )
+
+
+@router.patch("/sessions/{session_id}")
+async def rename_session(
+    session_id: str,
+    payload: AgentSessionRename,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+):
+    """重命名会话（2026-09-30 补：Cherry Studio 式界面需要能改会话名）"""
+    _ = current_admin
+    result = await db.execute(select(AgentSession).where(AgentSession.id == session_id))
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="会话不存在",
+        )
+
+    session.title = payload.title.strip()[:100]
+    session.updated_at = datetime.now()
+    await db.commit()
+    await db.refresh(session)
+    return AgentSessionResponse.model_validate(session)
 
 
 @router.delete("/sessions/{session_id}")

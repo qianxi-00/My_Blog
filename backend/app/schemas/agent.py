@@ -37,8 +37,14 @@ class AgentSessionResponse(BaseModel):
     title: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    message_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentSessionRename(BaseModel):
+    """会话重命名请求（2026-09-30 补）"""
+    title: str = Field(..., min_length=1, max_length=100, description="新会话名")
 
 
 class AgentSessionWithMessages(AgentSessionResponse):

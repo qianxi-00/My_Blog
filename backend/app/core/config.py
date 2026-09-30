@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     # ====================================
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
+    # uvicorn 在容器内**实际监听**的端口（docker run 的 CMD 传的是 --port 7860，
+    # 8000 只是宿主机映射进来的端口）。Agent 在容器内调本机 API 必须用这个，
+    # 用 APP_PORT 会 Connection refused —— 2026-09-30 修，见 services/agent/tools/call_api.py
+    SERVER_PORT: int = 7860
     DEBUG: bool = False
     
     # ====================================

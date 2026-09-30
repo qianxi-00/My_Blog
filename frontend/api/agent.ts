@@ -16,6 +16,8 @@ export interface AgentSession {
   title?: string;
   created_at: string;
   updated_at: string;
+  /** 该会话的消息条数（2026-09-30 后端补） */
+  message_count?: number;
 }
 
 export interface AgentSessionWithMessages extends AgentSession {
@@ -29,13 +31,21 @@ export interface AgentStreamEvent {
   data: any;
 }
 
-export const getAgentSessions = async (): Promise<AgentSession[]> => {
-  const response = await api.get('/agent/sessions');
+export const getAgentSessions = async (keyword?: string): Promise<AgentSession[]> => {
+  const response = await api.get('/agent/sessions', {
+    params: keyword ? { keyword } : undefined,
+  });
   return response.data;
 };
 
 export const getAgentSession = async (sessionId: string): Promise<AgentSessionWithMessages> => {
   const response = await api.get(`/agent/sessions/${sessionId}`);
+  return response.data;
+};
+
+/** 重命名会话（2026-09-30 后端新增 PATCH 接口） */
+export const renameAgentSession = async (sessionId: string, title: string): Promise<AgentSession> => {
+  const response = await api.patch(`/agent/sessions/${sessionId}`, { title });
   return response.data;
 };
 
