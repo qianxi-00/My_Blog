@@ -92,6 +92,11 @@ async def chat_with_agent(
     service = AgentService()
     token = credentials.credentials if credentials else ""
 
+    # 同样地：admin 的 role 也要提前取出。生成器跑起来之后依赖的 db session
+    # 已经 rollback+close 了，那时再读 current_admin.role 会抛
+    # "Instance <User> is not bound to a Session"（与 session.id 同一个坑）
+    admin_role = current_admin.role
+
     async def generate() -> AsyncGenerator[str, None]:
         try:
             yield _sse_event("ready", {"session_id": session_id})
@@ -101,7 +106,7 @@ async def chat_with_agent(
                 user_content=request.content,
                 token=token,
                 history_messages=history_messages,
-                role=current_admin.role,
+                role=admin_role,
             ):
                 yield _sse_event(event["type"], event["data"])
         except Exception as exc:

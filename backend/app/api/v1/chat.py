@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from ...core.database import get_db
@@ -385,8 +385,15 @@ async def send_message_agentic(
         db.add(session)
         await db.flush()
 
+    # 会话 id 与"是不是首次对话"都提前取成局部变量：生成器执行时依赖的 db session
+    # 可能已 rollback+close，此时再访问 session 属性会抛
+    # "Instance <ChatSession> is not bound to a Session"（2026-09-30 在 agent.py 上实踩，
+    # 这里同一模式照抄）
+    session_id = session.id
+    is_first_turn = True  # 下面按历史条数修正
+
     user_message = ChatMessage(
-        session_id=session.id,
+        session_id=session_id,
         role="user",
         content=message_data.content
     )
@@ -398,11 +405,12 @@ async def send_message_agentic(
 
     result = await db.execute(
         select(ChatMessage)
-        .where(ChatMessage.session_id == session.id)
+        .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at.desc())
         .limit(10)
     )
     history = list(reversed(result.scalars().all()))
+    is_first_turn = len(history) <= 1
     history_msgs = [{"role": msg.role, "content": msg.content} for msg in history]
 
     async def generate():
@@ -461,7 +469,7 @@ async def send_message_agentic(
                 finally:
                     for t in tasks:
                         t.cancel()
-                yield _sse("done", {"session_id": session.id})
+                yield _sse("done", {"session_id": session_id})
             except Exception as e:
                 error_text = str(e)
                 if "Invalid token" in error_text or "401" in error_text:
@@ -472,14 +480,18 @@ async def send_message_agentic(
             # 持久化本轮回答（与旧接口一致）
             if final_text:
                 assistant_message = ChatMessage(
-                    session_id=session.id,
+                    session_id=session_id,
                     role="assistant",
                     content=final_text
                 )
                 db.add(assistant_message)
-                if len(history) <= 1:
+                if is_first_turn:
+                    # 走 UPDATE 而不给 detached 的 session 对象赋值
                     title = message_data.content[:20] + "..." if len(message_data.content) > 20 else message_data.content
-                    session.title = title
+                    await db.execute(
+                        text("UPDATE chat_sessions SET title = :t WHERE id = :sid"),
+                        {"t": title, "sid": session_id},
+                    )
                 await record_ai_call(db)
                 await db.commit()
 
