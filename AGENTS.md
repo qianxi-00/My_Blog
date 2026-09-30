@@ -4,7 +4,7 @@
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
 仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `fd52cae`）。
-当前生产镜像 **`qianxi-blog:users11`**（2026-09-30 六期「两个 AI 技能扩充」版）。前端产物 `assets/index-Bcx8G2sS.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` **均已推 GitHub**，`origin/master` = `fd52cae`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+当前生产镜像 **`qianxi-blog:users12`**（2026-09-30 六期「两个 AI 技能扩充」版）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` **均已推 GitHub**，`origin/master` = `fd52cae`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -184,6 +184,32 @@ python backend/scripts/selfcheck_skills.py       # 本地（若已装 backend �
 ```
 
 > **改完 skill 必须跑这个**。它挡的正是最阴的那类 bug：不报错、只是结果不对，AI 拿着错数据继续编答案。
+### 八、看板娘气泡输出美化（同日，提交 `1307fbe`）
+
+聊天气泡一直复用 `markdownComponents`——那是给**文章正文**设计的（h1 `text-4xl`、段落 `mb-4`、表格单元格 `px-6 py-4`、引用块 `my-6`），塞进 `max-w-[80%]` 的小气泡里很松散，表格几乎撑破。
+
+**更糟的是个真 bug**：原先靠 `[&_code]:text-slate-100` 这条 arbitrary variant 把代码块文字改成亮色，而它会连**行内 code** 一起染浅色——白色气泡上基本看不清。它和 `markdownComponents` 自带的 `text-slate-900` 同为 0-1-0 优先级，谁生效取决于 CSS 加载顺序，属于碰运气。
+
+改动：
+
+- **`MarkdownContent` 新增 `variant="chat"`**：一套为窄容器设计的组件集，显式分开处理行内 code（浅底 + 强调色）与围栏 code（暗底 + 语言标签 + 复制按钮），不再靠补丁。表格/引用/列表/标题都收到气泡尺寸；代码块**保留横向滚动**（原来 `[&_pre]:whitespace-pre-wrap` 会把语法高亮的缩进结构冲掉）。
+- **`DesktopPet` 抽出 `ChatBubble` + `TypingDots`**：桌面悬浮窗和移动端弹窗原本各写了一份几乎完全相同的渲染（头像、气泡圆角、Markdown、参考文章卡片），改样式极易只改一处。现在只有一份。
+- 气泡 `max-w-[80%]` → `max-w-[85%]`，外层加 `break-words`，长链接不再撑破布局。
+
+**验证**（生产实测，17 项断言 0 失败）：真实对话拿回含表格 4 行 / 代码块 2 个 / 行内 code / 加粗 15 处 / 列表 3 项 的回复，逐项量计算样式——
+
+| 测项 | 实测 |
+|---|---|
+| 段落字号 / 下边距 / 行高 | `13px` / `6px` / `22.75px` |
+| 表格字号 / 单元格 padding / 横向滚动 | `12px` / `6px` / `auto` |
+| **行内 code 字亮度** | **93**（深色字，白底气泡可读；修复前是浅色约 240） |
+| 代码块 底色 / 字亮度 / 溢出 | `rgb(15,23,42)` / `244` / `auto` |
+| 代码块语言标签 + 复制按钮 | 都在 |
+| 列表缩进 | `14px` |
+
+**向后兼容已验证**：`variant` 默认 `'default'`。文章页实测 h2=`30px`、段落=`16px`、表格单元格 `12px 16px`、复制按钮与代码块圆角均与改动前一致，评论/论坛/提示词同理。
+
+> 这次验证靠的是**逐项量计算样式**而不是截图——本机浏览器的视口被外框限死在 ~400px 高，元素截图必然被上层 fixed 元素遮挡。涉及窄容器布局时，量 `getComputedStyle` 比截图可靠。
 
 ## 五期：后台 AI 助手（`/#/admin/ai-agent`）修复 + Cherry Studio 式界面（2026-09-30，镜像 `qianxi-blog:users7`）
 
