@@ -110,16 +110,19 @@ async def get_sessions(
     _ = current_admin
     limit = max(1, min(limit, 500))
 
-    query = select(
-        AgentSession,
-        func.count(AgentMessage.id).label("message_count"),
-    ).outerjoin(AgentMessage, AgentMessage.session_id == AgentSession.id)
+    # 消息数用标量子查询取，不做 outerjoin + group_by：
+    # 同时 select 整个 ORM 实体又 group_by 主键，SQLAlchemy 2.0 编译不过（500）。
+    count_sq = (
+        select(func.count(AgentMessage.id))
+        .where(AgentMessage.session_id == AgentSession.id)
+        .correlate(AgentSession)
+        .scalar_subquery()
+    )
+    query = select(AgentSession, count_sq.label("message_count"))
 
     if keyword:
         query = query.where(AgentSession.title.contains(keyword.strip()))
-    query = query.group_by(AgentSession.id).order_by(
-        AgentSession.updated_at.desc(), AgentSession.created_at.desc()
-    ).limit(limit)
+    query = query.order_by(AgentSession.updated_at.desc(), AgentSession.created_at.desc()).limit(limit)
 
     rows = (await db.execute(query)).all()
     return [

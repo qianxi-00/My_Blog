@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.agent import AgentMessage, AgentSession
+from app.models.agent import AgentMessage, AgentSession, normalize_tool_arguments
 from app.models.stats import DailyStat
 from .registry import build_all_tools, dispatch
 
@@ -211,6 +211,8 @@ class AgentService:
 
             if tool_calls_detected:
                 # ===== 工具调用轮 =====
+                # arguments 必须先规范化：上游网关返回的就是转义过的字符串，
+                # 原样入库会变成二次转义的非法 JSON（2026-09-30 实测历史数据全是坏的）
                 serialized_calls: List[Dict[str, Any]] = []
                 for idx in sorted(tool_call_map.keys()):
                     tc = tool_call_map[idx]
@@ -220,7 +222,7 @@ class AgentService:
                             "type": "function",
                             "function": {
                                 "name": tc["name"],
-                                "arguments": tc["arguments"],
+                                "arguments": normalize_tool_arguments(tc["arguments"]) or "{}",
                             },
                         }
                     )
@@ -244,7 +246,8 @@ class AgentService:
                 for idx in sorted(tool_call_map.keys()):
                     tc_info = tool_call_map[idx]
                     tool_name = tc_info["name"]
-                    arguments = tc_info["arguments"]
+                    # 同一份规范化：否则执行侧还是拿到双重转义串，json.loads 失败 → 空参数
+                    arguments = normalize_tool_arguments(tc_info["arguments"]) or "{}"
 
                     try:
                         parsed_args = json.loads(arguments)
