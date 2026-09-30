@@ -146,6 +146,44 @@
 - 参数校验类行为也逐个验过：缺 `content_md` / 缺 `role` / 缺 `slug`+`topic_date` 都给出可读提示，不会发出无效请求
 - 看板娘 9 个工具：**6/6 通过**
 - 生产数据零变化、integrity ok、`tool_calls` 非法 JSON 0 条；公网冒烟全 200/401 符合预期
+### 七、固化成回归自检：`backend/scripts/selfcheck_skills.py`（2026-09-30）
+
+上面三个静默 bug 靠人工盘点发现，所以固化成可重复执行的检查。**零依赖**（只用标准库 `unittest`），项目本来连 pytest 都没装，不为一个脚本加依赖。
+
+**跑法**（依赖齐全处均可；本机 Anaconda 缺 aiosqlite，要进容器）：
+
+```bash
+docker cp backend/scripts/selfcheck_skills.py qianxi-blog:/tmp/sc.py
+docker exec qianxi-blog python3 /tmp/sc.py      # 服务器上（推荐）
+python backend/scripts/selfcheck_skills.py       # 本地（若已装 backend 依赖）
+```
+
+脚本自己推断后端根目录（`__file__` 推不出就退回 `/app`），所以 docker cp 到 `/tmp` 也能跑。**不连数据库、不写任何数据。**
+
+**6 组共 26 个用例**：
+
+| 组 | 查什么 |
+|---|---|
+| `TestSchemaHandlerParity` | schema ↔ handler 一一对应、registry 不重名不漏模块、`execute_sql` 只对超管可见**且分派层双保险** |
+| `TestRoutesExist` | **skill 打的路径必须存在于 FastAPI 路由表**（过一遍 `call_api` 真实的 `normalize_path`）；**query 参数名必须在该路由声明里**，否则会被 FastAPI 静默忽略 |
+| `TestFieldMapping` | 逐条锁死 `keyword→search`、`content→content_md`、`topic_date`/`analysis_md`/`tag_names`、白名单字段不漏 |
+| `TestRequiredArgs` | 缺必填必须在**发请求前**被拦下，且报错要说清缺什么 |
+| `TestSafety` | token 不许出现在 body/query；批量删除必须有不可逆提示；「查找不活跃订阅者」只读 |
+| `TestAragTools` | 看板娘 4 个导航工具在位，且 `_build_tools` 里不出现 `db.add/db.delete/db.commit` |
+
+**验证过它真能抓 bug**（否则测试只是装饰）：往容器里注入 3 个 bug，全部被自动抓出——
+
+```
+注入 keyword 不映射到 search →  FAILED (failures=2)
+    AssertionError: ["search_articles: query 参数 'keyword' 不在 /api/v1/articles 的声明里（会被静默忽略）"]
+注入 content_md 改回 content   →  FAILED (failures=3)
+    test_create_article_uses_content_md FAIL / test_update_article_uses_content_md FAIL
+注入路径 /hotspots → /hotspot  →  FAILED (failures=1)
+    hotspots.get_hotspot_sources: GET /api/v1/hotspot/1/sources 在路由表里找不到
+还原后                          →  OK（26 passed）
+```
+
+> **改完 skill 必须跑这个**。它挡的正是最阴的那类 bug：不报错、只是结果不对，AI 拿着错数据继续编答案。
 
 ## 五期：后台 AI 助手（`/#/admin/ai-agent`）修复 + Cherry Studio 式界面（2026-09-30，镜像 `qianxi-blog:users7`）
 
