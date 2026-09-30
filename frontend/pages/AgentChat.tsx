@@ -7,6 +7,8 @@
  *
  * 2026-09-30 重写：会话搜索/重命名/时间分组、空状态引导、Enter 发送、
  * 停止生成、流式光标、工具卡片内联。
+ * 2026-09-30 二次美化：消息排版（标题/列表/表格/代码/引用）改为助手专用样式，
+ * 工具结果不再直出裸 JSON，而是「关键指标 + 条数」摘要、原始数据收进折叠区。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MarkdownContent from '../components/MarkdownContent';
@@ -58,6 +60,92 @@ const SKILL_LABELS: Record<string, string> = {
 };
 
 const SKILL_NAME_SET = new Set(Object.keys(SKILL_LABELS));
+
+/** 工具入参的可读名（别把 article_id 这类内部字段直接甩给用户看） */
+const ARG_LABELS: Record<string, string> = {
+  article_id: '文章 ID',
+  comment_id: '评论 ID',
+  prompt_id: '提示词 ID',
+  subscriber_id: '订阅者 ID',
+  admin_id: '管理员 ID',
+  keyword: '关键词',
+  days: '天数',
+  limit: '条数',
+  page: '页码',
+  page_size: '每页条数',
+  status: '状态',
+  title: '标题',
+  slug: '别名',
+  name: '名称',
+  email: '邮箱',
+  tags: '标签',
+  category: '分类',
+  summary: '摘要',
+  reason: '原因',
+  action: '操作',
+};
+
+/**
+ * 助手专用排版：不动通用 MarkdownContent（它服务全站文章页，改了会波及全站），
+ * 这里只给消息区注入聊天场景的规则。
+ * 关键取舍：代码块在亮色模式下也用深色底（Cherry Studio 就是这样，代码就该像代码），
+ * 表格加斑马纹和横向滚动。
+ */
+const PROSE: string = [
+  '[&>*]:first:mt-0 [&>*]:last:mb-0',
+  'text-[14.5px] leading-[1.75] text-slate-700 dark:text-slate-200',
+  '[&_p]:my-3',
+  '[&_ul]:my-3 [&_ul]:pl-1 [&_li]:my-1.5 [&_li]:pl-1 [&_li]:list-disc',
+  '[&_ol]:my-3 [&_ol]:pl-1 [&_ol]:list-decimal',
+  '[&_ul>li::marker]:text-slate-400',
+  '[&_li>p]:my-1',
+  '[&_h1]:mt-6 [&_h1]:mb-2.5 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:text-slate-900 [&_h1]:dark:text-white',
+  '[&_h2]:mt-6 [&_h2]:mb-2.5 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:dark:text-white',
+  '[&_h3]:mt-5 [&_h3]:mb-2 [&_h3]:text-[15px] [&_h3]:font-semibold [&_h3]:text-slate-900 [&_h3]:dark:text-white',
+  '[&_h4]:mt-4 [&_h4]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:dark:text-slate-100',
+  '[&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px]',
+  '[&_code]:font-mono [&_code]:text-rose-600 [&_code]:dark:text-rose-300',
+  '[&_code]:before:content-none [&_code]:after:content-none',
+  '[&_pre]:my-4 [&_pre]:rounded-xl [&_pre]:bg-[#0f172a] [&_pre]:p-4 [&_pre]:overflow-x-auto',
+  '[&_pre]:text-[12.5px] [&_pre]:leading-relaxed [&_pre]:shadow-sm',
+  '[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-slate-100 [&_pre_code]:text-[12.5px]',
+  '[&_table]:my-4 [&_table]:w-full [&_table]:text-[13px] [&_table]:block [&_table]:overflow-x-auto',
+  '[&_th]:px-3 [&_th]:py-2 [&_th]:bg-slate-100 [&_th]:dark:bg-slate-800',
+  '[&_th]:font-semibold [&_th]:text-slate-700 [&_th]:dark:text-slate-200 [&_th]:text-left [&_th]:whitespace-nowrap',
+  '[&_td]:px-3 [&_td]:py-2 [&_td]:border-t [&_td]:border-slate-100 [&_td]:dark:border-slate-800 [&_td]:whitespace-nowrap',
+  '[&_tr:nth-child(even)]:bg-slate-50/70 [&_tr:nth-child(even)]:dark:bg-slate-800/40',
+  '[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-cyan-400',
+  '[&_blockquote]:pl-4 [&_blockquote]:text-slate-600 [&_blockquote]:dark:text-slate-400 [&_blockquote]:italic',
+  '[&_blockquote_p]:my-1',
+  '[&_hr]:my-5 [&_hr]:border-slate-200 [&_hr]:dark:border-slate-700',
+  '[&_a]:text-cyan-600 [&_a]:dark:text-cyan-400 [&_a]:underline [&_a]:underline-offset-2',
+  '[&_strong]:font-semibold [&_strong]:text-slate-900 [&_strong]:dark:text-slate-100',
+  '[&_img]:my-4 [&_img]:rounded-xl',
+].join(' ');
+
+/** 统计对象里的记录条数 */
+const countRows = (data: any): number | null => {
+  if (Array.isArray(data)) return data.length;
+  if (data && typeof data === 'object') {
+    for (const key of ['items', 'list', 'records', 'results', 'rows', 'data']) {
+      if (Array.isArray((data as any)[key])) return (data as any)[key].length;
+    }
+  }
+  return null;
+};
+
+/** 挑出值得直接展示的标量指标（只展示数字/布尔，文字和 id 交给展开看） */
+const pickHighlights = (data: any): { key: string; label: string; value: string }[] => {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+  const out: { key: string; label: string; value: string }[] = [];
+  for (const [key, value] of Object.entries(data)) {
+    if (out.length >= 6) break;
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      out.push({ key, label: ARG_LABELS[key] || key, value: String(value) });
+    }
+  }
+  return out;
+};
 
 const EMPTY_STARTERS = [
   '这个博客现在有多少篇文章、多少条评论？',
@@ -149,6 +237,15 @@ const AgentChat: React.FC = () => {
     setSessions(data);
     return data;
   }, []);
+
+  const copy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(`${label}已复制`, 'success');
+    } catch {
+      showToast('复制失败，请手动选中', 'error');
+    }
+  };
 
   /** 把后端保存的消息还原成 turns（thinking / tools / answer 按轮次归位） */
   const buildTurns = useCallback((messages: AgentMessage[]): Turn[] => {
@@ -398,122 +495,228 @@ const AgentChat: React.FC = () => {
 
   /* ------------------------------ 渲染片段 ------------------------------ */
 
+  /** 解析入参，失败就原样展示（不让坏 JSON 把卡片搞崩） */
+  const parseArgs = (raw?: string): [Record<string, any>, string] => {
+    if (!raw) return [{}, ''];
+    try {
+      const parsed = JSON.parse(raw);
+      return [parsed && typeof parsed === 'object' ? parsed : { value: parsed }, raw];
+    } catch {
+      return [{}, raw];
+    }
+  };
+
+  /**
+   * 工具结果：成功时给人话摘要（关键指标 + 条数），原始 JSON 收进「原始数据」折叠区；
+   * 失败时才把后端错误摊开，并把 127.0.0.1:7860 这类内部地址显示成「本机」。
+   */
+  const renderResult = (tool: ToolEvent) => {
+    const result = tool.result;
+    if (result === undefined) return null;
+
+    if (typeof result === 'string') {
+      return (
+        <p className="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words">
+          {result}
+        </p>
+      );
+    }
+
+    const failed = result?.ok === false;
+    const payload = !failed && result?.data !== undefined ? result.data : result;
+    const rows = failed ? null : countRows(payload);
+    const highlights = failed ? [] : pickHighlights(payload);
+
+    if (failed) {
+      const msg = result.message || result.detail || `HTTP ${result.status_code ?? '?'}`;
+      return (
+        <div className="rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-3 py-2">
+          <div className="text-xs font-medium text-red-700 dark:text-red-300">调用失败</div>
+          <div className="mt-1 text-xs text-red-600/90 dark:text-red-400/90 break-words">
+            {String(msg)}
+          </div>
+          {result.url && (
+            <div className="mt-1 font-mono text-[11px] text-red-500/70 dark:text-red-400/60 break-all">
+              {result.method} {String(result.url).replace(/^https?:\/\/127\.0\.0\.1:\d+/, '本机')}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (rows === null && !highlights.length) return null;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+          {rows !== null && (
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-lg font-semibold text-slate-900 dark:text-white tabular-nums leading-none">
+                {rows}
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">条记录</span>
+            </div>
+          )}
+          {highlights.map((h) => (
+            <div key={h.key} className="flex items-baseline gap-1.5">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200 tabular-nums">
+                {h.value}
+              </span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">{h.label}</span>
+            </div>
+          ))}
+        </div>
+        <details className="group/raw">
+          <summary className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer select-none list-none transition-colors">
+            <Icons.ChevronRight className="w-3 h-3 transition-transform group-open/raw:rotate-90" />
+            原始数据
+          </summary>
+          <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-slate-50 dark:bg-slate-900/70 p-3 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all">
+            {JSON.stringify(payload, null, 2)}
+          </pre>
+        </details>
+      </div>
+    );
+  };
+
   const renderToolCard = (tool: ToolEvent) => {
     const isSkill = tool.kind === 'skill';
     const label = isSkill ? SKILL_LABELS[tool.name] || tool.name : tool.name;
     const running = tool.result === undefined;
+    const [args, rawArgs] = parseArgs(tool.arguments);
+    const argEntries = Object.entries(args);
+    const failed = !!tool.result && typeof tool.result === 'object' && tool.result.ok === false;
+
+    const tone = failed
+      ? 'border-red-200 dark:border-red-900/60'
+      : isSkill
+        ? 'border-cyan-200/70 dark:border-cyan-900/50'
+        : 'border-violet-200/70 dark:border-violet-900/50';
+    const chip = failed
+      ? 'bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-300'
+      : isSkill
+        ? 'bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300'
+        : 'bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300';
+
     return (
       <details
         key={tool.id}
-        className={`group rounded-lg border text-xs overflow-hidden ${
-          isSkill
-            ? 'border-cyan-200 dark:border-cyan-800 bg-cyan-50/60 dark:bg-cyan-950/30'
-            : 'border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30'
-        }`}
+        className={`group rounded-xl border ${tone} bg-white/60 dark:bg-slate-900/40 overflow-hidden`}
       >
-        <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none hover:brightness-95 transition">
-          <Icons.ChevronDown className="w-3.5 h-3.5 text-slate-400 transition-transform group-open:rotate-180" />
-          <span
-            className={`px-1.5 py-0.5 rounded font-semibold text-[10px] uppercase tracking-wide ${
-              isSkill
-                ? 'bg-cyan-100 dark:bg-cyan-900 text-cyan-700 dark:text-cyan-300'
-                : 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300'
-            }`}
-          >
-            {isSkill ? '技能' : '工具'}
+        <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
+          <Icons.ChevronRight className="w-3.5 h-3.5 text-slate-400 transition-transform group-open:rotate-90 shrink-0" />
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide ${chip}`}>
+            {failed ? '失败' : isSkill ? '技能' : '工具'}
           </span>
-          <span className="font-medium text-slate-700 dark:text-slate-200 truncate">{label}</span>
-          {running ? (
-            <span className="ml-auto text-slate-400 animate-pulse">执行中…</span>
-          ) : (
-            <span className="ml-auto text-emerald-500 shrink-0">✓</span>
-          )}
+          <span className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">
+            {label}
+          </span>
+          <span className="ml-auto shrink-0">
+            {running ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+                执行中
+              </span>
+            ) : failed ? (
+              <span className="text-[11px] text-red-500">查看原因</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <Icons.Check className="w-3.5 h-3.5" />
+                完成
+              </span>
+            )}
+          </span>
         </summary>
-        <div className="px-3 pb-2.5 space-y-2 border-t border-slate-200/60 dark:border-slate-700/60 pt-2">
-          {tool.arguments && (
-            <div>
-              <div className="text-[10px] text-slate-400 mb-1">入参</div>
-              <pre className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-100/70 dark:bg-slate-900/60 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all">
-                {tool.arguments}
-              </pre>
+        <div className="px-3 pb-3 space-y-2.5 border-t border-slate-100 dark:border-slate-800">
+          {argEntries.length > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2.5">
+              {argEntries.map(([k, v]) => (
+                <div key={k} className="flex items-baseline gap-1.5 text-[11px]">
+                  <span className="text-slate-400 dark:text-slate-500">{ARG_LABELS[k] || k}</span>
+                  <span className="font-medium text-slate-700 dark:text-slate-300 break-all">
+                    {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
-          {tool.result !== undefined && (
-            <div>
-              <div className="text-[10px] text-slate-400 mb-1">结果</div>
-              <pre className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-100/70 dark:bg-slate-900/60 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all max-h-60">
-                {typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result, null, 2)}
-              </pre>
-            </div>
+          {rawArgs && !argEntries.length && (
+            <pre className="pt-2.5 text-[11px] text-slate-500 dark:text-slate-400 whitespace-pre-wrap break-all">
+              {rawArgs}
+            </pre>
           )}
+          {renderResult(tool)}
         </div>
       </details>
     );
   };
 
   const renderTurn = (turn: Turn) => (
-    <div key={turn.key} className="space-y-3">
-      {/* 用户消息：右对齐气泡 */}
+    <div key={turn.key} className="group/turn space-y-5">
+      {/* 用户消息：中性浅底气泡（原来青底白字太刺眼），右对齐 */}
       <div className="flex justify-end">
-        <div className="max-w-[80%] rounded-2xl rounded-br-md bg-cyan-600 text-white px-4 py-2.5 shadow-sm">
-          <MarkdownContent
-            compact
-            allowCompactComponents
-            allowHtml={false}
-            className="text-sm [&_p]:m-0 [&_ul]:my-1 [&_ol]:my-1"
-          >
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-slate-100 dark:bg-slate-800 px-4 py-2.5">
+          <div className="text-[14px] leading-relaxed text-slate-800 dark:text-slate-100 whitespace-pre-wrap break-words">
             {turn.user}
-          </MarkdownContent>
+          </div>
         </div>
       </div>
 
-      {/* 助手消息：左侧带头像 */}
+      {/* 助手消息：头像 + 内容流（无气泡，让内容自己说话） */}
       <div className="flex gap-3">
-        <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center">
-          <Icons.Sparkles className="w-4 h-4 text-white" />
+        <div className="shrink-0 w-7 h-7 mt-0.5 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-sm">
+          <Icons.Sparkles className="w-3.5 h-3.5 text-white" />
         </div>
-        <div className="flex-1 min-w-0 space-y-2">
+        <div className="flex-1 min-w-0 space-y-3">
           {turn.tools.length > 0 && (
-            <div className="space-y-1.5">
-              {turn.tools.map(renderToolCard)}
-            </div>
+            <div className="space-y-1.5">{turn.tools.map(renderToolCard)}</div>
           )}
 
           {turn.thinking && (
-            <details className="group rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+            <details className="group rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/30">
               <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none text-xs text-slate-500 dark:text-slate-400 hover:brightness-95 transition">
-                <Icons.ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+                <Icons.ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
                 <span>思考过程</span>
-                <span className="ml-auto text-slate-400">{turn.thinking.length} 字</span>
+                <span className="ml-auto text-[11px] text-slate-400">{turn.thinking.length} 字</span>
               </summary>
-              <div className="px-3 pb-2.5 text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap border-t border-slate-200/60 dark:border-slate-700/60 pt-2">
+              <div className="px-3 pb-2.5 pt-1 text-[12.5px] leading-relaxed text-slate-600 dark:text-slate-400 whitespace-pre-wrap border-t border-slate-200/60 dark:border-slate-800">
                 {turn.thinking}
               </div>
             </details>
           )}
 
           {turn.answer ? (
-            <div className="text-sm text-slate-800 dark:text-slate-100 leading-relaxed">
-              <MarkdownContent allowHtml={false} className="!max-w-none">
+            <div className="relative">
+              <MarkdownContent allowHtml={false} className={`!max-w-none ${PROSE}`}>
                 {turn.answer}
               </MarkdownContent>
-              {turn.streaming && (
-                <span className="inline-block w-1.5 h-4 bg-cyan-500 animate-pulse align-middle ml-0.5" />
+              {turn.streaming ? (
+                <span className="inline-block w-[2px] h-4 bg-cyan-500 animate-pulse align-middle ml-0.5" />
+              ) : (
+                <div className="mt-3 flex items-center gap-1 opacity-0 group-hover/turn:opacity-100 focus-within:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => void copy(turn.answer, '回答')}
+                    title="复制回答"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <Icons.Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               )}
             </div>
           ) : (
             turn.streaming && (
-              <div className="flex items-center gap-2 text-sm text-slate-400">
+              <div className="flex items-center gap-1.5 py-1">
                 <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce" />
                 <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:150ms]" />
                 <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:300ms]" />
-                正在思考
+                <span className="ml-1.5 text-[13px] text-slate-400">正在思考</span>
               </div>
             )
           )}
 
           {turn.error && (
-            <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+            <div className="rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-300">
               {turn.error}
             </div>
           )}
@@ -525,13 +728,13 @@ const AgentChat: React.FC = () => {
   /* ------------------------------ 主渲染 ------------------------------ */
 
   return (
-    <div className="h-[calc(100vh-80px)] bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden flex">
+    <div className="h-[calc(100vh-80px)] bg-white dark:bg-slate-900 overflow-hidden flex">
       {/* ---------------- 左侧会话栏 ---------------- */}
-      <aside className="w-64 shrink-0 border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex flex-col">
-        <div className="p-3 space-y-2 border-b border-slate-200 dark:border-slate-700">
+      <aside className="w-64 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 flex flex-col">
+        <div className="p-3 space-y-2.5 border-b border-slate-200 dark:border-slate-800">
           <button
             onClick={startNew}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium transition-colors shadow-sm"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-medium transition-all hover:opacity-90 active:scale-[.99] shadow-sm"
           >
             <Icons.Plus className="w-4 h-4" />
             新建对话
@@ -542,7 +745,7 @@ const AgentChat: React.FC = () => {
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="搜索会话…"
-              className="w-full pl-8 pr-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm outline-none focus:border-cyan-400 transition-colors"
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[13px] outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/15 transition-all"
             />
           </div>
         </div>
@@ -566,8 +769,8 @@ const AgentChat: React.FC = () => {
                       key={session.id}
                       className={`group relative rounded-lg transition-colors ${
                         isActive
-                          ? 'bg-cyan-100 dark:bg-cyan-900/40'
-                          : 'hover:bg-slate-200/60 dark:hover:bg-slate-700/50'
+                          ? 'bg-white dark:bg-slate-800 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
+                          : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/50'
                       }`}
                     >
                       {renamingId === session.id ? (
@@ -586,9 +789,15 @@ const AgentChat: React.FC = () => {
                         <>
                           <button
                             onClick={() => void loadSession(session.id)}
-                            className="w-full text-left px-2 py-2 block"
+                            className="w-full text-left px-2.5 py-2 block"
                           >
-                            <div className="text-sm text-slate-800 dark:text-slate-100 truncate pr-12">
+                            <div
+                              className={`text-[13px] truncate pr-12 ${
+                                isActive
+                                  ? 'font-medium text-slate-900 dark:text-white'
+                                  : 'text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
                               {session.title || '新对话'}
                             </div>
                             <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
@@ -628,9 +837,9 @@ const AgentChat: React.FC = () => {
       </aside>
 
       {/* ---------------- 右侧主区 ---------------- */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-900">
         {/* 顶栏 */}
-        <header className="h-14 px-4 flex items-center gap-3 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shrink-0">
+        <header className="h-14 px-5 flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <Icons.Sparkles className="w-4 h-4 text-cyan-500 shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
@@ -644,7 +853,7 @@ const AgentChat: React.FC = () => {
             <button
               onClick={() => void handleDelete(activeSession.id)}
               title="删除当前会话"
-              className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               <Icons.Trash2 className="w-4 h-4" />
             </button>
@@ -656,13 +865,13 @@ const AgentChat: React.FC = () => {
           {turns.length === 0 ? (
             /* 空状态引导 */
             <div className="h-full flex flex-col items-center justify-center px-6 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center mb-4 shadow-lg">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center mb-5 shadow-lg shadow-cyan-500/20">
                 <Icons.Sparkles className="w-7 h-7 text-white" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-1">
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-1.5">
                 今天想对站点做什么？
               </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 max-w-md">
+              <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-7 max-w-md leading-relaxed">
                 我可以帮你查数据、审评论、管文章和订阅者。涉及写操作时我会先跟你确认。
               </p>
               <div className="grid sm:grid-cols-2 gap-2 max-w-xl w-full">
@@ -673,7 +882,7 @@ const AgentChat: React.FC = () => {
                       setInput(q);
                       requestAnimationFrame(() => textareaRef.current?.focus());
                     }}
-                    className="text-left px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-cyan-400 hover:bg-cyan-50/50 dark:hover:bg-slate-700/50 transition-colors text-sm text-slate-600 dark:text-slate-300"
+                    className="text-left px-3.5 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-cyan-300 dark:hover:border-cyan-800 hover:bg-cyan-50/50 dark:hover:bg-slate-800 transition-all text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed"
                   >
                     {q}
                   </button>
@@ -681,14 +890,15 @@ const AgentChat: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="px-4 py-5 space-y-6 max-w-4xl mx-auto">{turns.map(renderTurn)}</div>
+            /* 收窄正文宽度：太长的一行读起来很累 */
+            <div className="px-6 py-6 space-y-7 max-w-3xl mx-auto">{turns.map(renderTurn)}</div>
           )}
         </div>
 
         {/* 输入区 */}
-        <div className="border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 shrink-0">
-          <div className="max-w-4xl mx-auto">
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus-within:border-cyan-400 transition-colors">
+        <div className="border-t border-slate-200 dark:border-slate-800 px-6 py-4 shrink-0">
+          <div className="max-w-3xl mx-auto">
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-400/15 transition-all">
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -699,10 +909,10 @@ const AgentChat: React.FC = () => {
                 onKeyDown={onKeyDown}
                 rows={1}
                 placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"
-                className="w-full px-4 py-3 bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none resize-none max-h-[200px]"
+                className="w-full px-4 pt-3.5 pb-1 bg-transparent text-sm leading-relaxed text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none resize-none max-h-[200px]"
               />
-              <div className="flex items-center justify-between px-2 pb-2">
-                <span className="text-[11px] text-slate-400 pl-2">
+              <div className="flex items-center justify-between px-2.5 pb-2.5 pl-4">
+                <span className="text-[11px] text-slate-400">
                   助手可能出错，删除/修改类操作请确认后再执行
                 </span>
                 {sending ? (
@@ -717,7 +927,7 @@ const AgentChat: React.FC = () => {
                   <button
                     onClick={() => void handleSend()}
                     disabled={!input.trim()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-all active:scale-[.98]"
                   >
                     发送
                     <Icons.Send className="w-3.5 h-3.5" />

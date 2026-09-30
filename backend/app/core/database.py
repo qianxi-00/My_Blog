@@ -95,6 +95,14 @@ async def get_db() -> AsyncSession:
         try:
             yield session
         finally:
+            # 先显式回滚再 close：确保连接不带着未提交事务回到池里。
+            # 2026-09-30 实踩：SSE 长请求异常结束时，光 close 会让写锁跟着连接
+            # 留在池中，后续所有 INSERT 直接 "database is locked"（SQLite 只有单写者，
+            # 一把锁卡住全站写操作，只能重启容器）。
+            try:
+                await session.rollback()
+            except Exception:
+                pass
             await session.close()
 
 
