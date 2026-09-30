@@ -9,6 +9,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { markdownComponents } from './MarkdownRenderer';
 import { remarkDisableIndentedCodeBlock } from '../utils/remark-plugins';
 
@@ -33,9 +34,62 @@ interface MarkdownContentProps {
     useCustomComponents?: boolean;
     /** 紧凑模式是否仍启用自定义组件（聊天气泡等场景） */
     allowCompactComponents?: boolean;
-    /** 是否允许 Markdown 中的原始 HTML，默认 true */
+    /**
+     * 是否允许 Markdown 中的原始 HTML。
+     *
+     * 默认 false —— 这是安全默认，不要改。历史上这里默认 true 且挂了 rehypeRaw 却没有消毒，
+     * 导致匿名评论里的 `<img onerror=...>` 能在管理员浏览文章时执行、偷走 localStorage 里的
+     * JWT（2026-09-30 修复）。任何用户可提交的内容（评论、论坛、提示词、聊天）都必须显式
+     * 传 false；只有自己写的文章正文才可以传 true，且此时仍会经过 rehypeSanitize 消毒。
+     */
     allowHtml?: boolean;
 }
+
+/**
+ * rehype-sanitize 的 schema：在 GitHub 默认白名单基础上放开文章正文真正需要的标签/属性。
+ * - className：katex、highlight.js、mermaid 生成的 class 必须保留
+ * - img 的 srcset/sizes/loading/decoding：文章配图与懒加载属性
+ * - video/audio/source：文章内嵌多媒体
+ * - target/rel：外链新窗口打开（target 由组件侧强制 rel="noopener noreferrer"）
+ */
+const sanitizeSchema = {
+    ...defaultSchema,
+    attributes: {
+        ...defaultSchema.attributes,
+        '*': [
+            ...(defaultSchema.attributes?.['*'] ?? []),
+            'className',
+            'style',
+            'id',
+        ],
+        img: [
+            ...(defaultSchema.attributes?.img ?? []),
+            'srcSet',
+            'sizes',
+            'loading',
+            'decoding',
+            'width',
+            'height',
+        ],
+        a: [...(defaultSchema.attributes?.a ?? []), 'target', 'rel'],
+        video: ['src', 'controls', 'poster', 'width', 'height', 'className', 'preload'],
+        audio: ['src', 'controls', 'className', 'preload'],
+        source: ['src', 'type', 'srcSet', 'media', 'sizes'],
+    },
+    tagNames: [
+        ...(defaultSchema.tagNames ?? []),
+        'video',
+        'audio',
+        'source',
+        'iframe',
+    ],
+    // 只允许 http/https/mailto/data:image，挡掉 javascript: 这类协议
+    protocols: {
+        ...defaultSchema.protocols,
+        href: ['http', 'https', 'mailto'],
+        src: ['http', 'https', 'data'],
+    },
+};
 
 /**
  * 通用 Markdown 渲染组件
@@ -56,7 +110,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
     compact = false,
     useCustomComponents = true,
     allowCompactComponents = false,
-    allowHtml = true,
+    allowHtml = false, // 安全默认：必须显式开启（见上方注释）
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -65,11 +119,17 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
         ? 'leading-relaxed [&_p]:mb-2 [&_ul]:mb-2 [&_ol]:mb-2 [&_li]:mb-1 [&_li]:pl-1 [&_pre]:my-2 [&_blockquote]:my-2'
         : '';
 
+    // 插件顺序：raw 解析原始 HTML -> sanitize 消毒 -> katex/highlight 加工。
+    // sanitize 必须排在 katex/highlight 之前：它们自己生成的 class 与标签才不会被剥掉。
+    const rehypePlugins = allowHtml
+        ? [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex, rehypeHighlight]
+        : [rehypeKatex, rehypeHighlight];
+
     return (
         <div ref={containerRef} className={`${proseClass} ${className}`.trim()}>
             <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath, remarkDisableIndentedCodeBlock]}
-                rehypePlugins={allowHtml ? [rehypeKatex, rehypeHighlight, rehypeRaw] : [rehypeKatex, rehypeHighlight]}
+                rehypePlugins={rehypePlugins as any}
                 components={useCustomComponents && (!compact || allowCompactComponents) ? markdownComponents : undefined}
             >
                 {children}

@@ -1,53 +1,67 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './components/Toast';
 import PublicLayout from './layouts/PublicLayout';
-import AdminLayout from './layouts/AdminLayout';
-import Home from './pages/Home';
-import ArticleList from './pages/ArticleList';
-import ArticleDetail from './pages/ArticleDetail';
-import Archives from './pages/Archives';
-import PromptLibrary from './pages/PromptLibrary';
-import PromptDetail from './pages/PromptDetail';
-import Unsubscribe from './pages/Unsubscribe';
-import AdminDashboard from './pages/AdminDashboard';
-import AdminLogin from './pages/AdminLogin';
-import ArticleManager from './pages/ArticleManager';
-import ArticleEditor from './pages/ArticleEditor';
-import CommentManager from './pages/CommentManager';
-import PromptManager from './pages/PromptManager';
-import SubscriberManager from './pages/SubscriberManager';
-import Settings from './pages/Settings';
-import AdminProfile from './pages/AdminProfile';
-import AgentChat from './pages/AgentChat';
-import ForumHome from './pages/ForumHome';
-import ForumNewThread from './pages/ForumNewThread';
-import ForumThreadDetail from './pages/ForumThreadDetail';
-import HotspotsList from './pages/HotspotsList';
-import HotspotDetail from './pages/HotspotDetail';
-import HotspotManager from './pages/HotspotManager';
-import HotspotEditor from './pages/HotspotEditor';
-import HotspotUploadPage from './pages/HotspotUploadPage';
-import AiDaily from './pages/AiDaily';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import ForgotPassword from './pages/ForgotPassword';
-import UserCenter from './pages/UserCenter';
-import AuthorPage from './pages/AuthorPage';
-import WritePage from './pages/WritePage';
-import AdminAccounts from './pages/AdminAccounts';
 import ErrorBoundary from './components/ErrorBoundary';
 
+// 路由级代码分割：33 个页面全部按需加载，避免首屏就下载整个 3MB 主包。
+// AdminLayout 属后台壳，同样只在进后台时才拉取。
+const AdminLayout = React.lazy(() => import('./layouts/AdminLayout'));
+
+// 公共页面
+const Home = React.lazy(() => import('./pages/Home'));
+const ArticleList = React.lazy(() => import('./pages/ArticleList'));
+const ArticleDetail = React.lazy(() => import('./pages/ArticleDetail'));
+const Archives = React.lazy(() => import('./pages/Archives'));
+const PromptLibrary = React.lazy(() => import('./pages/PromptLibrary'));
+const PromptDetail = React.lazy(() => import('./pages/PromptDetail'));
+const Unsubscribe = React.lazy(() => import('./pages/Unsubscribe'));
+const ForumHome = React.lazy(() => import('./pages/ForumHome'));
+const ForumNewThread = React.lazy(() => import('./pages/ForumNewThread'));
+const ForumThreadDetail = React.lazy(() => import('./pages/ForumThreadDetail'));
+const HotspotsList = React.lazy(() => import('./pages/HotspotsList'));
+const HotspotDetail = React.lazy(() => import('./pages/HotspotDetail'));
+const AiDaily = React.lazy(() => import('./pages/AiDaily'));
+const Login = React.lazy(() => import('./pages/Login'));
+const Register = React.lazy(() => import('./pages/Register'));
+const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'));
+const UserCenter = React.lazy(() => import('./pages/UserCenter'));
+const AuthorPage = React.lazy(() => import('./pages/AuthorPage'));
+const WritePage = React.lazy(() => import('./pages/WritePage'));
+
+// 后台页面
+const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
+const AdminLogin = React.lazy(() => import('./pages/AdminLogin'));
+const ArticleManager = React.lazy(() => import('./pages/ArticleManager'));
+const ArticleEditor = React.lazy(() => import('./pages/ArticleEditor'));
+const CommentManager = React.lazy(() => import('./pages/CommentManager'));
+const PromptManager = React.lazy(() => import('./pages/PromptManager'));
+const SubscriberManager = React.lazy(() => import('./pages/SubscriberManager'));
+const Settings = React.lazy(() => import('./pages/Settings'));
+const AdminProfile = React.lazy(() => import('./pages/AdminProfile'));
+const AgentChat = React.lazy(() => import('./pages/AgentChat'));
+const HotspotManager = React.lazy(() => import('./pages/HotspotManager'));
+const HotspotEditor = React.lazy(() => import('./pages/HotspotEditor'));
+const HotspotUploadPage = React.lazy(() => import('./pages/HotspotUploadPage'));
+const AdminAccounts = React.lazy(() => import('./pages/AdminAccounts'));
+
+// 路由切换 / 首次进入页面时的轻量占位，避免空白页
+const RouteFallback: React.FC = () => (
+  <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center transition-colors">
+    <div className="text-primary-600 dark:text-primary-400 font-medium animate-pulse">加载中...</div>
+  </div>
+);
+
 const App: React.FC = () => {
-// ... existing imports
   return (
     <ErrorBoundary>
     <ThemeProvider>
       <ToastProvider>
         <AuthProvider>
           <HashRouter>
+            <Suspense fallback={<RouteFallback />}>
             <Routes>
               {/* Public Routes */}
               <Route path="/" element={<PublicLayout />}>
@@ -102,6 +116,7 @@ const App: React.FC = () => {
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </Suspense>
           </HashRouter>
         </AuthProvider>
       </ToastProvider>

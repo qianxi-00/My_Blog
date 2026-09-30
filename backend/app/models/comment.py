@@ -96,16 +96,24 @@ class Comment(Base):
     user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id], back_populates="comments")
 
     # 自关联 - 嵌套回复
+    # parent（多对一）必须保持 selectin：SQLAlchemy 在 flush 走 delete 级联时会强制
+    # 装载这个属性，改成 lazy="raise" 会让 db.delete(comment)（confirm_report /
+    # delete_comment）直接抛 InvalidRequestError。已实测，不要动。
     parent: Mapped[Optional["Comment"]] = relationship(
         "Comment",
         remote_side=[id],
         back_populates="replies",
         lazy="selectin",
     )
+    # replies（多对多/一对多集合）改 raise：自引用 + selectin 会逐层递归展开，
+    # 查一次评论列表能涨到上百条查询。业务只读标量 parent_id（build_comment_tree），
+    # 真要读关系时显式 selectinload（confirm_report 就是这么写的）。
+    # 删评论的 cascade="all, delete-orphan" 不受影响：级联是 unit-of-work 层的
+    # delete，靠 FK 列走，不依赖这个属性被加载。
     replies: Mapped[List["Comment"]] = relationship(
         "Comment",
         back_populates="parent",
-        lazy="selectin",
+        lazy="raise",
         cascade="all, delete-orphan",
     )
 

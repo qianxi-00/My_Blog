@@ -116,6 +116,47 @@ async def get_current_user(
     return user
 
 
+async def resolve_optional_user(token: Optional[str], db: AsyncSession) -> Optional[User]:
+    """
+    可选登录用户的核心判定：token 无效/账号禁用/改密后旧 token 一律返回 None（按访客处理）。
+
+    单独抽出来是为了让 FastAPI 依赖（get_optional_user）与自带 HTTPBearer 的依赖
+    （comments.py 的 get_comment_author）共用同一份判定逻辑。
+    """
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    user_id = (payload or {}).get("sub")
+    if user_id is None:
+        return None
+    try:
+        uid = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    result = await db.execute(select(User).where(User.id == uid))
+    user = result.scalar_one_or_none()
+    if user is None or user.status != "active":
+        return None
+    if token_is_stale(user, payload):
+        return None
+    return user
+
+
+async def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[User]:
+    """
+    可选登录用户：无 token / token 无效 / 账号被禁用 一律按访客处理（返回 None），不报错。
+
+    用于"登录与否都要能用、但登录后能给更多"的公开端点，例如提示词详情
+    （访客只看已审核内容，管理员看全部）。
+    """
+    if credentials is None:
+        return None
+    return await resolve_optional_user(credentials.credentials, db)
+
+
 async def get_current_admin(
     user: User = Depends(get_current_user)
 ) -> User:

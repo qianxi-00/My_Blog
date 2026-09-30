@@ -51,7 +51,8 @@ const AuthorPage: React.FC = () => {
         );
     }
 
-    const author = profile.user;
+    // 后端返回的是扁平结构（UserPublicSafe 字段 + articles），没有 user 包装层
+    const author = profile;
     const articles = profile.articles || [];
     const authorName = author.display_name || author.username;
 

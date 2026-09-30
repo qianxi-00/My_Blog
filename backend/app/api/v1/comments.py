@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ...core.database import get_db
-from ...core.deps import get_current_admin, token_is_stale
+from ...core.deps import get_current_admin, resolve_optional_user
 from ...core.ratelimit import rate_limit
 from ...core.redis import cache_delete_pattern
 from ...core.security import decode_access_token
@@ -46,21 +46,15 @@ async def get_comment_author(
     credentials: HTTPAuthorizationCredentials | None = Depends(_comment_security),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
-    """评论场景的可选登录用户：无 token / token 无效一律按访客处理，不报错。"""
+    """评论场景的可选登录用户：无 token / token 无效一律按访客处理，不报错。
+
+    2026-09-30 起实现已并入 core.deps.get_optional_user（同一份判定口径，
+    避免"接口层已登出、评论还能署名"这类漂移）。
+    """
     if credentials is None:
         return None
-    payload = decode_access_token(credentials.credentials)
-    user_id = (payload or {}).get("sub")
-    if user_id is None:
-        return None
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-    user = result.scalar_one_or_none()
-    if user is None or user.status != "active":
-        return None
-    # 与 get_current_user 一致：改密/重置后旧 token 在这里同样失效（否则会出现"接口登出了、评论还能发"）
-    if token_is_stale(user, payload):
-        return None
-    return user
+    return await resolve_optional_user(credentials.credentials, db)
+
 
 SUPPORTED_COMMENT_TARGETS = {"article", "hotspot"}
 
@@ -504,18 +498,31 @@ async def report_comment(
         select(CommentReport)
         .where(CommentReport.comment_id == comment_id)
         .where(CommentReport.reporter_identifier == user_id)
+        .order_by(CommentReport.id.desc())
+        .limit(1)
     )
-    if result.scalar_one_or_none():
+    existing = result.scalars().first()
+
+    # 只有 pending（处理中）才算占位；被 dismiss_report 置为 processed 的那条已结案，
+    # 不该再永久堵死该用户。
+    if existing and existing.status == "pending":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="您已经举报过该评论")
 
-    report = CommentReport(
-        comment_id=comment_id,
-        reporter_identifier=user_id,
-        reason=report_data.reason,
-        description=report_data.description,
-        status="pending",
-    )
-    db.add(report)
+    if existing:
+        # 就地复活旧记录：comment_reports 上有 uq_comment_report(comment_id, reporter_identifier)
+        # 唯一约束，旧行不删就再插一行会直接 IntegrityError 500。
+        existing.reason = report_data.reason
+        existing.description = report_data.description
+        existing.status = "pending"
+    else:
+        report = CommentReport(
+            comment_id=comment_id,
+            reporter_identifier=user_id,
+            reason=report_data.reason,
+            description=report_data.description,
+            status="pending",
+        )
+        db.add(report)
 
     comment.report_count += 1
     comment.is_reported = True
@@ -612,6 +619,12 @@ async def approve_comment(
 
     comment.status = "approved"
     await db.commit()
+
+    # 审核通过会改变 approved 集合，必须重算文章评论数（与删除路径同一入口，避免计数只增不减）
+    if comment.target_type == "article":
+        await _recount_article_comment_count(db, comment.article_id)
+        await db.commit()
+
     await _invalidate_hotspot_caches_if_needed(comment.target_type)
 
     return {"message": "审核通过"}
@@ -632,6 +645,12 @@ async def reject_comment(
 
     comment.status = "rejected"
     await db.commit()
+
+    # 拒绝同样改变 approved 集合，重算口径与删除路径保持一致
+    if comment.target_type == "article":
+        await _recount_article_comment_count(db, comment.article_id)
+        await db.commit()
+
     await _invalidate_hotspot_caches_if_needed(comment.target_type)
 
     return {"message": "已拒绝"}

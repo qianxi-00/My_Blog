@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -397,19 +397,27 @@ async def create_post(
     ua = request.headers.get("user-agent")
     user_identifier = _get_user_identifier(request)
 
-    # 并发安全：用 thread.last_floor 分配楼层
-    # 使用一次 UPDATE + SELECT 的方式避免 ORM 竞争；MySQL 下可用 LAST_INSERT_ID 技巧，但这里保持简单。
-    # 方案：直接对 thread 行加锁（FOR UPDATE），然后自增。
-    thread_locked = await db.scalar(
-        select(ForumThread)
+    # 并发安全：SQLite 方言会静默忽略 FOR UPDATE，且上面 select 出来的 thread
+    # 与锁查询是 identity map 里的同一个对象，等于完全没加锁 —— 并发回帖会算出
+    # 相同楼层号。改用 SQLite 真正支持的机制：单条 UPDATE 的列自增（写锁由 SQLite
+    # 自己拿，配合 database.py 里已设的 busy_timeout=5000 等待重试），
+    # 楼层号 = 本次自增后的 last_floor。
+    now = datetime.now()
+    await db.execute(
+        update(ForumThread)
         .where(ForumThread.id == thread_id)
-        .with_for_update()
+        .values(
+            last_floor=ForumThread.last_floor + 1,
+            reply_count=ForumThread.reply_count + 1,
+            last_post_at=now,
+        )
+        .execution_options(synchronize_session=False)
     )
-    if not thread_locked:
+    next_floor = await db.scalar(
+        select(ForumThread.last_floor).where(ForumThread.id == thread_id)
+    )
+    if next_floor is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="主题不存在")
-
-    next_floor = (thread_locked.last_floor or 0) + 1
-    thread_locked.last_floor = next_floor
 
     post = ForumPost(
         thread_id=thread_id,
@@ -428,13 +436,9 @@ async def create_post(
 
     db.add(post)
 
-    # 更新 thread 统计
-    now = datetime.now()
-    thread_locked.reply_count += 1
-    thread_locked.last_post_at = now
-
+    # thread 统计已在上面的原子 UPDATE 里加过，这里只回填楼层 id
     await db.flush()
-    thread_locked.last_post_id = post.id
+    thread.last_post_id = post.id
 
     await db.commit()
     await db.refresh(post)

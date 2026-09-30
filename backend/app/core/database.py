@@ -106,6 +106,48 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # create_all 只建新表，不会给已存在的表补列，这里补齐后加的可空列。
+    await ensure_schema_columns()
+
+
+# 后加列清单：表名 -> [(列名, 列定义)]
+# 每加一个"给已有表补的列"就往这里加一条，别再写一次性迁移脚本。
+_ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    # 2026-09-30：chat_sessions 补归属，修"任何人可删任意会话 / 往他人会话写消息"
+    "chat_sessions": [
+        ("user_id", "INTEGER"),
+        ("owner_ip", "VARCHAR(64)"),
+    ],
+}
+
+
+async def ensure_schema_columns() -> None:
+    """
+    幂等补齐"后加的可空列"。
+
+    注意：这个函数在 lifespan 里**无条件**调用（不挂在 settings.DEBUG 门控下）——
+    生产是 DEBUG=false，只挂 init_db 的话新代码上线会直接 500（列不存在）。
+    """
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        for table, columns in _ADDED_COLUMNS.items():
+            existing = {
+                row[1]
+                for row in (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()
+            }
+            if not existing:
+                # 表还不存在（全新库）：create_all 已按模型建好带列的表
+                continue
+            for name, ddl in columns:
+                if name in existing:
+                    continue
+                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                # 补索引（IF NOT EXISTS 保证幂等）
+                await conn.execute(
+                    text(f"CREATE INDEX IF NOT EXISTS ix_{table}_{name} ON {table} ({name})")
+                )
+
 
 async def close_db():
     """

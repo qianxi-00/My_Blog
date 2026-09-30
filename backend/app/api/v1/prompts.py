@@ -10,7 +10,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from ...core.database import get_db
-from ...core.deps import get_current_admin, get_current_admin_optional, get_current_user
+from ...core.deps import get_current_admin, get_current_admin_optional, get_current_user, get_optional_user
 from ...core.ratelimit import rate_limit
 from ...models.admin import Admin
 from ...models.prompt import Prompt
@@ -100,15 +100,24 @@ async def get_pending_prompts(
 @router.get("/{prompt_id}", response_model=PromptResponse)
 async def get_prompt(
     prompt_id: int,
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_user)):
     """
     获取 Prompt 详情
+
+    2026-09-30 修复：原先这里零 status 过滤，匿名遍历 id 即可读到 pending/rejected
+    的提示词全文（列表端点是有 status=="approved" 过滤的）。现在未登录用户与普通用户
+    只能读已通过审核的；管理员可读全部。
     """
+    conditions = [Prompt.id == prompt_id]
+    is_admin = current_user is not None and current_user.role in ("admin", "super_admin")
+    if not is_admin:
+        conditions.append(Prompt.status == "approved")
+
     result = await db.execute(
         select(Prompt)
         .options(selectinload(Prompt.author))
-        .where(Prompt.id == prompt_id)
+        .where(*conditions)
     )
     prompt = result.scalar_one_or_none()
     

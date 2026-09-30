@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .core.config import settings
-from .core.database import init_db, close_db
+from .core.database import init_db, close_db, ensure_schema_columns
 from .core.redis import init_redis, close_redis
 from .api.v1.router import api_router
 
@@ -48,6 +48,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"⚠️ 初始化数据库时出错: {e}")
             print("提示：请确保数据库配置正确，或者手动运行 Alembic 迁移")
+
+    # 后加列的幂等补齐：不能挂在 settings.DEBUG 门控下（生产 DEBUG=false，
+    # 那样新代码上线会因为缺列直接 500）。只做 PRAGMA + ALTER，开销可忽略。
+    try:
+        await ensure_schema_columns()
+    except Exception as e:
+        print(f"❌ schema 补列失败，服务可能不可用: {e}")
+        raise
     
     print("✅ 应用启动完成")
     print(f"📖 API 文档地址: http://{settings.APP_HOST}:{settings.APP_PORT}/docs")

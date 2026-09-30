@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { Button } from '../components/Shared';
 import Avatar from '../components/Avatar';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import DesktopPet from '../components/DesktopPet';
+
+// 桌宠会连带 MarkdownContent -> katex/highlight.js 整条链（约 1MB），
+// 所以既做懒加载、又在空闲时才挂载，不占首屏带宽。
+const DesktopPet = React.lazy(() => import('../components/DesktopPet'));
 
 import { getPublicSettings, PublicSettings } from '../api/stats';
 
@@ -19,6 +22,18 @@ const PublicLayout: React.FC = () => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [settings, setSettings] = useState<PublicSettings | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showDesktopPet, setShowDesktopPet] = useState(false);
+
+  // 浏览器空闲（或 1.5s 兜底）后再挂载桌宠，纯装饰，不影响首屏内容。
+  useEffect(() => {
+    const ric = (window as any).requestIdleCallback;
+    if (typeof ric === 'function') {
+      const handle = ric(window, () => setShowDesktopPet(true));
+      return () => (window as any).cancelIdleCallback?.(handle);
+    }
+    const timer = window.setTimeout(() => setShowDesktopPet(true), 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     getPublicSettings()
@@ -316,7 +331,11 @@ const PublicLayout: React.FC = () => {
         </div>
       </footer>
 
-      <DesktopPet />
+      {showDesktopPet && (
+        <Suspense fallback={null}>
+          <DesktopPet />
+        </Suspense>
+      )}
     </div>
   );
 };

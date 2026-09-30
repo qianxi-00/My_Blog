@@ -432,12 +432,12 @@ const ArticleDetail: React.FC = () => {
             </div>
             {isLong && !isTextExpanded ? (
               <div>
-                <MarkdownContent compact enableMermaid={false} className="dark:text-slate-300">{reply.content.slice(0, COMMENT_MAX_LEN) + '...'}</MarkdownContent>
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300">{reply.content.slice(0, COMMENT_MAX_LEN) + '...'}</MarkdownContent>
                 <button onClick={() => toggleText(reply.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">展开全文</button>
               </div>
             ) : (
               <div>
-                <MarkdownContent compact enableMermaid={false} className="dark:text-slate-300">{reply.content}</MarkdownContent>
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300">{reply.content}</MarkdownContent>
                 {isLong && <button onClick={() => toggleText(reply.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">收起</button>}
               </div>
             )}
@@ -511,12 +511,12 @@ const ArticleDetail: React.FC = () => {
             </div>
             {comment.content.length > COMMENT_MAX_LEN && !expandedTexts.has(comment.id) ? (
               <div>
-                <MarkdownContent compact enableMermaid={false} className="dark:text-slate-300 transition-colors">{comment.content.slice(0, COMMENT_MAX_LEN) + '...'}</MarkdownContent>
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 transition-colors">{comment.content.slice(0, COMMENT_MAX_LEN) + '...'}</MarkdownContent>
                 <button onClick={() => toggleText(comment.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">展开全文</button>
               </div>
             ) : (
               <div>
-                <MarkdownContent compact enableMermaid={false} className="dark:text-slate-300 transition-colors">{comment.content}</MarkdownContent>
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 transition-colors">{comment.content}</MarkdownContent>
                 {comment.content.length > COMMENT_MAX_LEN && <button onClick={() => toggleText(comment.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">收起</button>}
               </div>
             )}
@@ -725,7 +725,8 @@ const ArticleDetail: React.FC = () => {
 
               <article className="prose prose-slate dark:prose-invert prose-lg max-w-none prose-headings:scroll-mt-24 prose-a:text-cyan-600 dark:prose-a:text-cyan-400 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl prose-img:shadow-md transition-colors">
                 {article.content_md ? (
-                  <MarkdownContent className="!max-w-none">{article.content_md}</MarkdownContent>
+                  // 文章正文是管理员自己写的，可以开原始 HTML，但仍会过 rehypeSanitize
+                  <MarkdownContent allowHtml className="!max-w-none">{article.content_md}</MarkdownContent>
                 ) : (
                   <p className="text-slate-400 dark:text-slate-500 text-center py-8 transition-colors">暂无内容</p>
                 )}

@@ -105,8 +105,14 @@ export interface PublicAuthorArticle {
     cover_image?: string;
 }
 
-export interface PublicUserProfile {
-    user: PublicAuthor;
+/**
+ * 公开作者页响应。
+ * 2026-09-30 修正：后端 schemas/user.py 的 UserProfilePublic 是**扁平**结构
+ * （UserPublicSafe 字段 + articles），没有 `user` 包装层。
+ * 之前前端声明成 { user, articles } 并读 `profile.user.display_name`，
+ * 在作者页直接抛 TypeError 整页白屏。
+ */
+export interface PublicUserProfile extends PublicAuthor {
     articles: PublicAuthorArticle[];
 }
 

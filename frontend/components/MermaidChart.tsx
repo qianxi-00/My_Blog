@@ -1,15 +1,26 @@
 import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
 
 interface MermaidChartProps {
     chart: string;
 }
 
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'neutral',
-    securityLevel: 'loose',
-});
+// mermaid 本身约 800KB，不在模块顶层 import —— 只有真的渲染图表时才拉。
+// 用 Promise 缓存保证 initialize 全局只跑一次（并发组件也只初始化一次），
+// 配置与原先模块顶层的 initialize 完全一致。
+let mermaidPromise: Promise<any> | null = null;
+const loadMermaid = (): Promise<any> => {
+    if (!mermaidPromise) {
+        mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
+            mermaid.initialize({
+                startOnLoad: false,
+                theme: 'neutral',
+                securityLevel: 'loose',
+            });
+            return mermaid;
+        });
+    }
+    return mermaidPromise;
+};
 
 const MermaidChart: React.FC<MermaidChartProps> = ({ chart }) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -21,6 +32,9 @@ const MermaidChart: React.FC<MermaidChartProps> = ({ chart }) => {
 
         const renderChart = async () => {
             try {
+                const mermaid = await loadMermaid();
+                if (!isMounted) return;
+
                 // Generate a unique ID to avoid Mermaid caching conflicts during re-renders
                 const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
 

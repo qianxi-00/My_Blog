@@ -28,7 +28,18 @@ class ChatSession(Base):
         default=generate_uuid
     )
     title: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    
+
+    # 2026-09-30 加归属：此前本表没有任何归属字段，导致 DELETE /chat/session/{id}
+    # 无鉴权、任何人可删任意会话，POST /message 也能往他人会话写消息并把其历史喂进 LLM。
+    # 存量行这两列都是 NULL（视为"无主遗留"，只有管理员能删）。
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    owner_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=func.now(),

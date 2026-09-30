@@ -1,6 +1,8 @@
-import React, { ReactNode } from 'react';
-import MermaidChart from './MermaidChart';
+import React, { ReactNode, Suspense } from 'react';
 import XmindViewer from './XmindViewer';
+
+// MermaidChart 会动态 import mermaid，自身按需加载，避免把图表引擎拖进首屏包
+const MermaidChart = React.lazy(() => import('./MermaidChart'));
 
 interface CustomComponentProps {
   children?: ReactNode;
@@ -132,7 +134,11 @@ export const markdownComponents = {
     const codeText = String(children ?? '').replace(/\n$/, '');
 
     if (language == 'mermaid') {
-      return <MermaidChart chart={codeText} />;
+      return (
+        <Suspense fallback={null}>
+          <MermaidChart chart={codeText} />
+        </Suspense>
+      );
     }
 
     return (

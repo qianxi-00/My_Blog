@@ -408,6 +408,50 @@ async def review_article(
     return ArticleResponse.model_validate(article)
 
 
+@router.get("/slug/{slug}", response_model=ArticleResponse)
+async def get_article_by_slug(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+    admin: Optional[User] = Depends(get_current_admin_optional)
+):
+    """
+    按 slug 获取文章详情
+
+    2026-09-30 补：前端 api/articles.ts 的 getArticleBySlug 与 ArticleDetail 的
+    `/#/article/:slug` 路由一直在调这个地址，但后端此前**没有这条路由**（恒 404）。
+
+    ⚠️ 必须注册在 `/{article_id}` 之前：后者声明为 int，会先把 "/slug/xxx" 吃掉并报 422。
+
+    另注：articles.slug 目前全站没有写入路径（建文时不设值，恒为 null），
+    所以在 slug 被真正启用前这条路由同样查不到东西——先补齐契约，别让前端静默失败。
+    """
+    result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.author), selectinload(Article.tags))
+        .where(Article.slug == slug)
+    )
+    article = result.scalar_one_or_none()
+
+    if not article:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文章不存在"
+        )
+
+    if admin is None and article.status != "published":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文章不存在"
+        )
+
+    if article.status == "published":
+        article.view_count = int(article.view_count or 0) + 1
+        await db.commit()
+        await db.refresh(article)
+
+    return ArticleResponse.model_validate(article)
+
+
 @router.get("/{article_id}", response_model=ArticleResponse)
 async def get_article(
     article_id: int,
