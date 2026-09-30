@@ -3,8 +3,10 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `3a7c27a`）。
-当前生产镜像 **`qianxi-blog:users7`**（2026-09-30 五期「后台 AI 助手修复 + Cherry Studio 式界面」版）。前端产物 `assets/index-Csr_WvnJ.js`。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` **均已推 GitHub**，`origin/master` = `3a7c27a`，本地与生产无漂移（已逐一核对 6 个后端文件 sha256）。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `87b4fbf`）。
+当前生产镜像 **`qianxi-blog:users8`**（2026-09-30 五期之二「AI 助手界面美化 + `get_db` 写锁泄漏修复」版）。前端产物 `assets/index-kBQz4WVk.js`、助手 chunk `AgentChat-Cq69Vs_7.js`。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `87b4fbf` **均已推 GitHub**，`origin/master` = `87b4fbf`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+
+⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
 ## 先看这里（2026-09-24 迁移后）
 
@@ -128,11 +130,31 @@
 - **真机（Chrome）**：界面无白屏，侧栏分组与消息数正确，工具卡片可展开显示真实 JSON
 - 上游模型侧确认正常：`finish_reason: tool_calls`，`AGENT_MODEL = grok-4.7`，`base = http://new-api:3000/v1`
 
-### 五、遗留
+### 五、界面二次美化（用户反馈"有点丑"，镜像 users8）
 
-1. **SSE 期间长期持有 DB 会话**：实测在 agent 有长请求时，另一个请求的 `UPDATE users SET last_login_at` 会撞 `database is locked`。SQLite 单写者 + 双 worker，这是真实风险。**未擅自改**（要动 `chat_stream` 的事务边界）。
-2. **会话无归属**：`agent_sessions` 是后台专用（admin 才能访问），暂不加归属字段。
-3. 旧会话标题全是"新对话"（后端不会用首条消息自动命名）。可加，但属体验项，未获确认不动。
+用户看到的第一版不好看，主要是**工具卡片展开就是一坨 `JSON.stringify`**，最抢眼也最难读。改动都在展示层，逻辑没动：
+
+- 工具结果：成功时给人话摘要（关键指标 + 条数），原始 JSON 收进「原始数据」折叠区；失败时才摊开错误，并把 `127.0.0.1:7860` 显示成「本机」
+- 指标与入参全部中文化：`today_views → 今日访问`、`article_id → 文章 ID`，兜底用 `humanizeKey()`（snake_case 拆词）；`{}` 空参数不显示
+- 用户消息从青底白字（刺眼）改为中性浅底气泡
+- 助手回答加专用排版常量 `PROSE`（用 className 注入，**不动全站共用的 MarkdownContent**，改了会波及文章页）：标题层次、列表缩进、代码块深色卡片、表格斑马纹、引用左框、行高 1.75
+- 正文与输入区 `max-w-4xl`（`max-w-3xl` 在后台布局里两侧留白过多）
+- 工具配色 amber → violet，与头像渐变呼应；思考块/头像/侧栏选中态/空状态统一为更克制的风格
+
+**真机 DOM 复验**（比截图可靠，截图工具的 DPR 缩放会误导）：折叠头「技能 站点概览 完成」→ 摘要「5 今日访问 · 1 今日访客 · 23 文章总数 · 42 评论总数 · 0 待审评论 · 16 今日 AI 调用」；表格表头全中文。
+
+### 六、顺带修掉的写锁泄漏（`database is locked`）
+
+- **症状**：agent 界面点发送直接 500，错误是 `INSERT INTO agent_sessions ... database is locked`；宿主机上稳定复现，重启容器才恢复。
+- **根因**：`core/database.py` 的 `get_db` 只 `session.close()` 不显式 `rollback`。SQLite 只有单写者，SSE 长请求异常结束时连接带着未提交事务回到池里，写锁跟着留池中，后面所有 INSERT 全挂。
+- **修法**：`finally` 里先 `await session.rollback()`（try/except 包住）再 close。
+- **注意**：我自己的诊断脚本（`docker exec` 里崩溃的 python + 误连生产库的 `qianxi-e2e` 容器）也造成过同样的锁死。**演练容器必须显式指定独立 `DATABASE_URL`**，`e2e_setup_users3.sh` 只是建了个 `e2e-users5.db` 文件但没改环境变量，容器仍连生产库 —— 这条已经踩过一次，务必注意。
+
+### 七、遗留
+
+1. **会话无归属**：`agent_sessions` 是后台专用（admin 才能访问），暂不加归属字段。
+2. **旧会话标题全是"新对话"**：后端不会用首条消息自动命名。可加，但属体验项，未获确认不动。
+3. **验证 AI 助手需要 admin token**：目前靠服务器上签发 30 分钟短期 JWT + 临时引导页 `_t.html`（用完即删，已确认 `/_t.html` 回退到 index.html 不含 token）。若要长期做界面回归，建议加一个仅本地可用的调试入口。
 
 ## 用户系统四期：XSS 收口 + 契约补齐 + 首屏性能（2026-09-30，镜像 `qianxi-blog:users5`）
 
