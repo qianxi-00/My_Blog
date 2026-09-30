@@ -2,10 +2,7 @@
 set -Eeuo pipefail
 
 PKG_PATH="${1:-}"
-# 部署目标必须与 nginx root（/etc/nginx/sites-enabled/blog 的 root）一致，
-# 否则会把产物写进没人读的目录（2026-09-30 实测踩过）。
-NGINX_ROOT="/var/www/blog"
-APP_ROOT="$NGINX_ROOT"
+APP_ROOT="/data/My_Blog/frontend"
 DIST_DIR="$APP_ROOT/dist"
 TMP_ROOT="$(mktemp -d /tmp/deploy-frontend-dist.XXXXXX)"
 TS="$(date +%Y%m%d-%H%M%S)"
@@ -51,24 +48,12 @@ if [[ -d "$DIST_DIR" ]]; then mv "$DIST_DIR" "${DIST_DIR}.old"; fi
 mkdir -p "$DIST_DIR"
 cp -a "$NEW_DIST"/. "$DIST_DIR"/
 
-# 2029-09-30：这三样不是前端构建产物，每次部署都必须从上一版原样带过来。
-# 之前整目录 mv 掉再只搬 live2d，导致：
-#   - uploads/（用户上传图）被清空，实测一次部署就丢了 5 张
-#   - .well-known/（ACME 证书续期）整目录消失
-#   - data/（AI 日更 cron 每 30 分钟写入）被清空
-PRESERVE_DIRS=(uploads .well-known data live2d)
-for d in "${PRESERVE_DIRS[@]}"; do
-  OLD_DIR="${DIST_DIR}.old/$d"
-  [[ -d "$OLD_DIR" ]] || continue
-  mkdir -p "$DIST_DIR/$d"
-  # union 合并：只补"线上有、新包里没有"的文件，绝不覆盖新包内容。
-  # （第一版写成"目录不存在才整目录搬"，结果前端包自带 dist/uploads 时条件不成立，
-  #   把线上原有的 52 张图换成新包的 47 张，又丢 5 张 —— 2026-09-30 实测踩到）
-  while IFS= read -r f; do
-    [[ -e "$DIST_DIR/$d/$f" ]] || cp -a "$OLD_DIR/$f" "$DIST_DIR/$d/$f"
-  done < <(cd "$OLD_DIR" && find . -type f -print0 | xargs -0 -I{} echo {})
-  echo "[preserve] $d/ 合并完成（$(find "$DIST_DIR/$d" -type f | wc -l) 个文件）"
-done
+LIVE2D_SRC=""
+if [[ -d "$APP_ROOT/public/live2d" ]]; then
+  LIVE2D_SRC="$APP_ROOT/public/live2d"
+elif [[ -d "$APP_ROOT/live2d" ]]; then
+  LIVE2D_SRC="$APP_ROOT/live2d"
+fi
 
 if [[ -n "$LIVE2D_SRC" ]]; then
   rm -rf "$DIST_DIR/live2d"

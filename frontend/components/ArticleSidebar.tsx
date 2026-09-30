@@ -66,6 +66,8 @@ const ArticleSidebar: React.FC<ArticleSidebarProps> = ({ article, relatedArticle
                         <img
                             src={article.author?.avatar_url ? getFileUrl(article.author.avatar_url) : '/default-avatar.png'}
                             alt={article.author?.display_name || '作者'}
+                            loading="lazy"
+                            decoding="async"
                             className="w-12 h-12 rounded-full object-cover border-2 border-slate-100 dark:border-slate-700"
                         />
                         <div>

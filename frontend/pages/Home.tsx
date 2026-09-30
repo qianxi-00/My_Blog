@@ -134,12 +134,15 @@ const Home: React.FC = () => {
           <div className="text-center py-10 text-slate-400 dark:text-slate-500">暂无文章</div>
         ) : (
           <div className="space-y-8">
-            {articles.map((article) => (
+            {articles.map((article, idx) => (
               <article key={article.id} className="flex flex-col md:flex-row gap-6 group cursor-pointer">
                 <div className="md:w-1/3 aspect-video rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 relative transition-colors">
                   <img
                     src={getFileUrl(article.cover_image) || `https://picsum.photos/seed/${article.id}/800/400`}
                     alt={article.title}
+                    // 首图在视口内要立刻加载；从第二张起懒加载，否则一页封面图能拉 7MB+
+                    loading={idx === 0 ? 'eager' : 'lazy'}
+                    decoding="async"
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                   <div className="absolute top-2 left-2">

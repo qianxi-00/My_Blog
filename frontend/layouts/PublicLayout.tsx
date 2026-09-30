@@ -28,7 +28,10 @@ const PublicLayout: React.FC = () => {
   useEffect(() => {
     const ric = (window as any).requestIdleCallback;
     if (typeof ric === 'function') {
-      const handle = ric(window, () => setShowDesktopPet(true));
+      // 注意签名是 requestIdleCallback(callback, options)，第一个参数必须是函数。
+      // （曾经误写成 ric(window, cb) —— 因为上面用了 as any 绕开类型检查，tsc 抓不到，
+      //   线上直接抛 "parameter 1 is not of type 'Function'" 整页崩，2026-09-30 真机实测才发现）
+      const handle = ric(() => setShowDesktopPet(true));
       return () => (window as any).cancelIdleCallback?.(handle);
     }
     const timer = window.setTimeout(() => setShowDesktopPet(true), 1500);
