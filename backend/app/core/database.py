@@ -95,14 +95,15 @@ async def get_db() -> AsyncSession:
         try:
             yield session
         finally:
-            # 先显式回滚再 close：确保连接不带着未提交事务回到池里。
-            # 2026-09-30 实踩：SSE 长请求异常结束时，光 close 会让写锁跟着连接
-            # 留在池中，后续所有 INSERT 直接 "database is locked"（SQLite 只有单写者，
-            # 一把锁卡住全站写操作，只能重启容器）。
-            try:
-                await session.rollback()
-            except Exception:
-                pass
+            # ⚠️ 这里**不要**加显式 rollback。
+            # 2026-09-30 踩过：为了治一次 "database is locked"（事后查明那次其实是我
+            # 自己的演练容器 DATABASE_URL 没隔离、连到了生产库，**不是产品缺陷**），
+            # 在这里加了 `await session.rollback()`。结果 StreamingResponse 的依赖清理
+            # 是在响应**开始发送后**就执行的、不等生成器跑完，于是 session 在 SSE
+            # 生成器第一行之前就被 rollback+close，ORM 对象当场 detached，
+            # agent / chat 两条流式接口全部报
+            # "Instance <...> is not bound to a Session"（线上实踩两次才定位到）。
+            # async with 的 __aexit__ 本来就会 close 并回滚，这里保持原样即可。
             await session.close()
 
 
