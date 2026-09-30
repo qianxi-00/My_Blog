@@ -61,8 +61,9 @@ const SKILL_LABELS: Record<string, string> = {
 
 const SKILL_NAME_SET = new Set(Object.keys(SKILL_LABELS));
 
-/** 工具入参的可读名（别把 article_id 这类内部字段直接甩给用户看） */
+/** 工具入参 / 统计指标的可读名（别把 article_id、today_views 这类内部字段直接甩给用户看） */
 const ARG_LABELS: Record<string, string> = {
+  // 入参
   article_id: '文章 ID',
   comment_id: '评论 ID',
   prompt_id: '提示词 ID',
@@ -83,6 +84,38 @@ const ARG_LABELS: Record<string, string> = {
   summary: '摘要',
   reason: '原因',
   action: '操作',
+  // 站点统计
+  today_views: '今日访问',
+  today_visitors: '今日访客',
+  total_articles: '文章总数',
+  total_comments: '评论总数',
+  pending_comments: '待审评论',
+  today_ai_calls: '今日 AI 调用',
+  total_ai_calls: 'AI 调用累计',
+  total_views: '访问总量',
+  total_visitors: '访客总量',
+  total_subscribers: '订阅总数',
+  active_subscribers: '活跃订阅',
+  total_users: '用户总数',
+  pending_articles: '待发文章',
+  published_articles: '已发文章',
+  total_comments_pending: '待审评论',
+  // 每日统计
+  date: '日期',
+  total_views_daily: '访问量',
+  unique_visitors: '独立访客',
+  article_views: '文章浏览',
+  new_comments: '新增评论',
+  ai_api_calls: 'AI 调用',
+};
+
+/** snake_case → 可读中文（找不到映射时的兜底，别直接把字段名甩给用户） */
+const humanizeKey = (key: string): string => {
+  if (ARG_LABELS[key]) return ARG_LABELS[key];
+  const spaced = key.replace(/_/g, ' ').trim();
+  // 纯数字/日期类字段名翻成人话
+  if (/^\d+$/.test(key)) return '序号';
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 };
 
 /**
@@ -141,7 +174,7 @@ const pickHighlights = (data: any): { key: string; label: string; value: string 
   for (const [key, value] of Object.entries(data)) {
     if (out.length >= 6) break;
     if (typeof value === 'number' || typeof value === 'boolean') {
-      out.push({ key, label: ARG_LABELS[key] || key, value: String(value) });
+      out.push({ key, label: humanizeKey(key), value: String(value) });
     }
   }
   return out;
@@ -495,12 +528,15 @@ const AgentChat: React.FC = () => {
 
   /* ------------------------------ 渲染片段 ------------------------------ */
 
-  /** 解析入参，失败就原样展示（不让坏 JSON 把卡片搞崩） */
+  /** 解析入参，失败就原样展示（不让坏 JSON 把卡片搞崩）；无参数的技能返回空对象不显示 */
   const parseArgs = (raw?: string): [Record<string, any>, string] => {
     if (!raw) return [{}, ''];
     try {
       const parsed = JSON.parse(raw);
-      return [parsed && typeof parsed === 'object' ? parsed : { value: parsed }, raw];
+      const obj = parsed && typeof parsed === 'object' ? parsed : { value: parsed };
+      // `{}` 等于没传参，直接当作无参，别显示一个空花括号
+      const empty = Object.keys(obj).length === 0;
+      return [empty ? {} : obj, empty ? '' : raw];
     } catch {
       return [{}, raw];
     }
@@ -632,7 +668,7 @@ const AgentChat: React.FC = () => {
             <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2.5">
               {argEntries.map(([k, v]) => (
                 <div key={k} className="flex items-baseline gap-1.5 text-[11px]">
-                  <span className="text-slate-400 dark:text-slate-500">{ARG_LABELS[k] || k}</span>
+                  <span className="text-slate-400 dark:text-slate-500">{humanizeKey(k)}</span>
                   <span className="font-medium text-slate-700 dark:text-slate-300 break-all">
                     {typeof v === 'object' ? JSON.stringify(v) : String(v)}
                   </span>
@@ -891,13 +927,13 @@ const AgentChat: React.FC = () => {
             </div>
           ) : (
             /* 收窄正文宽度：太长的一行读起来很累 */
-            <div className="px-6 py-6 space-y-7 max-w-3xl mx-auto">{turns.map(renderTurn)}</div>
+            <div className="px-6 py-6 space-y-7 max-w-4xl mx-auto">{turns.map(renderTurn)}</div>
           )}
         </div>
 
         {/* 输入区 */}
         <div className="border-t border-slate-200 dark:border-slate-800 px-6 py-4 shrink-0">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-4xl mx-auto">
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-400/15 transition-all">
               <textarea
                 ref={textareaRef}
