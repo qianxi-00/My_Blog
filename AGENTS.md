@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `6d641e5`）。
-当前生产镜像 **`qianxi-blog:users5`**（2026-09-30「XSS 收口 + 前后端契约 + 数据正确性 + 首屏性能」版；构建源 = 提交 `86c3ad5` 的 `git archive HEAD backend` 导出树）。前端产物 `assets/index-DxUGmAU9.js`（325,486 B，**gzip 实传 103,958 B**）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` **均已推 GitHub**，`origin/master` = `6d641e5`，本地与生产无漂移。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `3a7c27a`）。
+当前生产镜像 **`qianxi-blog:users7`**（2026-09-30 五期「后台 AI 助手修复 + Cherry Studio 式界面」版）。前端产物 `assets/index-Csr_WvnJ.js`。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` **均已推 GitHub**，`origin/master` = `3a7c27a`，本地与生产无漂移（已逐一核对 6 个后端文件 sha256）。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ## 先看这里（2026-09-24 迁移后）
 
@@ -91,6 +91,48 @@
 - **限流新增**：注册发码/绑邮箱发码 10 次/小时/IP、自助重置 5 次/小时/IP、提示词投稿 3 次/天/用户。**双 worker 各持一份进程内桶 → 实际额度约 2×**（验收脚本据此探测 429，不要写死"第 4 次必被拦"）。
 - **验收脚本**（服务器 `/data/blog/scripts/acceptance/`，本机留档 `C:\Users\QianXi\.dsh-ops\blog\`）：`e2e_users.py`、`e2e_email_auth.py`、`e2e_admin_users.py`（跑法 `python3 <脚本> <base_url> <db_path> [容器名]`），配套 `run_all_e2e.sh`（重建演练容器后三套连跑，必须先重建：限流桶是进程内的，不重建会吃上一轮的 429）。**别放 /tmp**：重启即失，而且 **`/tmp` 上跑不了 WAL 模式的 SQLite**（-shm 需要 mmap/共享内存支持，实测 `disk I/O error` → `readonly database`；演练库和副本一律放 `/data` 或 `/root`）。
 - **上线验收证据（2026-09-28 当次现跑）**：演练容器 `users3` 上三套 **users 55/0 + email 46/0 + admin 101/0**；**生产**（`127.0.0.1:8000` + 真实库）email **46/0**、admin **101/0**，跑后库无 e2e 残留（users 2 / 文章 23 / 评论 42 / 提示词 25，integrity ok）；公网回归全 200（首页/文章/标签/分类/归档/提示词/设置/热点/logo/ai-daily），`/admins/users` 未登录 401；A-RAG 流式事件正常（`text`/`done`/`tool_*`）。
+
+## 五期：后台 AI 助手（`/#/admin/ai-agent`）修复 + Cherry Studio 式界面（2026-09-30，镜像 `qianxi-blog:users7`）
+
+一句话：**这个助手其实一直完全不可用**——所有技能都调不通，打开就 500。修了三个互相叠加的根因，并把界面重做成聊天工作台。提交 `5d6bba4` / `46715bb` / `3a7c27a`。
+
+### 一、三个根因（都在同一条链路上，缺一不可）
+
+| # | 现象 | 根因 | 修法 |
+|---|---|---|---|
+| 1 | 所有技能调用返回 500 | `call_api` 拼的基地址用 `settings.APP_PORT`（默认 **8000**），但容器内 uvicorn 监听 **7860**（8000 只是宿主机映射进来的端口）→ 每一次调用都 Connection refused。**宿主机 curl 8000 通、容器内 7860 通，两条路各自都"看起来正常"**，所以一直没暴露 | 新增 `SERVER_PORT` 配置专表容器内真实监听端口，`internal_base()` 用它 |
+| 2 | 技能全部 404 | skill 里大量写成 `"/articles/"`、`"/comments/"`，路由注册的是 `"/articles"`（无尾斜杠）。Starlette **不会**为 router prefix 下的路径自动重定向，实测直接 404 | `normalize_path` 统一去尾斜杠、折叠重复斜杠 |
+| 3 | `GET /agent/sessions` **整个 500** | 上游网关返回的 `function.arguments` **本身就是转义过的字符串**，直接入库变成二次转义（`{\\"days\\":7}`）→ 非法 JSON。而 `AgentSession.messages` 是 `lazy="selectin"`，查会话列表就会连带反序列化所有消息，**一条坏数据就让整个接口 500**，界面直接打不开 | 三处一起修：`LenientJSON` 类型（坏 JSON 返回 None 而非抛异常）+ `normalize_tool_arguments()` 入库前规范化 + 一次性修历史数据（已修 5 行，库已备份到 `pre-agent-json-fix-20260930-152552`） |
+
+**顺带修掉的一个隐性 bug**：根因 3 的双重转义同时导致 `json.loads(arguments)` 失败 → 工具执行时 `parsed_args = {}` → **所有需要参数的技能（`manage_article` / `manage_comment` / `get_daily_stats(days=N)` 等）一直拿到空参数**。这个不报任何错，只是"效果不好"，比 500 更难发现。
+
+### 二、补齐的会话接口
+
+- `PATCH /agent/sessions/{id}`：会话重命名（原先 PUT/PATCH 都是 405，界面根本改不了名字）
+- `GET /agent/sessions?keyword=&limit=`：搜索 + 限量，并回传 `message_count`
+- ⚠️ 实现坑：消息数用 `outerjoin + group_by` 在 SQLAlchemy 2.0 下编译不过（同时 select 整实体又 group_by 主键）；已改成 `correlate` 的标量子查询。
+
+### 三、界面（`frontend/pages/AgentChat.tsx` 重写）
+
+- **思考过程与工具调用绑定到「消息轮次」（Turn）**，不再放全局 state——原先多轮对话时新一轮的思考会覆盖上一轮，且无法像聊天软件那样内联在回答上方
+- 用户消息右对齐气泡；助手消息带头像；工具调用做成可折叠卡片（技能=青色 / 工具=琥珀色），显示入参与结果
+- 侧栏：搜索、**按今天/昨天/近 7 天/更早分组**、hover 显示重命名与删除、每项带相对时间与消息数
+- 空状态引导 + 4 个建议问题；**Enter 发送 / Shift+Enter 换行**（原先只有 Ctrl+Enter）；流式"停止生成"；输入框自适应高度
+- `Icons` 补 `Plus` / `Pencil` / `Trash2`
+
+### 四、验证（生产实测）
+
+- **工具真的通了**：`get_site_overview` 返回 `{"ok": true, "status_code": 200, "url": "http://127.0.0.1:7860/api/v1/stats/overview", "data": {"total_articles": 23, "total_comments": 42, ...}}`，与库内计数一致；`get_daily_stats` 同样 200
+- 最近 25 条消息的 `arguments`：可解析 11、非法 0
+- 接口：会话列表 200 / 详情 200 / 重命名 200 / 搜索命中与空结果均 200
+- **真机（Chrome）**：界面无白屏，侧栏分组与消息数正确，工具卡片可展开显示真实 JSON
+- 上游模型侧确认正常：`finish_reason: tool_calls`，`AGENT_MODEL = grok-4.7`，`base = http://new-api:3000/v1`
+
+### 五、遗留
+
+1. **SSE 期间长期持有 DB 会话**：实测在 agent 有长请求时，另一个请求的 `UPDATE users SET last_login_at` 会撞 `database is locked`。SQLite 单写者 + 双 worker，这是真实风险。**未擅自改**（要动 `chat_stream` 的事务边界）。
+2. **会话无归属**：`agent_sessions` 是后台专用（admin 才能访问），暂不加归属字段。
+3. 旧会话标题全是"新对话"（后端不会用首条消息自动命名）。可加，但属体验项，未获确认不动。
 
 ## 用户系统四期：XSS 收口 + 契约补齐 + 首屏性能（2026-09-30，镜像 `qianxi-blog:users5`）
 
