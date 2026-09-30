@@ -201,7 +201,23 @@ async def _list_hotspots(
 async def _get_hotspot_meta(
     args: Dict[str, Any], token: str, db: AsyncSession,
 ) -> Dict[str, Any]:
-    return await call_api(token, "GET", "/hotspots/meta", query_params=_query_params(args))
+    """日报元信息。
+
+    后端 /hotspots/meta 会把**全部分类与标签**的分面计数都返回（实测能到 7 万字符），
+    前端要用所以不改后端；这里在 skill 层裁剪，避免撑爆模型上下文。
+    """
+    resp = await call_api(token, "GET", "/hotspots/meta", query_params=_query_params(args))
+    data = resp.get("data")
+    if not resp.get("ok") or not isinstance(data, dict):
+        return resp
+
+    trimmed = dict(data)
+    for key, keep in (("categories", 20), ("tags", 30), ("category_counts", 20), ("tag_counts", 30)):
+        value = data.get(key)
+        if isinstance(value, list) and len(value) > keep:
+            trimmed[key] = value[:keep]
+            trimmed[f"{key}_总数"] = len(value)
+    return {"ok": True, "data": trimmed}
 
 
 async def _get_featured(

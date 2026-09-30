@@ -260,8 +260,12 @@ def _build_tools() -> list:
 
             return json.dumps({
                 "总文章数": sum(x["文章数"] for x in cats),
-                "分类": cats,
-                "标签": tags,
+                # 分类与标签都截断：全量返回实测能到 5 万字符，会直接撑爆模型上下文，
+                # 而小魄罗只需要"有哪些主题"的大图景
+                "分类": cats[:20],
+                "标签": tags[:30],
+                "分类总数": len(cats),
+                "标签总数": len(tags),
             }, ensure_ascii=False)
 
     @tool
