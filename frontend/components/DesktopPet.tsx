@@ -178,6 +178,90 @@ const getSafeSrc = (src: string, failedSet: Set<string>, fallback: string) => {
   return src;
 };
 
+/** 思考中的三点动画（原来在两处重复） */
+const TypingDots: React.FC = () => (
+    <span className="animate-pulse text-slate-400 dark:text-slate-500 flex items-center gap-2">
+        <span>思考中</span>
+        <span className="flex gap-1">
+            <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+            <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+            <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+        </span>
+    </span>
+);
+
+/**
+ * 一条消息气泡。
+ *
+ * 之前桌面悬浮窗和移动端弹窗各写了一份几乎一模一样的渲染（含头像、气泡圆角、
+ * Markdown 渲染、参考文章卡片），改样式很容易只改一处。现在只此一份。
+ */
+const ChatBubble: React.FC<{
+    msg: ChatMessage;
+    theme: PetTheme;
+    avatarSrc: string;
+    currentVariantSrc: string;
+    failedImages: React.MutableRefObject<Set<string>>;
+    onAvatarError: () => void;
+}> = ({ msg, theme, avatarSrc, currentVariantSrc, failedImages, onAvatarError }) => {
+    const isUser = msg.role === 'user';
+    return (
+        <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+            {!isUser && (
+                <div className={`w-8 h-8 rounded-full ${theme.messageAssistantBg} ${theme.messageAssistantBorder} flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden p-1`}>
+                    <img
+                        src={avatarSrc}
+                        alt="小魄罗"
+                        className="w-full h-full object-contain"
+                        onError={() => {
+                            if (!failedImages.current.has(currentVariantSrc)) {
+                                failedImages.current.add(currentVariantSrc);
+                                onAvatarError();
+                            }
+                        }}
+                    />
+                </div>
+            )}
+            <div className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed shadow-sm break-words ${isUser
+                ? `${theme.messageUserBg} rounded-tr-sm`
+                : `${theme.messageAssistantBg} ${theme.messageAssistantText} rounded-tl-sm ${theme.messageAssistantBorder}`
+                }`}>
+                {!isUser && !msg.content && <TypingDots />}
+                {!isUser && msg.process && msg.process.length > 0 && (
+                    <AgentProcessStrip steps={msg.process} />
+                )}
+                {isUser ? (
+                    <span className="whitespace-pre-wrap break-words">{msg.content}</span>
+                ) : (
+                    (() => {
+                        const { main, refs } = splitReferences(msg.content || '');
+                        return (
+                            <div className="space-y-2">
+                                {/* variant="chat" 走气泡专用的紧凑组件集：
+                                    原来的 [&_code]:text-slate-100 补丁会把行内 code 一起染成
+                                    浅色，白底气泡上基本看不清 */}
+                                <MarkdownContent variant="chat" allowHtml={false}>
+                                    {main}
+                                </MarkdownContent>
+                                {refs && (
+                                    <div className={`rounded-lg ${theme.messageAssistantBorder} bg-white/70 dark:bg-slate-800/60 px-2.5 py-1.5 text-xs ${theme.messageAssistantText}`}>
+                                        <div className={`font-semibold ${theme.messageAssistantText} mb-0.5 flex items-center gap-1`}>
+                                            <span aria-hidden>📚</span>参考文章
+                                        </div>
+                                        <MarkdownContent variant="chat" allowHtml={false}>
+                                            {refs}
+                                        </MarkdownContent>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()
+                )}
+            </div>
+        </div>
+    );
+};
+
 const DesktopPet: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [session, setSession] = useState<ChatSession | null>(null);
@@ -1082,68 +1166,15 @@ const DesktopPet: React.FC = () => {
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-slate-50/40 to-white/80 dark:from-slate-900/40 dark:to-slate-800/70 transition-colors" style={{ writingMode: 'horizontal-tb', textOrientation: 'mixed' }}>
             {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'assistant' && (
-                  <div className={`w-8 h-8 rounded-full ${currentTheme.messageAssistantBg} ${currentTheme.messageAssistantBorder} flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden p-1 transition-colors`}>
-                    <img src={avatarSrc} alt="小魄罗" className="w-full h-full object-contain" onError={() => {
-                      if (!failedImageRef.current.has(currentVariant.src)) {
-                        failedImageRef.current.add(currentVariant.src);
-                        setImageErrorTick((tick) => tick + 1);
-                      }
-                    }} />
-                  </div>
-                )}
-                <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm transition-all ${msg.role === 'user'
-                  ? `${currentTheme.messageUserBg} rounded-tr-sm`
-                  : `${currentTheme.messageAssistantBg} ${currentTheme.messageAssistantText} rounded-tl-sm ${currentTheme.messageAssistantBorder}`
-                  }`}>
-                  {msg.role === 'assistant' && !msg.content && (
-                    <span className="animate-pulse text-slate-400 dark:text-slate-500 flex items-center gap-2">
-                      <span>思考中</span>
-                      <span className="flex gap-1">
-                        <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                        <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                        <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                      </span>
-                    </span>
-                  )}
-                  {msg.role === 'assistant' && msg.process && msg.process.length > 0 && (
-                    <AgentProcessStrip steps={msg.process} />
-                  )}
-                  {msg.role === 'assistant' ? (
-                    (() => {
-                      const { main, refs } = splitReferences(msg.content || '');
-                      return (
-                        <div className="space-y-2">
-                          <MarkdownContent
-                            compact
-                            allowCompactComponents
-                            allowHtml={false}
-                            className="text-slate-700 dark:text-slate-200 [&_ol]:ml-4 [&_ul]:ml-4 [&_pre]:bg-slate-900 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:text-slate-100"
-                          >
-                            {main}
-                          </MarkdownContent>
-                          {refs && (
-                            <div className={`rounded-lg ${currentTheme.messageAssistantBorder} bg-white/70 dark:bg-slate-800/60 px-3 py-2 text-xs ${currentTheme.messageAssistantText}`}>
-                              <div className={`font-semibold ${currentTheme.messageAssistantText} mb-1`}>参考文章</div>
-                              <MarkdownContent
-                                compact
-                                allowCompactComponents
-                                allowHtml={false}
-                                className="text-xs [&_ol]:ml-4 [&_ul]:ml-4"
-                              >
-                                {refs}
-                              </MarkdownContent>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()
-                  ) : (
-                    <span className="whitespace-pre-wrap">{msg.content}</span>
-                  )}
-                </div>
-              </div>
+              <ChatBubble
+                key={msg.id}
+                msg={msg}
+                theme={currentTheme}
+                avatarSrc={avatarSrc}
+                currentVariantSrc={currentVariant.src}
+                failedImages={failedImageRef}
+                onAvatarError={() => setImageErrorTick((tick) => tick + 1)}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>
@@ -1272,68 +1303,15 @@ const DesktopPet: React.FC = () => {
 
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 bg-gradient-to-b from-slate-50/40 to-white/80 dark:from-slate-900/40 dark:to-slate-800/70" style={{ writingMode: 'horizontal-tb', textOrientation: 'mixed' }}>
               {messages.map((msg) => (
-                <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {msg.role === 'assistant' && (
-                    <div className={`w-8 h-8 rounded-full ${currentTheme.messageAssistantBg} ${currentTheme.messageAssistantBorder} flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden p-1`}>
-                      <img src={avatarSrc} alt="小魄罗" className="w-full h-full object-contain" onError={() => {
-                        if (!failedImageRef.current.has(currentVariant.src)) {
-                          failedImageRef.current.add(currentVariant.src);
-                          setImageErrorTick((tick) => tick + 1);
-                        }
-                      }} />
-                    </div>
-                  )}
-                  <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${msg.role === 'user'
-                    ? `${currentTheme.messageUserBg} rounded-tr-sm`
-                    : `${currentTheme.messageAssistantBg} ${currentTheme.messageAssistantText} rounded-tl-sm ${currentTheme.messageAssistantBorder}`
-                    }`}>
-                    {msg.role === 'assistant' && !msg.content && (
-                      <span className="animate-pulse text-slate-400 dark:text-slate-500 flex items-center gap-2">
-                        <span>思考中</span>
-                        <span className="flex gap-1">
-                          <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                          <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                          <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                        </span>
-                      </span>
-                    )}
-                    {msg.role === 'assistant' && msg.process && msg.process.length > 0 && (
-                      <AgentProcessStrip steps={msg.process} />
-                    )}
-                    {msg.role === 'assistant' ? (
-                      (() => {
-                        const { main, refs } = splitReferences(msg.content || '');
-                        return (
-                          <div className="space-y-2">
-                            <MarkdownContent
-                              compact
-                              allowCompactComponents
-                              allowHtml={false}
-                              className="text-slate-700 dark:text-slate-200 [&_ol]:ml-4 [&_ul]:ml-4 [&_pre]:bg-slate-900 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_code]:text-slate-100"
-                            >
-                              {main}
-                            </MarkdownContent>
-                            {refs && (
-                              <div className={`rounded-lg ${currentTheme.messageAssistantBorder} bg-white/70 dark:bg-slate-800/60 px-3 py-2 text-xs ${currentTheme.messageAssistantText}`}>
-                                <div className={`font-semibold ${currentTheme.messageAssistantText} mb-1`}>参考文章</div>
-                                <MarkdownContent
-                                  compact
-                                  allowCompactComponents
-                                  allowHtml={false}
-                                  className="text-xs [&_ol]:ml-4 [&_ul]:ml-4"
-                                >
-                                  {refs}
-                                </MarkdownContent>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <span className="whitespace-pre-wrap">{msg.content}</span>
-                    )}
-                  </div>
-                </div>
+                <ChatBubble
+                  key={msg.id}
+                  msg={msg}
+                  theme={currentTheme}
+                  avatarSrc={avatarSrc}
+                  currentVariantSrc={currentVariant.src}
+                  failedImages={failedImageRef}
+                  onAvatarError={() => setImageErrorTick((tick) => tick + 1)}
+                />
               ))}
               <div ref={messagesEndRef} />
             </div>

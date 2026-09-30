@@ -2,7 +2,7 @@
  * 通用 Markdown 渲染组件
  * 支持 GFM 表格、LaTeX 数学公式、代码高亮、Mermaid 图表
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -34,6 +34,12 @@ interface MarkdownContentProps {
     useCustomComponents?: boolean;
     /** 紧凑模式是否仍启用自定义组件（聊天气泡等场景） */
     allowCompactComponents?: boolean;
+    /**
+     * 气泡类排版：用于聊天窗口（看板娘小魄罗）等窄容器。
+     * 与 compact 的区别：compact 只是收窄间距，chat 换成整套为窄容器设计的组件
+     * （小字号、紧凑表格、显式区分行内/围栏 code、不撑破气泡）。
+     */
+    variant?: 'default' | 'chat';
     /**
      * 是否允许 Markdown 中的原始 HTML。
      *
@@ -110,6 +116,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
     compact = false,
     useCustomComponents = true,
     allowCompactComponents = false,
+    variant = 'default',
     allowHtml = false, // 安全默认：必须显式开启（见上方注释）
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -125,17 +132,168 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({
         ? [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex, rehypeHighlight]
         : [rehypeKatex, rehypeHighlight];
 
+    // chat variant 自带一整套组件，不受 useCustomComponents / compact 影响
+    const resolvedComponents =
+        variant === 'chat'
+            ? chatComponents
+            : useCustomComponents && (!compact || allowCompactComponents)
+                ? markdownComponents
+                : undefined;
+
     return (
-        <div ref={containerRef} className={`${proseClass} ${className}`.trim()}>
+        <div ref={containerRef} className={`${variant === 'chat' ? '' : proseClass} ${className}`.trim()}>
             <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath, remarkDisableIndentedCodeBlock]}
                 rehypePlugins={rehypePlugins as any}
-                components={useCustomComponents && (!compact || allowCompactComponents) ? markdownComponents : undefined}
+                components={resolvedComponents as any}
             >
                 {children}
             </ReactMarkdown>
         </div>
     );
 };
+
+/**
+ * 聊天气泡专用的紧凑组件集（variant="chat"）。
+ *
+ * 为什么不用 markdownComponents：文章正文的排版是给整页宽度的内容设计的——
+ * h1 text-4xl、段落 mb-4、表格单元格 px-6 py-4、引用块 my-6。塞进聊天里那种
+ * max-w-[80%] 的小气泡后会非常松散，表格几乎撑破。而且原先是靠一串
+ * `[&_code]:text-slate-100` 补丁把代码块文字改成亮色 —— 那条规则会连**行内
+ * code** 一起染成浅色，在白色气泡上基本看不清（同为 0-1-0 优先级，谁赢取决于
+ * CSS 加载顺序，属于碰运气）。这里显式分开处理，不再靠补丁。
+ */
+const chatComponents: Record<string, any> = {
+    // 标题：AI 回答里很少出现大标题，压到最小可用字号，避免撑破气泡
+    h1: ({ children }: any) => <h1 className="text-[15px] font-bold mt-2.5 mb-1 first:mt-0 break-words">{children}</h1>,
+    h2: ({ children }: any) => <h2 className="text-[14px] font-bold mt-2.5 mb-1 first:mt-0 break-words">{children}</h2>,
+    h3: ({ children }: any) => <h3 className="text-[13.5px] font-semibold mt-2 mb-1 first:mt-0 break-words">{children}</h3>,
+    h4: ({ children }: any) => <h4 className="text-[13px] font-semibold mt-2 mb-1 first:mt-0 break-words">{children}</h4>,
+    h5: ({ children }: any) => <h5 className="text-[13px] font-semibold mt-1.5 mb-0.5 first:mt-0">{children}</h5>,
+    h6: ({ children }: any) => <h6 className="text-[12px] font-semibold text-slate-500 dark:text-slate-400 mt-1.5 mb-0.5 first:mt-0">{children}</h6>,
+
+    p: ({ children }: any) => (
+        <p className="text-[13px] leading-[1.75] mb-1.5 last:mb-0 break-words">{children}</p>
+    ),
+
+    ul: ({ children }: any) => (
+        <ul className="list-disc list-outside ml-3.5 space-y-0.5 mb-1.5 last:mb-0 text-[13px] leading-[1.7] marker:text-slate-400">{children}</ul>
+    ),
+    ol: ({ children, start, ...props }: any) => (
+        <ol start={start} className="list-decimal list-outside ml-3.5 space-y-0.5 mb-1.5 last:mb-0 text-[13px] leading-[1.7] marker:text-slate-400" {...props}>{children}</ol>
+    ),
+    li: ({ children, ...props }: any) => (
+        <li className="pl-0.5 break-words" {...props}>{children}</li>
+    ),
+
+    strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
+    em: ({ children }: any) => <em className="italic">{children}</em>,
+    del: ({ children }: any) => <del className="opacity-60">{children}</del>,
+
+    a: ({ href, children, ...props }: any) => (
+        <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary-600 dark:text-primary-400 underline decoration-primary-300 dark:decoration-primary-700 underline-offset-2 hover:decoration-primary-500 break-all transition-colors"
+            {...props}
+        >
+            {children}
+        </a>
+    ),
+
+    // 行内 code 与围栏 code 在这里显式分开：行内给浅底 + 强调色，围栏走下方 code 分支
+    code: ({ className, children, ...props }: any) => {
+        const isBlock = className && (/language-/.test(className) || /hljs/.test(className));
+        if (!isBlock) {
+            return (
+                <code
+                    className="bg-slate-100 dark:bg-slate-700/80 text-rose-600 dark:text-rose-300 px-1 py-0.5 rounded text-[12px] font-mono break-all"
+                    {...props}
+                >
+                    {children}
+                </code>
+            );
+        }
+
+        const match = /language-([\w-]+)/.exec(className || '');
+        const language = match ? match[1].toLowerCase() : 'text';
+        const codeText = String(children ?? '').replace(/\n$/, '');
+        return <CompactCodeBlock language={language} codeText={codeText} />;
+    },
+
+    pre: ({ children }: any) => <>{children}</>,
+
+    blockquote: ({ children }: any) => (
+        <blockquote className="my-1.5 pl-2.5 border-l-[3px] border-primary-400 dark:border-primary-600 text-slate-600 dark:text-slate-300">
+            {children}
+        </blockquote>
+    ),
+
+    table: ({ children }: any) => (
+        <div className="my-2 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-600">
+            <table className="w-full border-collapse text-[12px]">{children}</table>
+        </div>
+    ),
+    thead: ({ children }: any) => <thead className="bg-slate-100 dark:bg-slate-700/60">{children}</thead>,
+    tbody: ({ children }: any) => <tbody className="divide-y divide-slate-100 dark:divide-slate-700">{children}</tbody>,
+    tr: ({ children, header }: any) => (
+        <tr className={header ? '' : 'hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors'}>{children}</tr>
+    ),
+    th: ({ children, ...props }: any) => (
+        <th className="px-2 py-1.5 text-left font-semibold whitespace-nowrap" {...props}>{children}</th>
+    ),
+    td: ({ children, ...props }: any) => (
+        <td className="px-2 py-1.5 align-top" {...props}>{children}</td>
+    ),
+
+    hr: () => <hr className="my-2.5 border-t border-slate-200 dark:border-slate-600" />,
+
+    img: ({ src, alt }: any) => (
+        <img src={src} alt={alt || ''} loading="lazy" className="my-2 max-w-full rounded-lg shadow-sm" />
+    ),
+};
+
+/** 气泡里的代码块：保留语言标签与复制按钮，但去掉文章版的大圆角/阴影/内边距 */
+const CompactCodeBlock: React.FC<{ language: string; codeText: string }> = ({ language, codeText }) => {
+    const [copied, setCopied] = useState(false);
+
+    const copy = () => {
+        navigator.clipboard.writeText(codeText).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+        });
+    };
+
+    return (
+        <div className="my-2 rounded-lg overflow-hidden border border-slate-700/60 bg-slate-900">
+            <div className="flex items-center justify-between px-2.5 py-1 bg-slate-800/80 text-[11px] font-mono text-slate-400">
+                <span className="uppercase tracking-wide">{language}</span>
+                <button
+                    type="button"
+                    onClick={copy}
+                    aria-label="复制代码"
+                    className="px-1.5 py-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                >
+                    {copied ? '✓ 已复制' : '复制'}
+                </button>
+            </div>
+            {/* 代码块要能横向滚动，不要 pre-wrap：语法高亮的换行会把缩进结构冲掉 */}
+            <pre className="bg-slate-900 text-slate-100 p-2.5 overflow-x-auto text-[12px] leading-relaxed">
+                <code className={`language-${language} font-mono`}>{codeText}</code>
+            </pre>
+        </div>
+    );
+};
+
+/** 把 React 子节点压成纯文本（需要剥掉内联 markdown 时才用） */
+function flattenMarkdownText(node: any): any {
+    if (node == null || typeof node === 'boolean') return null;
+    if (typeof node === 'string' || typeof node === 'number') return node;
+    if (Array.isArray(node)) return node.map(flattenMarkdownText);
+    if (node.props) return flattenMarkdownText(node.props.children);
+    return null;
+}
+
 
 export default MarkdownContent;
