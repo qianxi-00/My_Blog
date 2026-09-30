@@ -9,9 +9,18 @@ from typing import Any, Dict, FrozenSet, List, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .skills import articles, comments, stats, subscribers, prompts, settings, admins
+from .skills import (
+    articles, batch, comments, forum, hotspots,
+    stats, subscribers, prompts, settings, admins, users,
+)
 from .tools import call_api as call_api_tool
 from .tools import execute_sql as execute_sql_tool
+
+# 业务域模块，新增 skill 模块时三处都要登记
+_MODULES = (
+    stats, articles, comments, hotspots, prompts, subscribers,
+    settings, admins, users, forum, batch,
+)
 
 
 # ------------------------------------------------------------------ #
@@ -19,18 +28,12 @@ from .tools import execute_sql as execute_sql_tool
 # ------------------------------------------------------------------ #
 
 ALL_SKILL_NAMES: FrozenSet[str] = frozenset().union(
-    articles.SKILL_NAMES,
-    comments.SKILL_NAMES,
-    stats.SKILL_NAMES,
-    subscribers.SKILL_NAMES,
-    prompts.SKILL_NAMES,
-    settings.SKILL_NAMES,
-    admins.SKILL_NAMES,
+    *(module.SKILL_NAMES for module in _MODULES)
 )
 
 # Skill 名称 → 所属模块的映射
 _SKILL_MODULE_MAP: Dict[str, Any] = {}
-for _module in (articles, comments, stats, subscribers, prompts, settings, admins):
+for _module in _MODULES:
     for _name in _module.SKILL_NAMES:
         _SKILL_MODULE_MAP[_name] = _module
 
@@ -56,7 +59,10 @@ def build_all_tools(role: str = "admin") -> List[Dict[str, Any]]:
     schemas: List[Dict[str, Any]] = []
 
     # 按业务域顺序添加 Skill
-    for module in (stats, articles, comments, prompts, subscribers, settings, admins):
+    for module in (
+        stats, articles, comments, hotspots, prompts, subscribers,
+        settings, admins, users, forum, batch,
+    ):
         schemas.extend(module.SKILL_SCHEMAS)
 
     # 添加兜底 Tool
