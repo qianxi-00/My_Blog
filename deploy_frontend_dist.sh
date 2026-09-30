@@ -2,7 +2,10 @@
 set -Eeuo pipefail
 
 PKG_PATH="${1:-}"
-APP_ROOT="/data/My_Blog/frontend"
+# 部署目标必须与 nginx root（/etc/nginx/sites-enabled/blog 的 root）一致，
+# 否则会把产物写进没人读的目录（2026-09-30 实测踩过）。
+NGINX_ROOT="/var/www/blog"
+APP_ROOT="$NGINX_ROOT"
 DIST_DIR="$APP_ROOT/dist"
 TMP_ROOT="$(mktemp -d /tmp/deploy-frontend-dist.XXXXXX)"
 TS="$(date +%Y%m%d-%H%M%S)"

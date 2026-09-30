@@ -46,6 +46,22 @@ export interface PasswordUpdate {
 // 用户投稿状态
 export type UserArticleStatus = 'draft' | 'pending_review' | 'rejected' | 'published';
 
+// 列表接口（GET /users/me/articles）返回后端 ArticleListResponse：**没有 content_md**。
+// 正文必须走 getMyArticle(id)。这里单列一个不含正文的类型，从类型层杜绝
+// "从列表里读 content_md"——那正是编辑页正文恒空的根因（2026-09-28）。
+export interface UserArticleListItem {
+    id: number;
+    title: string;
+    summary?: string;
+    category?: string;
+    tags?: Array<string | { id?: number; name: string; slug?: string }>;
+    cover_image?: string;
+    status: UserArticleStatus;
+    review_note?: string;
+    created_at: string;
+    updated_at?: string;
+}
+
 export interface UserArticle {
     id: number;
     title: string;
@@ -142,7 +158,7 @@ export const getMyArticles = async (params?: {
     status?: string;
     page?: number;
     page_size?: number;
-}): Promise<PaginatedResponse<UserArticle>> => {
+}): Promise<PaginatedResponse<UserArticleListItem>> => {
     const response = await api.get('/users/me/articles', { params });
     return response.data;
 };

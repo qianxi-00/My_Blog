@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { getPrompts, getPendingPrompts, approvePrompt, rejectPrompt, deletePrompt, createPrompt, updatePrompt, Prompt, PromptCategory, PromptCreate } from '../api/prompts';
 import { Icons } from '../components/Icons';
+import { errorText } from '../utils/errors';
 
 type TabType = 'approved' | 'pending';
 
@@ -140,7 +141,7 @@ const PromptManager: React.FC = () => {
             closeModal();
             fetchPrompts();
         } catch (error: any) {
-            alert(error.response?.data?.detail || '操作失败');
+            alert(errorText(error, '操作失败'));
         } finally {
             setSaving(false);
         }

@@ -5,6 +5,7 @@ import { Icons } from '../components/Icons';
 import { getPrompt, likePrompt, recordPromptUsage, Prompt } from '../api/prompts';
 import { runPromptLab, PromptLabResponse } from '../api/chat';
 import { useToast } from '../components/Toast';
+import { errorText } from '../utils/errors';
 
 const categoryLabels: Record<string, string> = {
   Dev: '开发',
@@ -54,7 +55,7 @@ const PromptDetail: React.FC = () => {
         const data = await getPrompt(promptId);
         setPrompt(data);
       } catch (e: any) {
-        showToast(e?.response?.data?.detail || 'Prompt 加载失败', 'error');
+        showToast(errorText(e, 'Prompt 加载失败'), 'error');
       } finally {
         setLoading(false);
       }
@@ -101,7 +102,7 @@ const PromptDetail: React.FC = () => {
       setPrompt(prev => prev ? { ...prev, like_count: res.like_count } : prev);
       showToast('已点赞', 'success');
     } catch (e: any) {
-      showToast(e?.response?.data?.detail || '点赞失败', 'error');
+      showToast(errorText(e, '点赞失败'), 'error');
     }
   };
 
@@ -118,7 +119,7 @@ const PromptDetail: React.FC = () => {
       });
       setLabResult(result);
     } catch (e: any) {
-      showToast(e?.response?.data?.detail || e?.message || '运行失败', 'error');
+      showToast(errorText(e, '运行失败'), 'error');
     } finally {
       setLabLoading(false);
     }

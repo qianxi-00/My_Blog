@@ -8,6 +8,7 @@ import { Icons } from '../components/Icons';
 import Avatar from '../components/Avatar';
 import { getPublicUser, PublicUserProfile } from '../api/users';
 import { getFileUrl } from '../api/config';
+import { errorText } from '../utils/errors';
 
 const AuthorPage: React.FC = () => {
     const { username } = useParams();
@@ -24,7 +25,7 @@ const AuthorPage: React.FC = () => {
                 const data = await getPublicUser(username);
                 setProfile(data);
             } catch (err: any) {
-                setError(err.response?.data?.detail || '作者不存在或已注销');
+                setError(errorText(err, '作者不存在或已注销'));
             } finally {
                 setLoading(false);
             }

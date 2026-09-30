@@ -6,6 +6,7 @@ import { getPrompts, submitPrompt, recordPromptUsage, Prompt, PromptCategory } f
 import { likePrompt, unlikePrompt } from '../api/prompts';
 import { runPromptLab, PromptLabResponse } from '../api/chat';
 import { useAuth } from '../contexts/AuthContext';
+import { errorText } from '../utils/errors';
 
 const PromptLibrary: React.FC = () => {
   const { isAuthenticated } = useAuth();
@@ -165,7 +166,7 @@ const PromptLibrary: React.FC = () => {
       });
       setLabResult(result);
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || error.message || '运行失败';
+      const errorMsg = errorText(error, '运行失败');
       alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
     } finally {
       setLabLoading(false);
@@ -189,7 +190,7 @@ const PromptLibrary: React.FC = () => {
       setShowSubmitModal(false);
       setSubmitForm({ title: '', description: '', content: '', category: 'Dev' });
     } catch (error: any) {
-      alert(error.response?.data?.detail || '提交失败');
+      alert(errorText(error, '提交失败'));
     } finally {
       setSubmitting(false);
     }

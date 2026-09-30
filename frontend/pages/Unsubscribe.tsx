@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { unsubscribe } from '../api/subscribe';
+import { errorText } from '../utils/errors';
 
 const Unsubscribe: React.FC = () => {
   const { token } = useParams();
@@ -27,7 +28,7 @@ const Unsubscribe: React.FC = () => {
         }
       } catch (error: any) {
         setStatus('error');
-        setMessage(error.response?.data?.detail || '操作失败，请稍后重试');
+        setMessage(errorText(error, '操作失败，请稍后重试'));
       }
     };
 

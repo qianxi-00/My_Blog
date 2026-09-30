@@ -25,6 +25,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './Shared';
 import { UserDetailDrawer } from './UserDetailDrawer';
+import { errorText } from '../utils/errors';
 
 const PAGE_SIZE = 20;
 
@@ -50,7 +51,6 @@ const normalizePage = <T,>(response: unknown): { items: T[]; totalPages: number 
     return { items: res?.data || res?.items || [], totalPages: res?.total_pages || 1 };
 };
 
-const errText = (error: any, fallback: string) => error?.response?.data?.detail || fallback;
 
 /**
  * 用户文章审核：待审核投稿列表 + 通过 / 驳回（驳回理由必填）
@@ -79,7 +79,7 @@ export const UserArticleReviewPanel: React.FC = () => {
             setArticles(items);
         } catch (error) {
             console.error('获取待审核投稿失败:', error);
-            showToast(errText(error, '获取待审核投稿失败'), 'error');
+            showToast(errorText(error, '获取待审核投稿失败'), 'error');
             setArticles([]);
         } finally {
             setLoading(false);
@@ -103,7 +103,7 @@ export const UserArticleReviewPanel: React.FC = () => {
             closeReject();
             fetchPending();
         } catch (error) {
-            showToast(errText(error, '审核失败'), 'error');
+            showToast(errorText(error, '审核失败'), 'error');
         } finally {
             setSubmitting(false);
         }
@@ -122,7 +122,7 @@ export const UserArticleReviewPanel: React.FC = () => {
             closeReject();
             fetchPending();
         } catch (error) {
-            showToast(errText(error, '驳回失败'), 'error');
+            showToast(errorText(error, '驳回失败'), 'error');
         } finally {
             setSubmitting(false);
         }
@@ -316,7 +316,7 @@ export const AdminUserPanel: React.FC = () => {
             setUsers(items);
         } catch (error) {
             console.error('获取用户列表失败:', error);
-            showToast(errText(error, '获取用户列表失败'), 'error');
+            showToast(errorText(error, '获取用户列表失败'), 'error');
             setUsers([]);
         } finally {
             setLoading(false);
@@ -361,7 +361,7 @@ export const AdminUserPanel: React.FC = () => {
             fetchUsers();
             fetchStats();
         } catch (error) {
-            showToast(errText(error, `${action}失败`), 'error');
+            showToast(errorText(error, `${action}失败`), 'error');
         } finally {
             setActingId(null);
         }
@@ -573,7 +573,7 @@ export const AdminAccountsPanel: React.FC = () => {
         try {
             setAdmins(await getAdmins());
         } catch (error) {
-            showToast(errText(error, '获取管理员列表失败'), 'error');
+            showToast(errorText(error, '获取管理员列表失败'), 'error');
             setAdmins([]);
         } finally {
             setLoading(false);
@@ -608,7 +608,7 @@ export const AdminAccountsPanel: React.FC = () => {
             setForm({ username: '', password: '', display_name: '', email: '', role: 'admin' });
             fetchAdmins();
         } catch (error) {
-            showToast(errText(error, '创建失败'), 'error');
+            showToast(errorText(error, '创建失败'), 'error');
         }
     };
 
@@ -622,7 +622,7 @@ export const AdminAccountsPanel: React.FC = () => {
             showToast(`${action}成功`, 'success');
             fetchAdmins();
         } catch (error) {
-            showToast(errText(error, `${action}失败`), 'error');
+            showToast(errorText(error, `${action}失败`), 'error');
         } finally {
             setActingId(null);
         }
@@ -642,7 +642,7 @@ export const AdminAccountsPanel: React.FC = () => {
             setNewPwd('');
             fetchAdmins();
         } catch (error) {
-            showToast(errText(error, '重置失败'), 'error');
+            showToast(errorText(error, '重置失败'), 'error');
         } finally {
             setActingId(null);
         }
@@ -656,7 +656,7 @@ export const AdminAccountsPanel: React.FC = () => {
             showToast('已删除', 'success');
             fetchAdmins();
         } catch (error) {
-            showToast(errText(error, '删除失败'), 'error');
+            showToast(errorText(error, '删除失败'), 'error');
         } finally {
             setActingId(null);
         }

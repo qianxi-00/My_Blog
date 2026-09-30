@@ -18,7 +18,6 @@ import {
     updateMyArticle,
     submitMyArticle,
     getMyArticle,
-    getMyArticles,
 } from '../api/users';
 import { uploadImage } from '../api/upload';
 import { getFileUrl } from '../api/config';

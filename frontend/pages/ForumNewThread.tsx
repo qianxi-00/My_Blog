@@ -5,6 +5,7 @@ import { Icons } from '../components/Icons';
 import MarkdownContent from '../components/MarkdownContent';
 import { createForumThread, ForumCategory, getForumCategories } from '../api/forum';
 import { useToast } from '../components/Toast';
+import { errorText } from '../utils/errors';
 
 const ForumNewThread: React.FC = () => {
   const navigate = useNavigate();
@@ -62,7 +63,7 @@ const ForumNewThread: React.FC = () => {
       showToast('发布成功', 'success');
       navigate(`/forum/threads/${thread.id}`);
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || '发布失败';
+      const msg = errorText(e, '发布失败');
       showToast(msg, 'error');
     } finally {
       setSubmitting(false);

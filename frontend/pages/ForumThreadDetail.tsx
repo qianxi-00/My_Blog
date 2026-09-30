@@ -11,6 +11,7 @@ import {
   replyForumThread,
 } from '../api/forum';
 import { useToast } from '../components/Toast';
+import { errorText } from '../utils/errors';
 
 const formatDateTime = (v?: string | null) => {
   if (!v) return '';
@@ -68,7 +69,7 @@ const ForumThreadDetailPage: React.FC = () => {
       setTotalPages(p.total_pages || 1);
       setPage(targetPage);
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || '加载失败';
+      const msg = errorText(e, '加载失败');
       showToast(msg, 'error');
     } finally {
       setLoading(false);
@@ -109,7 +110,7 @@ const ForumThreadDetailPage: React.FC = () => {
         window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
       }, 150);
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || '回复失败';
+      const msg = errorText(e, '回复失败');
       showToast(msg, 'error');
     } finally {
       setSubmitting(false);

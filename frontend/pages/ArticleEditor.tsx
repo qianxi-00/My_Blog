@@ -14,6 +14,7 @@ import { uploadImage } from '../api/upload';
 import { remarkDisableIndentedCodeBlock } from '../utils/remark-plugins';
 import { getFileUrl } from '../api/config';
 import CoverCropper from '../components/CoverCropper';
+import { errorText } from '../utils/errors';
 
 const ArticleEditor: React.FC = () => {
     const { id } = useParams();
@@ -107,8 +108,10 @@ const ArticleEditor: React.FC = () => {
                 cover_image: coverImage || undefined,
                 tags: selectedTagNames,
                 is_pinned: isPinned,
-                // 如果不是发布，则设置为草稿状态（已发布文章会下架）
-                status: publish ? 'published' : 'draft',
+                // 发布状态不在这里传：后端 articles.py 用 is_first_publish = status != 'published'
+                // 判断首次发布并触发邮件通知，先把状态改成 published 会让首次通知被跳过。
+                // 发布走下面的 publishArticle()；这里只负责"保存草稿 = 下架"。
+                status: publish ? undefined : 'draft',
             };
 
             let article: Article;
@@ -239,7 +242,7 @@ const ArticleEditor: React.FC = () => {
             const result = await generateSummary(content);
             setSummary(result.summary);
         } catch (error: any) {
-            alert(error.response?.data?.detail || '摘要生成失败');
+            alert(errorText(error, '摘要生成失败'));
         } finally {
             setGeneratingSummary(false);
         }

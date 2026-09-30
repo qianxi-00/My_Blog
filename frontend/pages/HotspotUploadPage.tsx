@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { Button } from '../components/Shared';
 import { Icons } from '../components/Icons';
 import { createHotspot, HotspotCreatePayload } from '../api/hotspots';
+import { errorText } from '../utils/errors';
 
 const nowLocalInput = () => {
   const now = new Date();
@@ -95,7 +96,7 @@ const HotspotUploadPage: React.FC = () => {
       alert(created.status === 'published' ? '热点已创建并发布' : '热点草稿已创建');
       navigate(`/admin/hotspots/${created.id}/edit`);
     } catch (error: any) {
-      alert(error?.response?.data?.detail || '创建热点失败');
+      alert(errorText(error, '创建热点失败'));
     } finally {
       setSubmitting(false);
     }

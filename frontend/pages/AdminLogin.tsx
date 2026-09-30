@@ -4,18 +4,21 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { errorText } from '../utils/errors';
 
 const AdminLogin: React.FC = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    // 本次登录被判为"非管理员"后，就不要再被已登录重定向带走（否则提示会被冲掉）
+    const denied = React.useRef(false);
     const { login, logout, isAuthenticated, isAdmin } = useAuth();
     const navigate = useNavigate();
 
-    // 如果已登录，按角色重定向（普通用户不进后台）
+    // 已登录且是管理员 -> 进后台；已登录但不是管理员 -> 回用户中心
     React.useEffect(() => {
-        if (isAuthenticated) {
+        if (isAuthenticated && !denied.current) {
             navigate(isAdmin ? '/admin' : '/user');
         }
     }, [isAuthenticated, isAdmin, navigate]);
@@ -27,7 +30,9 @@ const AdminLogin: React.FC = () => {
 
         try {
             const session = await login({ username, password });
-            // 这个入口只给 admin/super_admin：普通用户在这里登录会被请回普通入口
+            // 这个入口只给 admin/super_admin。用一个"本次提交标记"挡住上面的重定向，
+            // 否则 logout() 期间 isAuthenticated 由 true 变 false 会先 navigate 走，把提示冲掉。
+            denied.current = true;
             if (!session || (session.role !== 'admin' && session.role !== 'super_admin')) {
                 await logout();
                 setError('该账号不是管理员账号，请从普通登录入口登录');
@@ -35,7 +40,7 @@ const AdminLogin: React.FC = () => {
             }
             navigate('/admin');
         } catch (err: any) {
-            setError(err.response?.data?.detail || '登录失败，请检查用户名和密码');
+            setError(errorText(err, '登录失败，请检查用户名和密码'));
         } finally {
             setLoading(false);
         }

@@ -11,6 +11,7 @@ import FloatingActions from '../components/FloatingActions';
 import ArticleSidebar from '../components/ArticleSidebar';
 import Avatar from '../components/Avatar';
 import { useAuth } from '../contexts/AuthContext';
+import { errorText } from '../utils/errors';
 
 // 评论对象可能附带登录用户身份（additive：有 user 就按用户身份渲染，没有就按访客渲染）
 interface CommentWithUser extends Comment {
@@ -265,7 +266,7 @@ const ArticleDetail: React.FC = () => {
       setCommentText('');
       await refreshComments();
     } catch (error: any) {
-      alert(error.response?.data?.detail || '提交失败');
+      alert(errorText(error, '提交失败'));
     } finally {
       setSubmitting(false);
     }
@@ -285,7 +286,7 @@ const ArticleDetail: React.FC = () => {
       setExpandedReplies(prev => ({ ...prev, [parentId]: true }));
       await refreshComments();
     } catch (error: any) {
-      alert(error.response?.data?.detail || '回复失败');
+      alert(errorText(error, '回复失败'));
     }
   };
 
@@ -319,7 +320,7 @@ const ArticleDetail: React.FC = () => {
       setReportReason('');
       setReportDescription('');
     } catch (error: any) {
-      alert(error.response?.data?.detail || '举报失败');
+      alert(errorText(error, '举报失败'));
     }
   };
 

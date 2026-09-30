@@ -7,6 +7,7 @@ import { getHotspots, HotTopicListItem } from '../api/hotspots';
 import { getPublicSettings, PublicSettings } from '../api/stats';
 import { getFileUrl } from '../api/config';
 import { subscribe } from '../api/subscribe';
+import { errorText } from '../utils/errors';
 
 const Home: React.FC = () => {
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
@@ -288,7 +289,7 @@ const Home: React.FC = () => {
                     }
                   } catch (error: any) {
                     setSubscribeStatus('error');
-                    setSubscribeMessage(error.response?.data?.detail || '订阅失败');
+                    setSubscribeMessage(errorText(error, '订阅失败'));
                   } finally {
                     setSubscribing(false);
                   }

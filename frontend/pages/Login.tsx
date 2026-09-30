@@ -5,6 +5,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { errorText } from '../utils/errors';
 
 const Login: React.FC = () => {
     const [username, setUsername] = useState('');
@@ -30,7 +31,7 @@ const Login: React.FC = () => {
             const user = await login({ username, password });
             navigate(user && (user.role === 'admin' || user.role === 'super_admin') ? '/admin' : '/user');
         } catch (err: any) {
-            setError(err.response?.data?.detail || '登录失败，请检查用户名和密码');
+            setError(errorText(err, '登录失败，请检查用户名和密码'));
         } finally {
             setLoading(false);
         }

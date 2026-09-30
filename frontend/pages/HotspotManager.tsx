@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { Button } from '../components/Shared';
 import { deleteHotspot, getHotspots, hideHotspot, HotTopicListItem, publishHotspot, updateHotspot } from '../api/hotspots';
+import { errorText } from '../utils/errors';
 
 type StatusFilter = 'all' | 'published' | 'draft' | 'hidden';
 type SortField = 'published_at' | 'heat_score';
@@ -137,7 +138,7 @@ const HotspotManager: React.FC = () => {
       await loadData();
       setSelectedIds((prev) => prev.filter((itemId) => itemId !== id));
     } catch (error: any) {
-      alert(error?.response?.data?.detail || '删除失败');
+      alert(errorText(error, '删除失败'));
     }
   };
 
@@ -157,7 +158,7 @@ const HotspotManager: React.FC = () => {
       setEditingTimeValue('');
       await loadData();
     } catch (error: any) {
-      alert(error?.response?.data?.detail || '修改发布时间失败');
+      alert(errorText(error, '修改发布时间失败'));
     } finally {
       setSavingTime(false);
     }
@@ -176,7 +177,7 @@ const HotspotManager: React.FC = () => {
       setEditingHeatScore('');
       await loadData();
     } catch (error: any) {
-      alert(error?.response?.data?.detail || '修改热度失败');
+      alert(errorText(error, '修改热度失败'));
     } finally {
       setSavingStats(false);
     }

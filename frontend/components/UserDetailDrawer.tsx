@@ -14,6 +14,7 @@ import {
     getAdminUserDetail,
     banUser, unbanUser, resetUserPassword, setUserRole, setUserEmail, deleteUser,
 } from '../api/users';
+import { errorText } from '../utils/errors';
 
 const getDetail = getAdminUserDetail;
 
@@ -64,7 +65,7 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
         setShowDelete(false);
         setDeleteConfirm('');
         getDetail(userId).then(setDetail).catch((e) => {
-            showToast(e.response?.data?.detail || '获取用户详情失败', 'error');
+            showToast(errorText(e, '获取用户详情失败'), 'error');
             onClose();
         }).finally(() => setLoading(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,7 +79,7 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
             await fn();
             after?.();
         } catch (e: any) {
-            showToast(e.response?.data?.detail || '操作失败', 'error');
+            showToast(errorText(e, '操作失败'), 'error');
         } finally {
             setActing('');
         }
@@ -144,7 +145,7 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
             onClose();
             onChanged();
         } catch (e: any) {
-            const msg = e.response?.data?.detail || '删除失败';
+            const msg = errorText(e, '删除失败');
             if (e.response?.status === 409) setContentConflict(msg);
             else showToast(msg, 'error');
         } finally {

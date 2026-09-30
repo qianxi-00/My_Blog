@@ -6,6 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getArticles, deleteArticle, publishArticle, updateArticlePublishedAt, ArticleListItem } from '../api/articles';
 import api from '../api/config';
+import { errorText } from '../utils/errors';
 
 const ArticleManager: React.FC = () => {
     const [articles, setArticles] = useState<ArticleListItem[]>([]);
@@ -66,7 +67,7 @@ const ArticleManager: React.FC = () => {
                 await publishArticle(id);
                 fetchArticles();
             } catch (error: any) {
-                alert(error.response?.data?.detail || '发布失败');
+                alert(errorText(error, '发布失败'));
             }
         }
     };
@@ -105,7 +106,7 @@ const ArticleManager: React.FC = () => {
             setEditingTimeValue('');
             fetchArticles();
         } catch (error: any) {
-            alert(error.response?.data?.detail || '修改发布时间失败');
+            alert(errorText(error, '修改发布时间失败'));
         } finally {
             setSavingTime(false);
         }
@@ -130,7 +131,7 @@ const ArticleManager: React.FC = () => {
             setEditingStatsId(null);
             fetchArticles();
         } catch (error: any) {
-            alert(error.response?.data?.detail || '修改失败');
+            alert(errorText(error, '修改失败'));
         } finally {
             setSavingStats(false);
         }
@@ -143,7 +144,7 @@ const ArticleManager: React.FC = () => {
                 await api.put(`/articles/${id}`, { status: 'draft' });
                 fetchArticles();
             } catch (error: any) {
-                alert(error.response?.data?.detail || '下架失败');
+                alert(errorText(error, '下架失败'));
             }
         }
     };

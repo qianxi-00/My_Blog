@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { Button } from '../components/Shared';
 import { Icons } from '../components/Icons';
 import { getHotspotDetail, hideHotspot, HotTopicDetail, publishHotspot, updateHotspot } from '../api/hotspots';
+import { errorText } from '../utils/errors';
 
 const STATUS_OPTIONS: Array<{ label: string; value: 'draft' | 'published' | 'hidden' }> = [
   { label: '草稿', value: 'draft' },
@@ -137,7 +138,7 @@ const HotspotEditor: React.FC = () => {
       syncDetail(updated);
       alert('热点已发布');
     } catch (error: any) {
-      alert(error?.response?.data?.detail || '发布失败');
+      alert(errorText(error, '发布失败'));
     } finally {
       setPublishing(false);
     }
@@ -151,7 +152,7 @@ const HotspotEditor: React.FC = () => {
       syncDetail(updated);
       alert('热点已隐藏');
     } catch (error: any) {
-      alert(error?.response?.data?.detail || '隐藏失败');
+      alert(errorText(error, '隐藏失败'));
     } finally {
       setHiding(false);
     }

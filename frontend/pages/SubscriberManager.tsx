@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Icons } from '../components/Icons';
 import { Card, Button } from '../components/Shared';
 import api from '../api/config';
+import { errorText } from '../utils/errors';
 
 interface Subscriber {
   id: number;
@@ -42,7 +43,7 @@ const SubscriberManager: React.FC = () => {
       await api.delete(`/subscribers/${id}`);
       setSubscribers(prev => prev.filter(s => s.id !== id));
     } catch (error: any) {
-      alert(error.response?.data?.detail || '删除失败');
+      alert(errorText(error, '删除失败'));
     }
   };
 
@@ -54,7 +55,7 @@ const SubscriberManager: React.FC = () => {
       const response = await api.put(`/subscribers/${subscriber.id}/freeze?frozen=${!subscriber.is_frozen}`);
       setSubscribers(prev => prev.map(s => s.id === subscriber.id ? response.data : s));
     } catch (error: any) {
-      alert(error.response?.data?.detail || `${action}失败`);
+      alert(errorText(error, `${action}失败`));
     }
   };
 
@@ -69,7 +70,7 @@ const SubscriberManager: React.FC = () => {
       alert(response.data.message);
       fetchSubscribers(); // 重新加载列表
     } catch (error: any) {
-      alert(error.response?.data?.detail || `${action}失败`);
+      alert(errorText(error, `${action}失败`));
     }
   };
 
