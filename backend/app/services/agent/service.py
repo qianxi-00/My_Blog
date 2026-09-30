@@ -86,7 +86,16 @@ class AgentService:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Agent 聊天（SSE 事件流），支持流式 thinking"""
 
-        await self._save_message(db, session.id, "user", user_content)
+        # 整个流里只用 session_id 局部变量，不再碰 ORM 对象。
+        # 原因（SSE + SQLite 的坑）：commit/rollback 会 expire 本 session 里的对象，
+        # 之后再读 `session.id` 会触发一次 refresh；而 SSE 生成器还没跑完时，
+        # get_db 的 finally 已经 rollback+close 了，对象已 detached，于是抛
+        # "Instance <AgentSession> is not bound to a Session"（2026-09-30 线上实踩）。
+        # 标题要在对象还活着的时候读出来并单独保存，后面写回也只用局部值。
+        session_id = session.id
+        current_title = session.title
+
+        await self._save_message(db, session_id, "user", user_content)
 
         llm_messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT_AGENT}]
 
@@ -229,7 +238,7 @@ class AgentService:
 
                 await self._save_message(
                     db=db,
-                    session_id=session.id,
+                    session_id=session_id,
                     role="assistant",
                     content=content_buffer or None,
                     tool_calls=serialized_calls,
@@ -277,7 +286,7 @@ class AgentService:
 
                     await self._save_message(
                         db=db,
-                        session_id=session.id,
+                        session_id=session_id,
                         role="tool",
                         content=result_json,
                         tool_call_id=tc_info["id"],
@@ -307,13 +316,19 @@ class AgentService:
             final_text = content_buffer
             await self._save_message(
                 db=db,
-                session_id=session.id,
+                session_id=session_id,
                 role="assistant",
                 content=final_text,
             )
 
-            if session.title in (None, "", "新对话"):
-                session.title = user_content[:30] + ("..." if len(user_content) > 30 else "")
+            # 首次对话自动命名：用局部 current_title 判断，改写走 UPDATE 语句，
+            # 不碰 session 对象（commit 后它已 expire，再访问会触发 refresh 而 detached）
+            if current_title in (None, "", "新对话"):
+                new_title = user_content[:30] + ("..." if len(user_content) > 30 else "")
+                await db.execute(
+                    text("UPDATE agent_sessions SET title = :t WHERE id = :sid"),
+                    {"t": new_title, "sid": session_id},
+                )
 
             chunk_size = 120
             for i in range(0, len(final_text), chunk_size):
@@ -327,7 +342,7 @@ class AgentService:
             await db.commit()
             yield {
                 "type": "done",
-                "data": {"session_id": session.id},
+                "data": {"session_id": session_id},
             }
             return
 

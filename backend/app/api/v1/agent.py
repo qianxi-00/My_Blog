@@ -3,6 +3,7 @@
 """
 
 import json
+import logging
 from datetime import datetime
 from typing import AsyncGenerator, Optional
 
@@ -24,6 +25,8 @@ from ...schemas.agent import (
     AgentSessionWithMessages,
     AgentMessageResponse,
 )
+
+logger = logging.getLogger(__name__)
 from ...services.agent import AgentService
 
 router = APIRouter()
@@ -56,15 +59,32 @@ async def chat_with_agent(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="会话不存在",
             )
+    # 会话 id 提前取成局部变量：生成器跑的过程中 session 对象可能因 commit/rollback
+    # 而 expire/close，届时再读 `session.id` 会抛 "not bound to a Session"（2026-09-30 线上实踩）
+    session_id: str
+    if request.session_id:
+        result = await db.execute(
+            select(AgentSession)
+            .options(selectinload(AgentSession.messages))
+            .where(AgentSession.id == request.session_id)
+        )
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="会话不存在",
+            )
+        session_id = session.id
     else:
         session = AgentSession(title="新对话")
         db.add(session)
         await db.commit()
         await db.refresh(session)
+        session_id = session.id
 
     history_result = await db.execute(
         select(AgentMessage)
-        .where(AgentMessage.session_id == session.id)
+        .where(AgentMessage.session_id == session_id)
         .order_by(AgentMessage.created_at.asc())
     )
     history_messages = history_result.scalars().all()
@@ -74,7 +94,7 @@ async def chat_with_agent(
 
     async def generate() -> AsyncGenerator[str, None]:
         try:
-            yield _sse_event("ready", {"session_id": session.id})
+            yield _sse_event("ready", {"session_id": session_id})
             async for event in service.chat_stream(
                 db=db,
                 session=session,
@@ -85,6 +105,9 @@ async def chat_with_agent(
             ):
                 yield _sse_event(event["type"], event["data"])
         except Exception as exc:
+            # 必须打日志：异常被转成 SSE 事件返回后，日志里什么都没有，
+            # 线上出问题时只能靠前端那行错误文本反推（2026-09-30 实踩）
+            logger.exception("agent chat 流式失败 session_id=%s", session_id)
             await db.rollback()
             yield _sse_event("error", {"message": str(exc)})
 
