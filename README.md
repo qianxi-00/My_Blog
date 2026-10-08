@@ -19,7 +19,9 @@
   <a href="#-项目结构">项目结构</a> •
   <a href="#-快速开始">快速开始</a> •
   <a href="#-部署指南">部署指南</a> •
-  <a href="#-维护说明">维护说明</a>
+  <a href="#-维护说明">维护说明</a> •
+  <a href="https://qianxi-00.github.io/My_Blog/" target="_blank">📚 文档站</a> •
+  <a href="https://blog.qianxi7988.me" target="_blank">🏠 在线博客</a>
 </p>
 
 ---

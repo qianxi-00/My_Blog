@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `fd52cae`）。
-当前生产镜像 **`qianxi-blog:users12`**（2026-09-30 六期「两个 AI 技能扩充」版）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` **均已推 GitHub**，`origin/master` = `fd52cae`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `196626f`）。
+当前生产镜像 **`qianxi-blog:users12`**（2026-09-30 六期「两个 AI 技能扩充」版）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` **均已推 GitHub**，`origin/master` = `196626f`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -210,6 +210,22 @@ python backend/scripts/selfcheck_skills.py       # 本地（若已装 backend �
 **向后兼容已验证**：`variant` 默认 `'default'`。文章页实测 h2=`30px`、段落=`16px`、表格单元格 `12px 16px`、复制按钮与代码块圆角均与改动前一致，评论/论坛/提示词同理。
 
 > 这次验证靠的是**逐项量计算样式**而不是截图——本机浏览器的视口被外框限死在 ~400px 高，元素截图必然被上层 fixed 元素遮挡。涉及窄容器布局时，量 `getComputedStyle` 比截图可靠。
+
+## 七期：项目文档站（VitePress → GitHub Pages，2026-09-30，提交 `196626f`）
+
+**<https://qianxi-00.github.io/My_Blog/>** —— VitePress 1.6.4 + GitHub Actions + Pages，纯静态、免费托管，推送 `master` 后自动构建发布。
+
+结构：`docs/` 下 `index.md`（home 布局：Hero + 6 张 Features 卡片）、`intro.md`、`features.md`、`deploy.md`、`.vitepress/config.ts`、独立 `package.json`（**不影响** `frontend/` 的构建）。**跳转博客是本站的点睛**：Hero「🚀 进入博客」按钮、导航栏「进入博客」、侧栏「线上站点」组、Features 卡片全部直链 `blog.qianxi7988.me`（含 `#/articles`、`#/hotspots`、`#/subscribe` 内页）。
+
+写作流程：本地 `docs/` 改 md → `npm run docs:build` 验证 → 推送 master（`paths: docs/**` 才触发 Actions）→ 1 分钟后线上生效。新页面在 `docs/` 加 md 并登记进 `config.ts` 的 sidebar。内容红线：**公开仓库**，不写服务器 IP / 密钥路径 / 运维细节，敏感细节指向仓库内 DEPLOY.md 而非展开。
+
+三个搭建踩坑（复现成本都很高，记录免重踩）：
+
+1. **`vitepress@1.6.4` 是 ESM-only**（`"type":"module"`，exports 无 require 条件）。`docs/package.json` 忘写 `"type": "module"` 时，Vite 把 `config.ts` 按 CJS 打包、用 `require()` 加载外部化的 vitepress，直接炸 `ESM file cannot be loaded by require`——报错全程不提 package.json，极易误诊为 esbuild 问题（本机 npm 的 install-scripts 还拦截了 esbuild postinstall，先骗我排查了十分钟二进制）。**修法：加 `"type": "module"`。**
+2. **VitePress 死链检查把 `/intro/`（尾斜杠）当字面目录**，4 个链接全部报 dead link 且 build 失败。站内链接写 `/intro`（不带斜杠）。
+3. Pages 端点必须 `build_type=workflow`（`gh api -X POST repos/qianxi-00/My_Blog/pages -f build_type=workflow`），否则默认等 gh-pages 分支，Actions 的 deploy-pages 步骤会 403。
+
+验证（全绿）：Actions run `success`；`/`、`/intro.html`、`/features.html`、`/deploy.html` 全 200；CSS GET 200（线上 `app.DxTFQC_Q.js` 哈希与本地 dist 完全一致 = 线上跑的就是推的这份）；浏览器实测 Hero 三按钮（「🚀 进入博客」href=`https://blog.qianxi7988.me/`）、6 张卡片、导航/侧栏跳转、品牌按钮样式（rgb(86,114,205) 圆角 20px）真实生效。
 
 ## 五期：后台 AI 助手（`/#/admin/ai-agent`）修复 + Cherry Studio 式界面（2026-09-30，镜像 `qianxi-blog:users7`）
 
@@ -490,6 +506,7 @@ python3 /root/probe_batch1.py
 8. ~~nginx 覆写 XFF~~ **已完成**（2026-09-30）：`/etc/nginx/sites-enabled/blog` 的 `/api/` location 已改成 `proxy_set_header X-Forwarded-For $remote_addr;`（覆写），`nginx -t` 通过后 reload；顺带清掉了原文件里重复的 `X-Real-IP` 与破损缩进。`gzip_types` 整行注释也已补全（16 种类型）+ `gzip_vary on`。
 9. **Tailwind 构建期迁移**（收益可能大于本期任何一项，建议单独立项）：`frontend/index.html` 仍在用 `cdn.tailwindcss.com` 浏览器端运行时 JIT（阻塞 FCP）。**注意**：`frontend/` 下**没有** `tailwind.config.*` / `postcss.config.*`，`tailwindcss`/`postcss`/`autoprefixer` 也不在 `package.json` 依赖里——迁移时要把 CDN 版那份配置（`darkMode:'class'`、primary 色板、`slate.850`、Noto Sans SC 字体栈）逐项等价复刻，不能凭空重写。
 10. **图片缩略图**：封面图仍是原图直出（单张最大 884KB），本期只做了懒加载。作者页已从 7.7MB 降到 2.7MB，但要根治需后端出缩略图。
+11. **README 技术栈叙述系统性过时**（2026-09-30 发现）：README 通篇还在讲 **MySQL**（8 处：简介、存储组件、端口 3308、环境要求、驱动、健康检查），而真实生产自迁移后一直是 **SQLite + aiosqlite + WAL**。文档站（七期）已按现实写，两者公开矛盾。修它不是改 8 个词——README 713 行里项目结构、环境要求、健康检查等叙述可能同样停留在旧时代，需要**整体核对一轮**后单独提交；本次只把「📚 文档站」「🏠 在线博客」两个链接加进了顶部导航（`196626f` 后的提交）。
 
 ## 待确认（本次自主判断，待千禧拍板）
 
