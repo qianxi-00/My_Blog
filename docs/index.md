@@ -48,4 +48,14 @@ features:
     details: 读者订阅、新文章发布自动通知，管理端支持冻结、解冻与不活跃清理。
     link: https://blog.qianxi7988.me/#/subscribe
     linkText: 去订阅
+  - icon: 🧠
+    title: AI 问答架构
+    details: 双智能体设计：访客侧无向量 A-RAG 看板娘 + 管理侧 54 技能运维助手，契约自检接进 CI。
+    link: /ai-architecture
+    linkText: 看架构拆解
+  - icon: 🛠️
+    title: 开发历程
+    details: 事故驱动的架构演进：XSS 根因、静默 bug 与契约测试、手工部署到 CI/CD。
+    link: /history
+    linkText: 读演进故事
 ---

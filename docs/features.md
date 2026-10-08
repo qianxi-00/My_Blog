@@ -55,3 +55,5 @@
 ## 相关链接
 
 线上体验：<https://blog.qianxi7988.me> · [项目介绍](/intro) · [部署指南](/deploy)
+
+两个 AI 的设计细节（为什么无向量、技能怎么分发、返回怎么裁剪、安全边界）见 [AI 问答架构](/ai-architecture)。

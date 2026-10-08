@@ -1,10 +1,11 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 // 站点挂在 https://qianxi-00.github.io/My_Blog/ 子路径下，base 必须一致，
 // 否则页面能打开但 CSS/JS 全 404。
 const BLOG_URL = 'https://blog.qianxi7988.me'
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   lang: 'zh-CN',
   title: 'DevLog / My_Blog',
   description: '千禧的个人技术博客系统 —— FastAPI + React + AI 看板娘的全栈实践',
@@ -12,12 +13,17 @@ export default defineConfig({
 
   head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/My_Blog/favicon.svg' }]],
 
+  // mermaid 只负责架构页的流程图渲染
+  mermaid: { theme: 'default' },
+
   themeConfig: {
     // 站内导航；「进入博客」是外链，点了直接跳线上博客
     nav: [
       { text: '首页', link: '/' },
       { text: '项目介绍', link: '/intro' },
       { text: '功能特性', link: '/features' },
+      { text: 'AI 架构', link: '/ai-architecture' },
+      { text: '开发历程', link: '/history' },
       { text: '部署指南', link: '/deploy' },
       { text: '🏠 进入博客', link: BLOG_URL },
     ],
@@ -34,6 +40,8 @@ export default defineConfig({
         text: '深入了解',
         items: [
           { text: '功能特性', link: '/features' },
+          { text: 'AI 问答架构', link: '/ai-architecture' },
+          { text: '开发历程', link: '/history' },
           { text: '部署指南', link: '/deploy' },
         ],
       },
@@ -77,4 +85,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
