@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `98b68d1`）。
-当前生产镜像 **`qianxi-blog:ci-3`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` **均已推 GitHub**，`origin/master` = `98b68d1`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `a892737`）。
+当前生产镜像 **`qianxi-blog:ci-5`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` **均已推 GitHub**，`origin/master` = `a892737`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,34 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 十期：头脑风暴落地（2026-10-08，提交 `a892737`，生产镜像 `qianxi-blog:ci-5`）
+
+六路头脑风暴（五角度创意 + 魔鬼代言人）的落地轮。拍板：AIHOT 日报邮件推送不做，其余六项全做。**首次由 CI/CD 全自动部署的业务改动**（ci-5：backend+frontend 双部署，检查全绿后 Actions 自行完成，无需人工跑任何脚本）。
+
+| 项 | 实现 | 关键设计 |
+|---|---|---|
+| A2 评论进看板娘语料 | `rag_retriever.search_comments` 挂进 `search_blog_articles` 工具 | **只喂 approved（审核通过即背书）**；target_type/target_id 主路径关联；评论权重 3 分/词（低于正文），`is_admin_reply` 加权 6 倍；实时检索零迁移。system prompt 教模型引用"评论区里 {nickname} 补充过" |
+| A3 投稿叙事 | WritePage 顶部「粘入笔记三步成稿」卡 + Login 卖点句 | 纯文案，能力全是现成的（渲染/摘要/审核/署名主页） |
+| B1 论坛收缩「问千禧」 | 6 版块 → 单版提问箱（id=4 改名，其余 is_active=0，**一条 UPDATE 可逆**）+ ForumHome 定位重写 | "不是论坛，是直达千禧本人的提问箱"；3 个存量帖全是测试帖零牵挂 |
+| B1 问倒了转人工 | DesktopPet 最后一条助手回复挂轻量入口 → 组装对话上下文 → `createForumThread` | **零后端改动**：复用游客发帖 API（蜜罐/限流全生效）；版块 id 动态取第一个活跃版块。论坛第一批内容由真实提问自己流进来 |
+| B3 可追问导读卡 | articles 补 `ai_intro`/`ai_intro_adopted` 两列（幂等补列）+ `POST /articles/{id}/generate-intro` + `generate_article_intro` 技能 | **红线：生成即撤销采纳，必须过目**；`ArticleResponse` 的 model_validator 保证未采纳草稿不从任何 API 泄出；采纳走 `ArticleUpdate.ai_intro_adopted`，管理员全流程在 AI 助手对话里完成零管理端 UI；文章页点问题经 `CustomEvent('poro-ask')` 唤起看板娘，问题带《文章标题》前缀让她优先命中本文（不做重的上下文锁） |
+| B2 问答成文 | **零新代码**：system prompt 写明工作流（读帖→整理署名→create draft→提醒过目） | 现有技能（forum 读 + article create）已能闭环——懒惰阶梯第 2 级 |
+| 提问历史 | `GET /chat/sessions`（登录专属，游客 401）+ DesktopPet Clock 图标下拉恢复 | 看板娘记忆冲突的折中：只回放不改变行为，无向量无长期记忆无共享状态——隐私与只读不变量都不破 |
+
+selfcheck 26 用例补 PATH_CASE（generate-intro 路径）与白名单（ai_intro_adopted）。
+
+### 验证（生产实测全绿）
+
+- CI/CD 首次全自动业务部署：检查（26 用例 + tsc + build）→ ci-5 后端（技能 55 个可构建、health、公网 200）→ 前端服务器构建原子替换
+- A2 容器内真实检索：宽词命中 3 条真实评论（BEiT-3 文章下"AI研究者小李"等）、乱词 0
+- B3 端到端：LLM 真调用生成（Sarsa 文章的三个追问问题质量在线）→ **未采纳时 GET 文章 ai_intro=None（泄出防线验证过）** → 采纳后文章页渲染导读卡 → 浏览器点击引导问题 → 看板娘面板自动打开、问题带标题前缀自动发送、过程条真实滚动（3 轮检索 + 读全文）
+- B1：公网 `GET /forum/categories` 只剩 (4, 问千禧)；论坛页「问千禧」+ 提问箱叙事 + 提问按钮渲染
+- 追问历史：未登录 401；面板历史按钮在位
+- 数据：articles 23 / comments 42 / integrity ok / ai_intro 列幂等补齐
+
+### 本期踩坑（两处同类失误，值得记一次）
+
+**edit 工具的 old_string 尾部带了"下一块的开头"而 new_string 没还原，连续两次删掉相邻函数体**（`fix_read_time` 的 docstring+查询、`patchAi` 的函数头）。两次都被 git diff/tsc 立刻抓住，但根因一样：**做多块插入时 old_string 只锚装饰器/签名行，不要把后续代码卷进来**。另外 `--cmd` 传 SQL 又被 pwsh 引号搅了一次（老坑），照规矩换 .sh 文件解决。
 ## 九期：AIHOT 旧接口迁移到 v1（2026-10-08，提交 `98b68d1`）
 
 AIHOT 官方把 `/api/public/*` 与旧域名 `aihot.virxact.com` 的停用日期**提前到 2026-10-31**（原定 12-31）。本仓库唯一调用方是 `scripts/fetch_ai_daily.py`（cron 每 30 分钟生成前端 AI 日报静态数据）；后端热点服务用 OpenAI/Anthropic RSS，与 aihot 无关——**先全仓库 grep 确认调用面，再动手**。
