@@ -1,0 +1,143 @@
+# CI/CD：push master → 自动检查 → 通过后自动部署到生产服务器。
+#
+#   backend-checks   安装后端依赖，跑 26 项技能契约自检（backend/scripts/selfcheck_skills.py）
+#   frontend-checks  npm ci + tsc --noEmit + vite build
+#   deploy           按实际变更选择性执行：后端换镜像+health check+失败回滚；
+#                    前端在服务器上构建+原子替换（代码即产物，不经上传）
+#
+# 触发面：backend/** 或 frontend/** 变化才部署；docs/** 与纯 *.md 不触发本流程。
+# 服务器地址等敏感值在仓库 secrets（DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY），
+# 本文件是公开的，不落任何服务器信息。
+#
+# 手动重新部署：Actions 页 → Run workflow → 勾选 deploy_backend / deploy_frontend。
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+    inputs:
+      deploy_backend:
+        description: '强制部署后端（切换生产容器）'
+        type: boolean
+        default: false
+      deploy_frontend:
+        description: '强制部署前端（重建 dist）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  backend-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: 安装后端依赖
+        run: pip install -r backend/requirements.txt --quiet
+      - name: 技能契约自检（26 用例：路径/参数名/必填校验/安全底线）
+        run: python backend/scripts/selfcheck_skills.py
+
+  frontend-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - name: 类型检查
+        run: npx tsc --noEmit
+        working-directory: frontend
+      - name: 构建
+        run: npm run build
+        working-directory: frontend
+
+  deploy:
+    needs: [backend-checks, frontend-checks]
+    if: success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # 生产部署绝不并发：后来的排队等前一个完成
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 要 diff before..sha
+
+      - name: 判定部署目标
+        id: what
+        run: |
+          DO_BACKEND=false
+          DO_FRONTEND=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            [ "${{ inputs.deploy_backend }}"  = "true" ] && DO_BACKEND=true
+            [ "${{ inputs.deploy_frontend }}" = "true" ] && DO_FRONTEND=true
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              echo "  (拿不到 before，保守起见全部署)"
+              DO_BACKEND=true; DO_FRONTEND=true
+            else
+              CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" || true)
+              if echo "$CHANGED" | grep -q '^backend/';  then DO_BACKEND=true;  fi
+              if echo "$CHANGED" | grep -q '^frontend/'; then DO_FRONTEND=true; fi
+            fi
+          fi
+          echo "backend=$DO_BACKEND frontend=$DO_FRONTEND"
+          {
+            echo "do_backend=$DO_BACKEND"
+            echo "do_frontend=$DO_FRONTEND"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 无部署目标则跳过
+        if: steps.what.outputs.do_backend != 'true' && steps.what.outputs.do_frontend != 'true'
+        run: echo "本次推送未触及 backend/ 或 frontend/，跳过部署。"
+
+      # 先同步服务器代码树（脚本随仓库走），再按目标调服务器上的部署脚本。
+      # script_stop: 任一命令非零即中断并标红整个 job。
+      - name: 部署后端
+        if: steps.what.outputs.do_backend == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd /data/blog/repo-tmp
+            export GIT_SSH_COMMAND="ssh -i /root/.ssh/github_my_blog_deploy_repo -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+            git fetch origin master && git reset --hard origin/master
+            bash scripts/ci/deploy_backend.sh "ci-${{ github.run_number }}"
+
+      - name: 部署前端
+        if: steps.what.outputs.do_frontend == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            bash /data/blog/repo-tmp/scripts/ci/deploy_frontend.sh
