@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `1d96f14`）。
-当前生产镜像 **`qianxi-blog:ci-3`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` **均已推 GitHub**，`origin/master` = `1d96f14`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `98b68d1`）。
+当前生产镜像 **`qianxi-blog:ci-3`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` **均已推 GitHub**，`origin/master` = `98b68d1`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -39,7 +39,7 @@
 | 证书 | Let's Encrypt `blog.qianxi7988.me`，2026-12-23 到期，certbot 自动续期（webroot=`/var/www/blog/dist`） |
 | 运行配置 | `/data/blog/runtime.env`（600 root-only）：JWT_SECRET_KEY（强随机，2026-09-24 轮换）、`LLM_MODEL_CHAIN=grok-4.7`、`REDIS_ENABLED=false`、NewAPI 地址 `http://new-api:3000/v1` |
 | 备份 | `/data/blog/backup-db.sh`，cron 每天 04:30 热备份到 `/data/blog/backups/`，保留 14 天 |
-| AI 日报 | `/data/blog/scripts/fetch_ai_daily.py` + `/etc/cron.d/blog-ai-daily`：每 30 分钟拉 `aihot.virxact.com` 公共 API，直写 `/var/www/blog/dist/data/`（2026-09-24 恢复；此前新旧站都冻结在 2026-07-09，因为旧机制随 openclaw/旧服务器消亡）。日志 `/data/blog/logs/ai-daily-fetch.log` |
+| AI 日报 | `/data/blog/scripts/fetch_ai_daily.py` + `/etc/cron.d/blog-ai-daily`：每 30 分钟拉 **`aihot.news` /api/v1**（2026-10-08 自旧接口迁移，旧域名与 /api/public 于 2026-10-31 停用），直写 `/var/www/blog/dist/data/`。ETag 状态存 `/data/blog/logs/ai-daily-state.json`（304 时跳过日报重写）。日志 `/data/blog/logs/ai-daily-fetch.log` |
 | 提示词同步 | `/data/blog/scripts/sync_coze_prompts.py` + `/etc/cron.d/blog-coze-sync`：每天 05:10 拉扣子（api.coze.cn）机器人人设提示词 → 公开投稿接口入库 `pending`，后台审核后上架。PAT 在 `/data/blog/coze.env`（600 root-only，**最长 30 天过期**，过期后日志记 401，去扣子后台重新生成覆盖该文件即恢复）。状态 `/data/blog/coze-sync-state.json`（title+sha256 去重），日志 `/data/blog/logs/coze-prompt-sync.log` |
 | AI 网络桥 | docker 网络 `blog-net`：`qianxi-blog` 与 `new-api` 都挂在上面。**拆掉这个网络 AI 就断**（new-api 只发布在宿主机 `127.0.0.1:3001`，容器从 `172.17.0.1` 够不到，2026-09-24 实测 Connection refused）。**2026-09-28 起这个挂载是持久的**：`/data/new-api-stack/docker-compose.yml` 的 `new-api` 服务声明了 `networks: [default, blog-net]` + 顶层 `networks: blog-net: external: true`，所以 `docker compose up -d` 重建 new-api 不会再丢掉它（此前是手工 `docker network connect`，重建即断）。改前备份在 `/data/new-api-stack/backup/pre-blognet-20260928-173637/`，重建实测中断 2.74 秒、mysql/redis 未重建 |
 
@@ -246,6 +246,37 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 九期：AIHOT 旧接口迁移到 v1（2026-10-08，提交 `98b68d1`）
+
+AIHOT 官方把 `/api/public/*` 与旧域名 `aihot.virxact.com` 的停用日期**提前到 2026-10-31**（原定 12-31）。本仓库唯一调用方是 `scripts/fetch_ai_daily.py`（cron 每 30 分钟生成前端 AI 日报静态数据）；后端热点服务用 OpenAI/Anthropic RSS，与 aihot 无关——**先全仓库 grep 确认调用面，再动手**。
+
+**改写要点**（前端零改动：输出 JSON 保持 `aiDaily.ts` interface 的扁平契约，v1 的嵌套结构在 adapt_* 里降级）：
+
+| 项 | 旧 | 新 |
+|---|---|---|
+| 日报 | `/api/public/daily`（顶层即日报体） | `/api/v1/dailies/latest`（**顶层 `report` 里**） |
+| 精选 | `/api/public/items?take=N` | `/api/v1/items?limit=N`（上限 100；window 不传=默认 7d） |
+| 字段 | `title_en` / `url` / `source` / 顶层 `hasNext/nextCursor` | `originalTitle` / `links.original` / `source.name` / `page.*` |
+| 日报条目 | 扁平 `sourceName/sourceUrl/permalink` | 嵌套 `{source:{name}, links:{aihot,original}}` → 适配层降回扁平 |
+| attribution | `{source, canonical}` | `{name, url}` → 适配回旧格式 |
+| 请求 | 无压缩、伪装浏览器 UA | gzip + If-None-Match（304 跳过日报重写）+ 诚实 UA `aihot-api/2.0.0 …` |
+
+**迁移红线**（官方明确）：v1 只接受 OpenAPI 声明且不重复的参数，`_` 防缓存/未知参数直接 400——除 mode/limit/category 外什么都不加；**不传 window 用默认 7d**（与旧全量精选语义最近）；ETag 全新开始，不复用旧值。
+
+### 踩的坑：ETag 头大小写
+
+首跑后 ETag 状态文件**一直没写出来**、304 从未发生。根因：nginx 实发头名是 **`Etag`**，而 `dict(resp.headers)` 转成 dict 后按 `'ETag'` 取值拿不到（.NET 调试时显示的 "ETag" 是规范化假象）。**修法：不转 dict，直接用 `HTTPMessage`（大小写不敏感容器）**。
+
+### 验证
+
+- 本地真实拉取（今日日报 5 sections/12 条、精选 96 条）→ 逐字段对照前端契约**全部通过**、全 JSON 零旧域名
+- 二跑命中 304、日报文件 mtime 不动、精选照常更新
+- 生产同步后同样全绿：产物扁平契约正确、旧域名 0、公网新 JSON 生效；浏览器实测 AI 日报页渲染今日新数据（"OpenAI Decisions API 公测上线"），页面内旧域名链接 0
+
+### 遗留（待确认，见对话）
+
+- 历史归档 JSON（仓库与 dist 的 `ai-daily/*.json`）里 permalink/canonical 仍是旧域名——10-31 起旧域名只做跳转，链接仍可达；要不要批量替换待拍板
+- `aiDaily.ts` 的 `refreshAiDaily()` 调不存在的后端路由且零调用（死代码），只报告不动
 ## 七期：项目文档站（VitePress → GitHub Pages，2026-09-30，提交 `196626f`）
 
 **<https://qianxi-00.github.io/My_Blog/>** —— VitePress 1.6.4 + GitHub Actions + Pages，纯静态、免费托管，推送 `master` 后自动构建发布。
