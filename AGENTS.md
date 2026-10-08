@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `2283c0b`）。
-当前生产镜像 **`qianxi-blog:ci-3`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` **均已推 GitHub**，`origin/master` = `2283c0b`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `1d96f14`）。
+当前生产镜像 **`qianxi-blog:ci-3`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` **均已推 GitHub**，`origin/master` = `1d96f14`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -262,6 +262,14 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 
 验证（全绿）：Actions run `success`；`/`、`/intro.html`、`/features.html`、`/deploy.html` 全 200；CSS GET 200（线上 `app.DxTFQC_Q.js` 哈希与本地 dist 完全一致 = 线上跑的就是推的这份）；浏览器实测 Hero 三按钮（「🚀 进入博客」href=`https://blog.qianxi7988.me/`）、6 张卡片、导航/侧栏跳转、品牌按钮样式（rgb(86,114,205) 圆角 20px）真实生效。
 
+### 七期之二：文档站页面扩充（2026-10-08，提交 `1d96f14`）
+
+- **`ai-architecture.md`**：AI 问答架构拆解——双智能体定位对比表、无向量 A-RAG 的检索管线与九工具、54 技能薄封装架构、批量操作的技能层设计、26 用例契约自检的六组检查表、返回裁剪（78K→21K 实例）、伪流式/SSE 事件表、安全模型矩阵。配 3 张 mermaid 流程图（**引入 `vitepress-plugin-mermaid` + `mermaid` 两个 devDependency，`withMermaid(defineConfig(...))` 包一层**，客户端渲染，浏览器实测 3 张 SVG 节点 37/38/34 真出图）
+- **`history.md`**：事故驱动的开发历程（XSS 根因与红线、助手三连修、静默 bug 引出契约测试、DetachedInstanceError 自省、技能扩充两决策、手工→CI/CD 演进），收尾三条贯穿纪律
+- `intro.md` 补「规模速览」（145+ 端点 / 54 技能 / 9 工具 / 26 用例，全实测）与「设计原则」；`index.md` features 加两张卡（AI 架构 / 开发历程）；nav 与 sidebar 登记新页
+- 内容红线不变：公开页不写 IP/密钥/服务器路径，讲设计不讲运维细节
+
+> **尾斜杠坑复发**：从旧文件抄来的 `/features/` 写法又被 VitePress 死链检查拦下 3 处。上次的修正则 `\((/[a-z]+)/\)` 只匹配纯小写段，漏了带连字符的 `/ai-architecture/`——已升级为 `\((/[a-z][a-z-]*)/\)` 并全站扫过。**抄旧文件里的链接写法前，先想想它是不是当年那个错法。**
 ## 五期：后台 AI 助手（`/#/admin/ai-agent`）修复 + Cherry Studio 式界面（2026-09-30，镜像 `qianxi-blog:users7`）
 
 一句话：**这个助手其实一直完全不可用**——所有技能都调不通，打开就 500。修了三个互相叠加的根因，并把界面重做成聊天工作台。提交 `5d6bba4` / `46715bb` / `3a7c27a`。
