@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `196626f`）。
-当前生产镜像 **`qianxi-blog:users12`**（2026-09-30 六期「两个 AI 技能扩充」版）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` **均已推 GitHub**，`origin/master` = `196626f`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `2283c0b`）。
+当前生产镜像 **`qianxi-blog:ci-3`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` **均已推 GitHub**，`origin/master` = `2283c0b`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -210,6 +210,41 @@ python backend/scripts/selfcheck_skills.py       # 本地（若已装 backend �
 **向后兼容已验证**：`variant` 默认 `'default'`。文章页实测 h2=`30px`、段落=`16px`、表格单元格 `12px 16px`、复制按钮与代码块圆角均与改动前一致，评论/论坛/提示词同理。
 
 > 这次验证靠的是**逐项量计算样式**而不是截图——本机浏览器的视口被外框限死在 ~400px 高，元素截图必然被上层 fixed 元素遮挡。涉及窄容器布局时，量 `getComputedStyle` 比截图可靠。
+
+## 八期：GitHub Actions CI/CD（2026-10-08，提交 `2283c0b`，生产镜像 `qianxi-blog:ci-3`）
+
+部署方式从"手工脚本"切换为 CI/CD：push master（触及 `backend/` 或 `frontend/`）→ 自动检查 → 通过后 SSH 自动部署生产，失败自动回滚。**此前的部署笔记（一~七期的 b_*.sh 流程）从此退役为应急手段**。
+
+链路（`.github/workflows/ci-cd.yml`）：
+
+| job | 内容 |
+|---|---|
+| backend-checks | pip install + 跑 `backend/scripts/selfcheck_skills.py` 26 用例（首次 CI 实测 0.057s OK） |
+| frontend-checks | npm ci + `tsc --noEmit` + vite build |
+| deploy | 内联 git diff 判定部署面 → appleboy/ssh-action 调服务器脚本；**concurrency: production-deploy 不并发**；**docs/** 与纯 *.md 不触发** |
+
+服务器端脚本 `scripts/ci/deploy_backend.sh` / `deploy_frontend.sh`（随仓库走，服务器 reset 后用仓库里的版本）：
+
+- 后端：git archive 构建镜像（tag=`ci-<run_number>`）→ **镜像内自检（import + 技能构建>50，切生产前挡住坏镜像）** → 从现容器 `docker inspect` 抓 env 注入新容器（**生产密钥只活在容器 env，永不落仓库/日志**）→ 切容器 → health 90s，失败切回 prev → 公网双 200。prev 容器/ci 镜像各留 2 份自动清理。
+- 前端：**服务器本地 npm ci + build（代码即产物）**——彻底消灭"上传没生效/md5 对不上"那类坑（踩过两次）→ 原子替换 dist，保留 uploads/data/.well-known/live2d → 新 chunk 落盘+公网双验证，失败恢复旧目录。
+- 手动入口：Actions → Run workflow → 勾 deploy_backend / deploy_frontend（backend/frontend 均无变化时可强制重跑部署）。
+
+Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，服务器 authorized_keys 里带 `github-actions-deploy` 注释，可随时 `sed -i '/github-actions-deploy/d'` 撤销）。**workflow 与脚本是公开文件，不含服务器 IP 与任何密钥。**
+
+### 首次部署踩的坑（花了三小时才定位，务必记住）
+
+**`gh secret set` 用 pwsh 管道喂私钥会坏**：`Get-Content key -Raw | gh secret set ...` 时 pwsh 给原生进程的管道把行尾规范化成 CRLF，GitHub 端存下的私钥每行带 `\r`，Appleboy 的 Go `ssh.ParsePrivateKey` 解析失败的报错是 **`this private key is passphrase protected`**——完全误导（key 根本没口令，本地 `ssh -i` 直连都通）。**修法：字节保真写 secret：`cmd /c "gh secret set NAME < key文件"`**（cmd 的 `<` 是真字节流重定向）。顺带两个 pwsh 事实：pwsh **没有** `<` 重定向语法（那是 cmd/bash 的）；`ssh-keygen -N ''`（pwsh 单引号空串）生成无口令 key，验证方法是 `ssh-keygen -y -f key -P ''` 能读出公钥。
+
+### 验证（全绿）
+
+- dispatch 全链路：后端 ci-3 构建成功 → 镜像内技能 54 个可构建 → 切容器 → health 6s 过 → 公网 api/home=200；前端服务器本地构建 → 保留 uploads(53)/data(22) → 原子替换 → chunk home/chunk=200
+- 独立复核：数据基线不变（articles 23 / comments 42 / users 2）、integrity ok、**生产镜像内 26 用例 OK**、公网 8 项 200/401 符合预期、dist 属主 www-data
+- 触发面验证：纯 scripts/ci 推送 → 检查跑、部署正确跳过；`.md`/docs 推送 → 不触发
+
+### 如实记录的观察（非本次改动引入）
+
+- `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
+- dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
 ## 七期：项目文档站（VitePress → GitHub Pages，2026-09-30，提交 `196626f`）
 
