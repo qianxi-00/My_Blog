@@ -1,17 +1,32 @@
 #!/usr/bin/env python3
+"""拉取 AIHOT 日报与精选，生成前端静态数据。
+
+2026-10-08 自旧接口迁移到 v1（旧 /api/public/* 与旧域名 2026-10-31 停用）：
+  - https://aihot.news/api/v1/dailies/latest —— 日报在响应顶层 report 里
+  - https://aihot.news/api/v1/items —— take→limit、字段 title_en→originalTitle、
+    url→links.original、source→source.name、顶层 hasNext/nextCursor→page.*
+  - 输出 JSON 的结构保持前端契约（frontend/src/api/aiDaily.ts 的 interface）
+    不变，v1 的嵌套结构在 adapt_* 里降级成旧的扁平字段
+  - 按官方建议启用 gzip 压缩与 If-None-Match/304（仅日报：一天一期，
+    cron 每 30 分钟轮询时绝大多数是 304）；迁移后不复用任何旧 ETag
+  - User-Agent 不再伪装浏览器，按官方格式如实标识
+"""
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 import json
 import os
 import sys
 import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-API = 'https://aihot.virxact.com/api/public/daily'
-ITEMS_API = 'https://aihot.virxact.com/api/public/items'
-UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 aihot-skill/0.2.0 qianxi-blog-ai-daily'
+API = 'https://aihot.news/api/v1/dailies/latest'
+ITEMS_API = 'https://aihot.news/api/v1/items'
+UA = 'aihot-api/2.0.0 qianxi-blog-ai-daily/2.0'
+SOURCE_URL = 'https://aihot.news/'
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_ROOT = Path(os.environ.get('AI_DAILY_DATA_ROOT', REPO_ROOT / 'frontend' / 'public' / 'data'))
 OUT = DATA_ROOT / 'ai-daily.json'
@@ -20,6 +35,7 @@ DAILY_DIR = DATA_ROOT / 'ai-daily'
 INDEX_OUT = DATA_ROOT / 'ai-daily-index.json'
 ARCHIVE = Path(os.environ.get('AI_DAILY_ARCHIVE_DIR', DAILY_DIR))
 LOG = Path(os.environ.get('AI_DAILY_LOG', REPO_ROOT / 'logs' / 'ai_daily_fetch.log'))
+STATE = LOG.parent / 'ai-daily-state.json'
 
 CATEGORIES = [
     ('all', '全部', None),
@@ -41,40 +57,139 @@ def log(msg: str) -> None:
         f.write(f'[{now_bj()}] {msg}\n')
 
 
-def fetch() -> dict:
-    req = urllib.request.Request(API, headers={'User-Agent': UA, 'Accept': 'application/json'})
-    with urllib.request.urlopen(req, timeout=45) as resp:
-        raw = resp.read().decode('utf-8')
-    data = json.loads(raw)
-    if not isinstance(data, dict) or not data.get('date') or not isinstance(data.get('sections'), list):
-        raise RuntimeError('AI HOT daily payload shape invalid')
-    data['fetchedAt'] = now_bj()
-    data['source'] = 'AI HOT'
-    data['sourceUrl'] = 'https://aihot.virxact.com/'
-    return data
+def _load_state() -> dict:
+    try:
+        return json.loads(STATE.read_text(encoding='utf-8'))
+    except Exception:
+        return {}
 
 
-def fetch_items(category: str | None = None, take: int = 80) -> dict:
-    params = {'mode': 'selected', 'take': str(take)}
+def _save_state(state: dict) -> None:
+    try:
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        STATE.write_text(json.dumps(state, ensure_ascii=False), encoding='utf-8')
+    except Exception as exc:  # 状态存不进去只影响省流量，不阻断抓取
+        log(f'warn state-save-failed {exc}')
+
+
+def _get_json(url: str, etag: str | None = None) -> tuple[int, dict | None, object]:
+    """GET JSON，开 gzip，支持 If-None-Match。
+
+    返回 (status, body, headers)：304 时 body 为 None。
+    headers 直接返回 HTTPMessage（大小写不敏感容器）——转成 dict 会把
+    'Etag' 固定成某个大小写，按 'ETag' 取就拿不到（nginx 实发 'Etag'）。
+    urllib 会把 304 抛成 HTTPError，这里统一接住。
+    """
+    headers = {
+        'User-Agent': UA,
+        'Accept': 'application/json',
+        'Accept-Encoding': 'gzip',
+    }
+    if etag:
+        headers['If-None-Match'] = etag
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            status = resp.status
+            raw = resp.read()
+            resp_headers = resp.headers
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return 304, None, e.headers
+        raise
+    if resp_headers.get('Content-Encoding') == 'gzip':
+        raw = gzip.decompress(raw)
+    return status, json.loads(raw.decode('utf-8')), resp_headers
+
+
+def _adapt_attribution(attr: dict | None) -> dict | None:
+    """v1 {name,url} → 旧存档格式 {source,canonical}。"""
+    if not isinstance(attr, dict):
+        return None
+    return {'source': attr.get('name'), 'canonical': attr.get('url')}
+
+
+def _adapt_content_item(item: dict) -> dict:
+    """日报/快讯条目：v1 嵌套结构 → 前端契约的扁平字段。"""
+    links = item.get('links') or {}
+    source = item.get('source') or {}
+    return {
+        'title': item.get('title'),
+        'summary': item.get('summary') or '',
+        'sourceName': source.get('name'),
+        'sourceUrl': links.get('original'),
+        'permalink': links.get('aihot'),
+        'attribution': _adapt_attribution(item.get('attribution')),
+    }
+
+
+def fetch() -> dict | None:
+    """最新日报。304（内容没变）时返回 None，调用方跳过日报写入。"""
+    state = _load_state()
+    status, data, headers = _get_json(API, etag=state.get('daily_etag'))
+    if status == 304:
+        return None
+
+    report = (data or {}).get('report') or {}
+    if not report.get('date') or not isinstance(report.get('sections'), list):
+        raise RuntimeError('AIHOT v1 daily payload shape invalid (report.date/report.sections missing)')
+
+    sections = []
+    for section in report.get('sections') or []:
+        sections.append({
+            'label': section.get('label'),
+            'items': [_adapt_content_item(i) for i in section.get('items') or []],
+        })
+    flashes = []
+    for flash in report.get('flashes') or []:
+        adapted = _adapt_content_item(flash)
+        adapted['publishedAt'] = flash.get('publishedAt')
+        flashes.append(adapted)
+
+    daily = {
+        'date': report.get('date'),
+        'generatedAt': report.get('generatedAt'),
+        'windowStart': report.get('windowStart'),
+        'windowEnd': report.get('windowEnd'),
+        'lead': report.get('lead'),
+        'sections': sections,
+        'flashes': flashes,
+        'attribution': _adapt_attribution(report.get('attribution')),
+        'fetchedAt': now_bj(),
+        'source': 'AI HOT',
+        'sourceUrl': SOURCE_URL,
+    }
+
+    new_etag = headers.get('ETag') or headers.get('etag')
+    if new_etag:
+        state['daily_etag'] = new_etag
+        _save_state(state)
+    return daily
+
+
+def fetch_items(category: str | None = None, limit: int = 80) -> dict:
+    """精选条目。window 用 v1 默认（7 天，与旧接口的全量精选语义最接近）；
+    v1 拒绝一切未声明参数，所以除 mode/limit/category 外什么都不加。"""
+    params = {'mode': 'selected', 'limit': str(limit)}
     if category:
         params['category'] = category
     url = f"{ITEMS_API}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(url, headers={'User-Agent': UA, 'Accept': 'application/json'})
-    with urllib.request.urlopen(req, timeout=45) as resp:
-        raw = resp.read().decode('utf-8')
-    data = json.loads(raw)
+    status, data, _ = _get_json(url)
     if not isinstance(data, dict) or not isinstance(data.get('items'), list):
-        raise RuntimeError('AI HOT selected items payload shape invalid')
+        raise RuntimeError('AIHOT v1 items payload shape invalid')
     return data
 
 
 def normalize_item(item: dict) -> dict:
+    """输出字段名保持前端契约（aiDaily.ts AiSelectedItem），读取路径迁到 v1。"""
+    links = item.get('links') or {}
+    source = item.get('source') or {}
     return {
         'id': item.get('id'),
         'title': item.get('title'),
-        'titleEn': item.get('title_en'),
-        'url': item.get('url'),
-        'source': item.get('source'),
+        'titleEn': item.get('originalTitle'),
+        'url': links.get('original'),
+        'source': source.get('name'),
         'publishedAt': item.get('publishedAt'),
         'summary': item.get('summary'),
         'category': item.get('category'),
@@ -88,15 +203,17 @@ def fetch_selected_payload() -> dict:
     categories = []
     latest_items: list[dict] = []
     for key, label, api_category in CATEGORIES:
-        data = fetch_items(api_category, take=100 if key == 'all' else 60)
-        items = [normalize_item(item) for item in data.get('items') or [] if item.get('title') and item.get('url')]
+        data = fetch_items(api_category, limit=100 if key == 'all' else 60)
+        page = data.get('page') or {}
+        items = [normalize_item(item) for item in data.get('items') or [] if item.get('title')]
+        items = [i for i in items if i.get('url')]
         categories.append({
             'key': key,
             'label': label,
             'apiCategory': api_category,
             'count': len(items),
-            'hasNext': bool(data.get('hasNext')),
-            'nextCursor': data.get('nextCursor'),
+            'hasNext': bool(page.get('hasMore')),
+            'nextCursor': page.get('nextCursor'),
             'items': items,
         })
         if key == 'all':
@@ -104,7 +221,7 @@ def fetch_selected_payload() -> dict:
     return {
         'fetchedAt': fetched_at,
         'source': 'AI HOT',
-        'sourceUrl': 'https://aihot.virxact.com/?page=1',
+        'sourceUrl': f'{SOURCE_URL}?page=1',
         'mode': 'selected',
         'categories': categories,
         'items': latest_items,
@@ -140,18 +257,24 @@ def build_index() -> dict:
 
 
 def main() -> None:
-    data = fetch()
+    daily = fetch()
     selected = fetch_selected_payload()
-    write_atomic(OUT, data)
+    daily_skipped = daily is None
+    if daily is not None:
+        write_atomic(OUT, daily)
+        ARCHIVE.mkdir(parents=True, exist_ok=True)
+        write_atomic(ARCHIVE / f"{daily['date']}.json", daily)
+        write_atomic(DAILY_DIR / f"{daily['date']}.json", daily)
+        index = build_index()
+        write_atomic(INDEX_OUT, index)
     write_atomic(SELECTED_OUT, selected)
-    ARCHIVE.mkdir(parents=True, exist_ok=True)
-    write_atomic(ARCHIVE / f"{data['date']}.json", data)
-    write_atomic(DAILY_DIR / f"{data['date']}.json", data)
-    index = build_index()
-    write_atomic(INDEX_OUT, index)
-    items = sum(len(s.get('items') or []) for s in data.get('sections') or [])
-    log(f"ok date={data.get('date')} sections={len(data.get('sections') or [])} items={items} selectedItems={selected.get('total')} selectedCategories={len(selected.get('categories') or [])} months={len(index.get('months') or [])}")
-    print(json.dumps({'ok': True, 'date': data.get('date'), 'sections': len(data.get('sections') or []), 'items': items, 'selectedItems': selected.get('total'), 'selectedCategories': len(selected.get('categories') or []), 'months': len(index.get('months') or []), 'out': str(OUT), 'selectedOut': str(SELECTED_OUT)}, ensure_ascii=False))
+    if daily_skipped:
+        log(f"ok not_modified selectedItems={selected.get('total')} selectedCategories={len(selected.get('categories') or [])}")
+        print(json.dumps({'ok': True, 'notModified': True, 'selectedItems': selected.get('total')}, ensure_ascii=False))
+        return
+    items = sum(len(s.get('items') or []) for s in daily.get('sections') or [])
+    log(f"ok date={daily.get('date')} sections={len(daily.get('sections') or [])} items={items} selectedItems={selected.get('total')} selectedCategories={len(selected.get('categories') or [])}")
+    print(json.dumps({'ok': True, 'date': daily.get('date'), 'sections': len(daily.get('sections') or []), 'items': items, 'selectedItems': selected.get('total'), 'selectedCategories': len(selected.get('categories') or []), 'out': str(OUT), 'selectedOut': str(SELECTED_OUT)}, ensure_ascii=False))
 
 
 if __name__ == '__main__':
