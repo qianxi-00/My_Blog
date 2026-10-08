@@ -85,7 +85,7 @@ const ForumNewThread: React.FC = () => {
       <div className="flex items-start justify-between gap-4 mb-6">
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3 transition-colors">
           <span className="w-2 h-8 bg-primary-500 rounded-full"></span>
-          发布主题
+          提交问题
         </h1>
         <div className="flex items-center gap-2">
           <Button
@@ -183,7 +183,7 @@ const ForumNewThread: React.FC = () => {
           </Link>
           <Button onClick={handleSubmit} disabled={!canSubmit || submitting} className="gap-2">
             <Icons.Send className="w-4 h-4" />
-            {submitting ? '发布中...' : '发布主题'}
+            {submitting ? '提交中...' : '提交问题'}
           </Button>
         </div>
       </Card>

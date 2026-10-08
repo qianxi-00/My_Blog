@@ -45,7 +45,9 @@ const Login: React.FC = () => {
                     <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-500 to-purple-600 bg-clip-text text-transparent">
                         千禧的博客
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-2">登录账号，评论投稿更方便</p>
+                    <p className="text-slate-500 dark:text-slate-400 mt-2">
+                        登录后：粘入笔记一键成稿投稿 · 你的评论可被站内 AI 引用为参考
+                    </p>
                 </div>
 
                 {/* Login Form */}

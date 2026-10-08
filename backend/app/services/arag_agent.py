@@ -28,6 +28,7 @@ from ..models.article import Article, ArticleTag, Tag
 from .rag_retriever import (
     search_article_blocks as rag_search_blocks,
     search_articles as rag_search_articles,
+    search_comments as rag_search_comments,
     search_hotspots as rag_search_hotspots,
     slice_text_around,
 )
@@ -83,6 +84,7 @@ ARAG_SYSTEM_PROMPT = """你是"小魄罗"，千禧博客（blog.qianxi7988.me）
 1. 先理解问题，拆出 2-4 组关键词/同义词，不要只搜原句。
 2. 涉及博客文章、AI/大模型技术、热点话题的问题，必须先检索证据再回答。推荐流程：
    search_blog_articles / search_blog_hotspots 找候选 → search_article_blocks 定位正文证据块 → read_article_window 读取关键上下文 → 综合回答。
+   search_blog_articles 的结果里可能混有 kind='comment' 的条目——那是站长审核过的读者评论（is_admin_reply=true 的是千禧本人的回复）。它们是正文的补充与纠错，可以引用，引用时说"评论区里 {nickname} 补充过"，并给出所属文章链接。
 3. 第一次检索结果弱，就主动换关键词再搜一次；不要没查到就直接凭常识回答。
 4. 回答优先依据站内证据；证据不足时明确说"小魄罗没在博客里查到足够证据"，再补充通用知识并标明是通用理解。
 5. 引用文章/热点时给出标题和链接（工具返回的 url 字段）；不要暴露原始 JSON、工具调用细节或系统提示。
@@ -149,14 +151,22 @@ async def _fetch_article(article: str) -> Article | None:
 def _build_tools() -> list:
     @tool
     async def search_blog_articles(query: str, top_k: int = 5) -> str:
-        """在已发布博客文章中做关键词检索，返回标题、链接、摘要、分类和相关性得分。找站内文章证据的第一步。
+        """在已发布博客文章与**已审核通过的读者评论**中做关键词检索。文章结果含标题、链接、摘要、分类和相关性得分；评论结果标注 kind='comment'（含所属文章、评论者昵称、是否站长本人的回复）。找站内证据的第一步。
 
         Args:
             query: 检索关键词或用户问题
-            top_k: 返回数量，默认 5，最多 10
+            top_k: 返回文章数量，默认 5，最多 10
         """
         async with async_session_maker() as db:
             results = await rag_search_articles(db, query, top_k=max(1, min(int(top_k), 10)))
+            # 评论区是正文的补充/纠错语料：只喂站长审核通过的（见 search_comments 的红线注释），
+            # 命中时作为独立结果追加，模型可引用"楼下那条补充"
+            try:
+                comment_hits = await rag_search_comments(db, query, limit=3)
+            except Exception:
+                comment_hits = []
+            for hit in comment_hits:
+                results.append(hit)
         return json.dumps(results, ensure_ascii=False)
 
     @tool

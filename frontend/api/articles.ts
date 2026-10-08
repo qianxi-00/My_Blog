@@ -44,6 +44,9 @@ export interface Article {
     view_count: number;
     like_count: number;
     comment_count?: number;
+    // 十期 B3 可追问导读卡：后端只在站长采纳后才返回 ai_intro（未采纳一律 null）
+    ai_intro?: string | null;      // JSON: {summary, questions[]}
+    ai_intro_adopted?: boolean;
     tags: Tag[];
     created_at: string;
     updated_at?: string;

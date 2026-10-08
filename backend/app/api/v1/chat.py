@@ -20,7 +20,8 @@ from ...models.user import User
 from ...schemas.chat import (
     ChatMessageCreate, ChatResponse, ChatSessionResponse,
     ChatSessionWithMessages, ChatMessageResponse,
-    PromptLabRequest, PromptLabResponse
+    PromptLabRequest, PromptLabResponse,
+    MyChatSessionItem,
 )
 from ...services.openai_service import OpenAIService
 from ...services.poro_rag_agent import PoroRagAgent
@@ -500,6 +501,48 @@ async def send_message_agentic(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+@router.get("/sessions", response_model=list[MyChatSessionItem])
+async def list_my_sessions(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """
+    [十期「我的提问历史」] 登录用户与小魄罗的历史会话列表。
+
+    只认登录用户——游客会话按 IP 归属，同 IP 不等于同人，列出来既不准也有
+    越权风险（对齐 _owns_session 的归属模型）。未登录 401，前端只在登录态
+    展示入口。
+    """
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录后可查看自己的提问历史")
+
+    from sqlalchemy import func as sa_func
+    rows = (
+        await db.execute(
+            select(
+                ChatSession.id,
+                ChatSession.title,
+                sa_func.count(ChatMessage.id).label("msg_count"),
+                ChatSession.created_at,
+                ChatSession.updated_at,
+            )
+            .outerjoin(ChatMessage, ChatMessage.session_id == ChatSession.id)
+            .where(ChatSession.user_id == current_user.id)
+            .group_by(ChatSession.id)
+            .order_by(ChatSession.created_at.desc())
+            .limit(20)
+        )
+    ).all()
+    return [
+        MyChatSessionItem(
+            id=r.id, title=r.title, message_count=int(r.msg_count or 0),
+            created_at=r.created_at, updated_at=r.updated_at,
+        )
+        for r in rows
+    ]
+
 
 @router.get("/session/{session_id}/history", response_model=ChatSessionWithMessages)
 async def get_session_history(

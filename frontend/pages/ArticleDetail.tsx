@@ -723,6 +723,45 @@ const ArticleDetail: React.FC = () => {
                 </div>
               )}
 
+              {/* 十期 B3 可追问导读卡：站长采纳后才有的字段（后端未采纳一律返回 null）。
+                  三个问题点击后经 CustomEvent 唤起小魄罗并自动发送——她会带着站内检索答，
+                  问题前缀文章标题是为了让她优先命中本文，不做更重的"锁上下文"。 */}
+              {(() => {
+                try {
+                  const intro = article.ai_intro ? JSON.parse(article.ai_intro) : null;
+                  if (!intro?.summary || !Array.isArray(intro.questions) || intro.questions.length === 0) return null;
+                  const askPoro = (q: string) => {
+                    window.dispatchEvent(new CustomEvent('poro-ask', {
+                      detail: { question: `关于《${article.title}》：${q}` },
+                    }));
+                  };
+                  return (
+                    <div className="mb-8 rounded-2xl border border-cyan-100 dark:border-cyan-900/50 bg-gradient-to-br from-cyan-50/70 via-white/40 to-purple-50/50 dark:from-cyan-900/15 dark:via-slate-800/40 dark:to-purple-900/10 p-5 transition-colors">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xl">🧭</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-100">太长不看</span>
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed mb-3 text-[15px]">{intro.summary}</p>
+                      <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">想深入？点一下，小魄罗带你追问 ↓</div>
+                      <div className="flex flex-wrap gap-2">
+                        {intro.questions.map((q: string, i: number) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => askPoro(q)}
+                            className="group inline-flex items-center gap-1.5 rounded-full border border-cyan-200 dark:border-cyan-800/60 bg-white/80 dark:bg-slate-800/70 px-3.5 py-1.5 text-xs font-medium text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-900/40 hover:-translate-y-0.5 transition-all"
+                          >
+                            <span>💬 {q}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                } catch {
+                  return null;  // ai_intro 解析失败就当没有，绝不阻塞正文渲染
+                }
+              })()}
+
               <article className="prose prose-slate dark:prose-invert prose-lg max-w-none prose-headings:scroll-mt-24 prose-a:text-cyan-600 dark:prose-a:text-cyan-400 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl prose-img:shadow-md transition-colors">
                 {article.content_md ? (
                   // 文章正文是管理员自己写的，可以开原始 HTML，但仍会过 rehypeSanitize

@@ -59,6 +59,9 @@ class ArticleUpdate(BaseModel):
     published_at: Optional[datetime] = None
     view_count: Optional[int] = Field(None, ge=0, description="浏览量")
     like_count: Optional[int] = Field(None, ge=0, description="点赞量")
+    # 十期 B3 导读卡：采纳开关。只暴露开关不暴露 ai_intro 正文——
+    # 正文只能由 /generate-intro 端点生成，避免 update 路径伪造导读。
+    ai_intro_adopted: Optional[bool] = None
 
 
 class UserArticleUpdate(BaseModel):
@@ -129,9 +132,20 @@ class ArticleResponse(BaseModel):
     view_count: int = 0
     like_count: int = 0
     comment_count: int = 0
+    # 十期 B3 导读卡：仅当站长采纳后才有值；访客侧读它渲染"可追问导读"
+    ai_intro: Optional[str] = None
+    ai_intro_adopted: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
-    
+
+    @model_validator(mode="after")
+    def _hide_unadopted_intro(self):
+        # 红线的响应侧：未采纳的导读是站长还没过目的草稿，不能从任何 API 泄出。
+        # 管理员过目走 generate-intro 端点的直接返回值，不依赖文章响应。
+        if not self.ai_intro_adopted:
+            self.ai_intro = None
+        return self
+
     model_config = ConfigDict(from_attributes=True)
 
 

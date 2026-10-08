@@ -228,6 +228,22 @@ const WriteForm: React.FC<{ navigate: (to: string) => void; articleId: number | 
                     </div>
                 </div>
 
+                {/* 笔记成稿叙事：投稿能力的重新包装——渲染/摘要/审核/署名主页全是现成的，
+                    这块只讲清楚"你粘笔记进来，剩下的管线替你做"。 */}
+                {!articleId && (
+                    <div className="rounded-xl border border-cyan-100 dark:border-cyan-900/40 bg-gradient-to-r from-cyan-50/80 to-purple-50/60 dark:from-cyan-900/20 dark:to-purple-900/10 px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
+                        <div className="font-semibold text-slate-800 dark:text-slate-100 mb-1">📋 有一段吃灰的笔记？粘进来，三步成稿</div>
+                        <ol className="list-decimal ml-5 space-y-0.5">
+                            <li><span className="font-medium">粘入 Markdown 笔记</span> —— mermaid 图、LaTeX 公式、代码块、Xmind 思维导图全部照常渲染，编辑器即预览</li>
+                            <li><span className="font-medium">一键生成摘要</span> —— 站长同款 LLM 摘要管线帮你把"随手记"整理成"能读的文章"</li>
+                            <li><span className="font-medium">提交审核，过审即发布</span> —— 署你自己的名字，挂在你的公开主页 <code className="px-1 rounded bg-slate-100 dark:bg-slate-700 text-[12px]">/#/你的用户名</code> 上</li>
+                        </ol>
+                        <div className="mt-1.5 text-slate-500 dark:text-slate-400">
+                            这不是投稿给一个平台，是投稿给一个有品味的人——每一篇都会被认真读过。
+                        </div>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                     {/* Main Editor */}
                     <div className="lg:col-span-3 space-y-6">

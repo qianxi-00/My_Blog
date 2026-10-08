@@ -93,20 +93,29 @@ const ForumHome: React.FC = () => {
       <div className="flex flex-col xl:flex-row gap-12">
         {/* Main */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-4">
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3 transition-colors">
               <span className="w-2 h-8 bg-primary-500 rounded-full"></span>
-              论坛
+              问千禧
               <span className="text-sm font-medium text-slate-400 dark:text-slate-500">/ {selectedCategoryName}</span>
             </h1>
             <div className="flex items-center gap-3">
-              <span className="text-slate-500 dark:text-slate-400 font-medium transition-colors">共 {total} 条主题</span>
+              <span className="text-slate-500 dark:text-slate-400 font-medium transition-colors">共 {total} 个问题</span>
               <Link to="/forum/new">
                 <Button size="sm" className="gap-1.5">
-                  <Icons.MessageSquare className="w-4 h-4" /> 发主题
+                  <Icons.MessageSquare className="w-4 h-4" /> 提问
                 </Button>
               </Link>
             </div>
+          </div>
+
+          {/* 单版问答的定位说明：这里不是广场，是直达作者本人的提问箱。
+              访客无需注册，留下昵称就行；好问题会被整理成署名文章。 */}
+          <div className="mb-8 rounded-2xl border border-slate-200/70 dark:border-slate-700/60 bg-gradient-to-r from-cyan-50/70 to-purple-50/50 dark:from-cyan-900/15 dark:to-purple-900/10 px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
+            <div className="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">💡 这里不是论坛，是直达千禧本人的提问箱</div>
+            读文章卡在哪一步、部署踩了坑、对某段原理有疑问——直接开帖问，千禧本人会回。
+            无需注册，留个昵称就行；和小魄罗聊到一半没解决的问题也可以直接带过来。
+            好的问答会被整理成文章，署提问者的名字。
           </div>
 
           {loading ? (

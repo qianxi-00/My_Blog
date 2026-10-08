@@ -104,6 +104,24 @@ SKILL_SCHEMAS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "generate_article_intro",
+            "description": (
+                "为文章生成「可追问导读卡」草稿（一句话导读 + 3 个引导问题）。"
+                "生成结果是**未采纳草稿**——必须把摘要和问题原样转告管理员过目，"
+                "管理员认可后才算采纳。重新生成会自动撤销上一次的采纳"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "article_id": {"type": "integer", "description": "文章 ID"},
+                },
+                "required": ["article_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_article_detail",
             "description": "获取指定文章的完整详情（标题、内容、状态、标签等）",
             "parameters": {
@@ -272,6 +290,24 @@ async def _fix_read_time(
     return await call_api(token, "POST", "/articles/fix-read-time")
 
 
+async def _generate_intro(
+    args: Dict[str, Any], token: str, db: AsyncSession,
+) -> Dict[str, Any]:
+    """生成「可追问导读卡」。生成后是未采纳草稿——把摘要和三个追问问题
+    原样转告管理员过目，认可了才让管理员说「采纳」（走 manage_article update）。"""
+    article_id = args.get("article_id")
+    if not article_id:
+        return {"ok": False, "error": "generate_intro 需要 article_id"}
+    resp = await call_api(token, "POST", f"/articles/{article_id}/generate-intro")
+    if resp.get("ok") is False:
+        return resp
+    data = resp.get("data") or {}
+    if data:
+        # 让模型在对话里把结果转述给管理员（这是"过目"的发生地）
+        resp["下一步"] = "以上是生成的导读草稿。管理员认可后，用 manage_article action=update 传 ai_intro_adopted=true 采纳；不认可可让我重新生成。"
+    return resp
+
+
 async def _get_article_detail(
     args: Dict[str, Any], token: str, db: AsyncSession,
 ) -> Dict[str, Any]:
@@ -287,7 +323,7 @@ async def _get_article_detail(
 # 未知字段静默丢掉 → 改文时"改了正文"其实没改。2026-09-30 实测才发现。
 _BODY_FIELDS = (
     "title", "content_md", "summary", "cover_image", "category", "tags",
-    "status", "is_pinned", "scheduled_at", "slug",
+    "status", "is_pinned", "scheduled_at", "slug", "ai_intro_adopted",
 )
 
 
@@ -370,6 +406,7 @@ _HANDLERS = {
     "list_pending_articles": _list_pending_reviews,
     "review_article": _review_article,
     "generate_article_summary": _generate_summary,
+    "generate_article_intro": _generate_intro,
     "fix_article_read_time": _fix_read_time,
     "get_article_detail": _get_article_detail,
     "manage_article": _manage_article,

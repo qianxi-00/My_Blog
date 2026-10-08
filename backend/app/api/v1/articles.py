@@ -1004,6 +1004,82 @@ async def generate_summary(
         )
 
 
+@router.post("/{article_id}/generate-intro")
+async def generate_ai_intro(
+    article_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """
+    [十期 B3] 生成「可追问导读卡」内容：太长不看 + 3 个引导问题。
+
+    红线：生成只落 ai_intro 字段并**撤销采纳**（adopted=False）——站长必须过目
+    （AI 拆解错一个符号会砸全站 AI 的信任），认可后走 PUT /articles/{id} 传
+    ai_intro_adopted=true 才对访客渲染。重新生成永远回到未采纳态。
+    """
+    import json as _json
+
+    article = (await db.execute(select(Article).where(Article.id == article_id))).scalar_one_or_none()
+    if not article:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文章不存在")
+    if not article.content_md:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文章无正文，无法生成导读")
+
+    # 预处理与 generate-summary 同法：剥掉代码块/链接等干扰因素
+    import re as _re
+    content = article.content_md
+    content = _re.sub(r'```[\s\S]*?```', '', content)
+    content = _re.sub(r'`[^`]+`', '', content)
+    content = _re.sub(r'!\[.*?\]\(.*?\)', '', content)
+    content = _re.sub(r'\[(.*?)\]\(.*?\)', r'\1', content)
+    content = _re.sub(r'<[^>]+>', '', content)
+    content = _re.sub(r'\n{2,}', '\n\n', content).strip()
+    # 截断：导读只需要文章骨架，超长正文对 LLM 是浪费
+    content = content[:12000]
+
+    openai_service = OpenAIService()
+    raw = await openai_service.chat(
+        messages=[{
+            "role": "user",
+            "content": (
+                "请为下面这篇技术博客文章生成导读卡内容，严格输出 JSON（不要输出其他任何文字）：\n"
+                '{"summary": "一句话导读，40-70字，说清这篇文章解决什么问题", '
+                '"questions": ["基于文章内容的追问引导1", "追问引导2", "追问引导3"]}\n'
+                "追问引导的问题要能引导读者深入文章核心（原理/取舍/适用场景），用读者口吻。\n\n"
+                f"文章标题：{article.title}\n\n{content}"
+            ),
+        }],
+        system_prompt="你是技术博客的导读编辑。只输出合法 JSON。",
+        max_tokens=300,
+        temperature=0.4,
+        model=settings.ZHAIYAO_MODEL,
+    )
+
+    # 容错解析：剥掉模型可能包的 markdown 围栏
+    cleaned = (raw or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = _re.sub(r'^```(?:json)?\s*|\s*```$', '', cleaned).strip()
+    try:
+        parsed = _json.loads(cleaned)
+        summary = str(parsed.get("summary") or "").strip()
+        questions = [str(q).strip() for q in (parsed.get("questions") or []) if str(q).strip()][:3]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导读生成失败（LLM 输出无法解析）: {str(e)[:120]}")
+
+    if not summary or not questions:
+        raise HTTPException(status_code=500, detail="导读生成失败（内容为空）")
+
+    from datetime import datetime as _dt
+    article.ai_intro = _json.dumps(
+        {"summary": summary, "questions": questions, "generated_at": _dt.utcnow().isoformat()},
+        ensure_ascii=False,
+    )
+    article.ai_intro_adopted = False  # 生成即撤销采纳，强制重新过目
+    await db.commit()
+
+    return {"article_id": article.id, "summary": summary, "questions": questions, "adopted": False}
+
+
 @router.post("/fix-read-time", dependencies=[Depends(get_current_admin)])
 async def fix_read_time(db: AsyncSession = Depends(get_db)):
     """
@@ -1011,7 +1087,7 @@ async def fix_read_time(db: AsyncSession = Depends(get_db)):
     """
     result = await db.execute(select(Article))
     articles = result.scalars().all()
-    
+
     count = 0
     updated_titles = []
     

@@ -205,6 +205,26 @@ export const deleteChatSession = async (sessionId: string): Promise<void> => {
     await api.delete(`/chat/session/${sessionId}`);
 };
 
+// 十期「我的提问历史」：登录用户的历史会话（后端未登录返回 401）
+export interface MyChatSessionItem {
+    id: string;
+    title?: string | null;
+    message_count: number;
+    created_at: string;
+    updated_at?: string | null;
+}
+
+export const getMyChatSessions = async (): Promise<MyChatSessionItem[]> => {
+    // 401 = 未登录，吞掉后返回空列表，调用方按"没有历史"处理
+    try {
+        const response = await api.get('/chat/sessions');
+        return response.data;
+    } catch (e: any) {
+        if (e?.response?.status === 401) return [];
+        throw e;
+    }
+};
+
 // Prompt 实验室 (AI 调用需要更长超时时间)
 export const runPromptLab = async (data: PromptLabRequest): Promise<PromptLabResponse> => {
     const response = await api.post('/chat/prompt-lab', data, {

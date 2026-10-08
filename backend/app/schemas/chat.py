@@ -40,9 +40,18 @@ class ChatSessionResponse(BaseModel):
     title: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
+
+
+class MyChatSessionItem(BaseModel):
+    """十期「我的提问历史」列表项：登录用户与小魄罗的历史会话。"""
+    id: str
+    title: Optional[str] = None
+    message_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
 
 class ChatSessionWithMessages(ChatSessionResponse):

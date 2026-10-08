@@ -58,6 +58,7 @@ const SKILL_LABELS: Record<string, string> = {
   list_pending_articles: '待审投稿',
   review_article: '投稿审核',
   generate_article_summary: '生成摘要',
+  generate_article_intro: '生成导读卡',
   fix_article_read_time: '重算阅读时长',
   get_categories: '分类列表',
   get_tags: '标签列表',

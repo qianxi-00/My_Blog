@@ -282,6 +282,9 @@ PATH_CASES: List[Tuple[Any, str, Dict[str, Any], str, str]] = [
     (subscribers, "manage_subscriber", {"action": "freeze", "subscriber_id": 1},
      "PUT", "/api/v1/subscribers/{subscriber_id}/freeze"),
     (subscribers, "freeze_subscribers", {"frozen": True}, "PUT", "/api/v1/subscribers/freeze-all"),
+    # 十期 B3 导读卡
+    (articles, "generate_article_intro", {"article_id": 1},
+     "POST", "/api/v1/articles/{article_id}/generate-intro"),
 ]
 
 
@@ -377,8 +380,9 @@ class TestFieldMapping(unittest.TestCase):
             "title": "T", "slug": "s", "content_md": "C",
             "summary": "S", "cover_image": "http://x/y.png",
             "is_pinned": True, "scheduled_at": "2026-01-01T00:00:00",
+            "ai_intro_adopted": True,
         }
-        optional_fields = ("summary", "cover_image", "is_pinned", "scheduled_at", "slug")
+        optional_fields = ("summary", "cover_image", "is_pinned", "scheduled_at", "slug", "ai_intro_adopted")
         for action in ("create", "update"):
             args = dict(payload)
             args["action"] = action

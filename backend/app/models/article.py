@@ -51,6 +51,12 @@ class Article(Base):
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 点赞数
     comment_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 评论数
+
+    # 2026-10-08 十期 B3「可追问导读卡」：ai_intro 存 JSON 字符串
+    # {summary, questions[], generated_at}。红线：LLM 生成后**必须站长采纳**
+    # （ai_intro_adopted）才对访客渲染——AI 拆解错一个符号会砸全站 AI 的信任。
+    ai_intro: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_intro_adopted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

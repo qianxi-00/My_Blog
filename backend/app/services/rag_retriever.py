@@ -289,6 +289,68 @@ def slice_text_around(markdown: str, start: int, max_chars: int = 5000) -> Dict[
     }
 
 
+async def search_comments(
+    db: AsyncSession,
+    query: str,
+    limit: int = 3,
+    candidate_limit: int = 40,
+) -> List[Dict[str, Any]]:
+    """在**站长审核通过的评论**里做关键词检索。
+
+    设计约束（与站内 A-RAG 的"只喂背书过的内容"红线一致）：
+    - 只取 status='approved' 的评论——审核通过本身就是站长背书，
+      过时/错误内容挡在这一层之外；
+    - 关联用业务主路径 target_type='article' AND target_id=Article.id
+      （article_id 是冗余旧字段，业务代码读 target_id）；
+    - 评论是讨论性内容，权重低于正文：每命中一个关键词记 3 分
+      （正文字段同口径是 18/8/2），千禧本人的回复（is_admin_reply）
+      视为正文级补充，命中数额外乘 6；
+    - 检索是实时查询（本检索器不建索引），42 条全量参与无性能压力。
+    """
+    from ..models.comment import Comment
+
+    keywords = expand_keywords(query)
+    if not keywords:
+        return []
+
+    conditions = [Comment.content.ilike(f"%{kw}%") for kw in keywords]
+    stmt = (
+        select(Comment, Article)
+        .join(Article, (Comment.target_type == "article") & (Comment.target_id == Article.id))
+        .where(Comment.status == "approved")
+        .where(Article.status == "published")
+        .where(or_(*conditions))
+        .order_by(Comment.like_count.desc(), Comment.created_at.desc())
+        .limit(candidate_limit)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    ranked: List[Dict[str, Any]] = []
+    for comment, article in rows:
+        hits = _field_count(comment.content, keywords)
+        if hits <= 0:
+            continue
+        score = hits * 3
+        if comment.is_admin_reply:
+            score *= 6
+        plain = _strip_markdown(comment.content)
+        ranked.append({
+            "kind": "comment",
+            "comment_id": comment.id,
+            "article_id": article.id,
+            "article_title": article.title,
+            "url": _build_article_url(article),
+            "nickname": comment.nickname,
+            "is_admin_reply": bool(comment.is_admin_reply),
+            "snippet": plain[:300],
+            "score": score,
+        })
+
+    ranked.sort(key=lambda item: item["score"], reverse=True)
+    return ranked[:limit]
+
+
 def format_rag_context(items: List[Dict[str, Any]]) -> str:
     if not items:
         return ""

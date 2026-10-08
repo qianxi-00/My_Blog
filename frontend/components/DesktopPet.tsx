@@ -3,7 +3,8 @@ import { Icons } from './Icons';
 import { ChatMessage } from '../types';
 import MarkdownContent from './MarkdownContent';
 import AgentProcessStrip, { ProcessStep } from './AgentProcessStrip';
-import { createChatSession, sendMessageStream, streamAgenticChat, getChatHistory, ChatSession } from '../api/chat';
+import { createChatSession, sendMessageStream, streamAgenticChat, getChatHistory, ChatSession, getMyChatSessions, MyChatSessionItem } from '../api/chat';
+import { createForumThread, getForumCategories } from '../api/forum';
 
 type PetVariant = {
   id: string;
@@ -196,6 +197,121 @@ const TypingDots: React.FC = () => (
  * 之前桌面悬浮窗和移动端弹窗各写了一份几乎一模一样的渲染（含头像、气泡圆角、
  * Markdown 渲染、参考文章卡片），改样式很容易只改一处。现在只此一份。
  */
+/**
+ * 「问倒了转人工」：看板娘答不上来时，把这轮对话一键落成「问千禧」的论坛帖。
+ *
+ * 复用游客发帖管线（POST /forum/threads，蜜罐/限流全生效），零后端改动；
+ * 版块 id 动态取第一个活跃版块（论坛收缩为单版「问千禧」后即它）。
+ * 组装规则：标题=访客最后的问题，正文=最近一轮问答 + 来源说明。
+ */
+const EscalateToQianxi: React.FC<{ messages: ChatMessage[]; theme: PetTheme }> = ({ messages, theme }) => {
+    const [open, setOpen] = useState(false);
+    const [nickname, setNickname] = useState('');
+    const [sending, setSending] = useState(false);
+    const [result, setResult] = useState<{ id: number } | null>(null);
+    const [error, setError] = useState('');
+
+    // 最近一轮：最后一条用户消息 + 其后最后一条助手回答
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
+    const question = (lastUser?.content || '').trim().slice(0, 80) || '看板娘对话里的问题';
+
+    const submit = async () => {
+        if (sending) return;
+        setSending(true);
+        setError('');
+        try {
+            const cats = await getForumCategories();
+            const target = cats[0];
+            if (!target) throw new Error('「问千禧」版块暂不可用');
+            const answer = (lastAssistant?.content || '').slice(0, 1500);
+            const content = [
+                '> 这个问题来自首页看板娘「小魄罗」的对话——访客问了一圈没解决，转给千禧本人。',
+                '',
+                '**访客的问题**',
+                '',
+                (lastUser?.content || '').trim(),
+                '',
+                '**小魄罗当时给出的回答**（供千禧参考，可能不完整）',
+                '',
+                answer || '（无回答记录）',
+                '',
+                '---',
+                '*如果你也卡在同样的问题上，欢迎在楼下补充你的环境与报错。*',
+            ].join('\n');
+            const thread = await createForumThread({
+                category_id: target.id,
+                title: question,
+                content,
+                nickname: nickname.trim() || undefined,
+                honeypot: '',
+            });
+            setResult({ id: thread.id });
+        } catch (e: any) {
+            setError(e?.response?.data?.detail || e?.message || '提交失败，稍后再试');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    if (result) {
+        return (
+            <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                ✅ 已转给千禧：{' '}
+                <a
+                    href={`#/forum/threads/${result.id}`}
+                    className={`underline underline-offset-2 ${theme.messageAssistantText} font-medium hover:opacity-80`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    查看这个提问 →
+                </a>
+            </div>
+        );
+    }
+
+    if (!open) {
+        return (
+            <button
+                type="button"
+                onClick={() => setOpen(true)}
+                className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500 hover:text-primary-500 dark:hover:text-primary-400 transition-colors"
+            >
+                没能解决？把这问题留给千禧 →
+            </button>
+        );
+    }
+
+    return (
+        <div className={`mt-1.5 rounded-lg ${theme.messageAssistantBorder} bg-white/70 dark:bg-slate-800/60 px-3 py-2.5 text-xs ${theme.messageAssistantText}`}>
+            <div className="font-semibold mb-1.5">把这个问题转成「问千禧」的提问帖</div>
+            <div className="text-slate-500 dark:text-slate-400 mb-2 break-words">「{question}」</div>
+            <div className="flex gap-2">
+                <input
+                    type="text"
+                    value={nickname}
+                    onChange={e => setNickname(e.target.value)}
+                    placeholder="你的昵称（可选）"
+                    maxLength={50}
+                    className="flex-1 min-w-0 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary-400"
+                />
+                <button
+                    type="button"
+                    onClick={submit}
+                    disabled={sending}
+                    className="rounded-md bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white px-3 py-1.5 text-xs font-medium transition-colors"
+                >
+                    {sending ? '提交中...' : '转给千禧'}
+                </button>
+            </div>
+            {error && <div className="mt-1.5 text-red-500 text-[11px]">{error}</div>}
+            <div className="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500">
+                走论坛发帖通道，无需注册；对话上下文会附在帖子里，千禧本人会回。
+            </div>
+        </div>
+    );
+};
+
 const ChatBubble: React.FC<{
     msg: ChatMessage;
     theme: PetTheme;
@@ -203,7 +319,9 @@ const ChatBubble: React.FC<{
     currentVariantSrc: string;
     failedImages: React.MutableRefObject<Set<string>>;
     onAvatarError: () => void;
-}> = ({ msg, theme, avatarSrc, currentVariantSrc, failedImages, onAvatarError }) => {
+    messages: ChatMessage[];
+    showEscalate?: boolean;
+}> = ({ msg, theme, avatarSrc, currentVariantSrc, failedImages, onAvatarError, messages, showEscalate }) => {
     const isUser = msg.role === 'user';
     return (
         <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -257,6 +375,10 @@ const ChatBubble: React.FC<{
                         );
                     })()
                 )}
+                {/* 只在最后一条助手回复上给入口，历史消息不打扰 */}
+                {!isUser && showEscalate && msg.content && (
+                    <EscalateToQianxi messages={messages} theme={theme} />
+                )}
             </div>
         </div>
     );
@@ -276,6 +398,54 @@ const DesktopPet: React.FC = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 最后一条助手消息的 id：「问倒了转人工」入口只挂在它身上
+  const lastAssistantId = useMemo(
+    () => [...messages].reverse().find(m => m.role === 'assistant')?.id,
+    [messages]
+  );
+  // 十期「我的提问历史」：登录用户跨会话恢复（游客后端 401 → 空列表）
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyList, setHistoryList] = useState<MyChatSessionItem[] | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const toggleHistory = async () => {
+    if (historyOpen) { setHistoryOpen(false); return; }
+    setHistoryOpen(true);
+    if (historyList !== null) return;  // 已拉过一次，不重复请求
+    setHistoryLoading(true);
+    try {
+      setHistoryList(await getMyChatSessions());
+    } catch {
+      setHistoryList([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const resumeSession = async (item: MyChatSessionItem) => {
+    setHistoryOpen(false);
+    setHistoryLoading(true);
+    try {
+      const hist = await getChatHistory(item.id);
+      setSession({
+        id: item.id,
+        title: hist.title || item.title || '历史会话',
+        created_at: item.created_at,
+        updated_at: item.updated_at ?? null,
+      });
+      localStorage.setItem(STORAGE_KEYS.chatSession, item.id);
+      const restored = (hist.messages || []).map((m: any, i: number) => ({
+        id: String(m.id ?? i), role: m.role, content: m.content, timestamp: new Date(m.created_at),
+      }));
+      setMessages(restored.length ? restored : [{
+        id: '1', role: 'assistant' as const, content: '（历史会话已恢复，继续问我吧～）', timestamp: new Date(),
+      }]);
+    } catch {
+      // 恢复失败保持现状，别把当前对话弄丢
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [position, setPosition] = useState({ x: 24, y: 24 });
@@ -648,10 +818,13 @@ const DesktopPet: React.FC = () => {
     }
   }, [isOpen]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
+  // textOverride：外部唤起（文章页导读卡 poro-ask 事件）直接指定问题，
+  // 不依赖 input state 的渲染时序——打开面板和发送可能发生在同一拍
+  const handleSend = async (textOverride?: string) => {
+    const text = (textOverride ?? input).trim();
+    if (!text || loading) return;
 
-    const contentToSend = input;
+    const contentToSend = text;
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
@@ -950,6 +1123,21 @@ const DesktopPet: React.FC = () => {
 
   const drawerHeight = drawerMode === 'full' ? viewport.height : panelHeight;
 
+  // 十期 B3：文章页「可追问导读卡」经 window CustomEvent 唤起——打开面板并直接
+  // 发送问题。用 ref 拿最新的 handleSend（它闭包了 session/loading），effect 只挂一次。
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+  useEffect(() => {
+    const onPoroAsk = (e: Event) => {
+      const question = (e as CustomEvent<{ question?: string }>).detail?.question;
+      if (!question) return;
+      setIsOpen(true);
+      handleSendRef.current(question);
+    };
+    window.addEventListener('poro-ask', onPoroAsk);
+    return () => window.removeEventListener('poro-ask', onPoroAsk);
+  }, []);
+
   useEffect(() => {
     if (isMobile && isOpen) {
       document.body.style.overflow = 'hidden';
@@ -1087,6 +1275,14 @@ const DesktopPet: React.FC = () => {
             </div>
             <div className="flex items-center gap-2">
               <button
+                onClick={toggleHistory}
+                className="hover:bg-white/20 p-1.5 rounded transition-colors"
+                title="我的提问历史（登录后可用）"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <Icons.Clock className="w-4 h-4" />
+              </button>
+              <button
                 onClick={() => handleThemeSelect(petThemeId === 'cute' ? 'minimal' : 'cute')}
                 className="hover:bg-white/20 p-1.5 rounded transition-colors"
                 title="切换风格"
@@ -1119,6 +1315,35 @@ const DesktopPet: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {historyOpen && (
+            <div
+              className={`absolute top-14 right-3 z-20 w-64 max-h-72 overflow-y-auto rounded-xl ${currentTheme.panelBorder} ${currentTheme.panelBg} ${currentTheme.panelShadow} p-2`}
+            >
+              <div className="text-xs text-slate-500 dark:text-slate-300 px-2 py-1 flex justify-between">
+                <span>我的提问历史</span>
+                <button onClick={() => setHistoryOpen(false)} className="hover:text-slate-800 dark:hover:text-white">✕</button>
+              </div>
+              {historyLoading ? (
+                <div className="text-xs text-slate-400 px-2 py-3 animate-pulse">加载中...</div>
+              ) : !historyList || historyList.length === 0 ? (
+                <div className="text-xs text-slate-400 px-2 py-3">登录后可查看并继续你和小魄罗的历史对话</div>
+              ) : (
+                historyList.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => resumeSession(item)}
+                    className={`w-full text-left rounded-lg px-2 py-1.5 text-xs ${currentTheme.messageAssistantText} hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors`}
+                  >
+                    <div className="font-medium truncate">{item.title || '未命名对话'}</div>
+                    <div className="opacity-60 text-[10px]">
+                      {item.message_count} 条 · {new Date(item.created_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
 
           {skinMenuSource === 'top' && (
             <div
@@ -1174,6 +1399,8 @@ const DesktopPet: React.FC = () => {
                 currentVariantSrc={currentVariant.src}
                 failedImages={failedImageRef}
                 onAvatarError={() => setImageErrorTick((tick) => tick + 1)}
+                messages={messages}
+                showEscalate={msg.id === lastAssistantId}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -1191,7 +1418,7 @@ const DesktopPet: React.FC = () => {
                 className="w-full pl-4 pr-12 py-2.5 bg-white/70 dark:bg-slate-900/70 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-rose-300 focus:ring-2 focus:ring-rose-100/60 dark:focus:ring-rose-900/40 rounded-xl text-sm transition-all disabled:opacity-50 dark:text-white"
               />
               <button
-                onClick={handleSend}
+                onClick={() => handleSend()}
                 disabled={loading}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-gradient-to-r from-rose-400 to-amber-300 dark:from-rose-500 dark:to-amber-400 text-white rounded-lg hover:shadow-lg hover:shadow-rose-200/50 dark:hover:shadow-rose-900/50 transition-all disabled:opacity-50"
               >
@@ -1311,6 +1538,8 @@ const DesktopPet: React.FC = () => {
                   currentVariantSrc={currentVariant.src}
                   failedImages={failedImageRef}
                   onAvatarError={() => setImageErrorTick((tick) => tick + 1)}
+                  messages={messages}
+                  showEscalate={msg.id === lastAssistantId}
                 />
               ))}
               <div ref={messagesEndRef} />
@@ -1328,7 +1557,7 @@ const DesktopPet: React.FC = () => {
                   className="w-full pl-4 pr-12 py-2.5 bg-white/70 dark:bg-slate-900/70 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-rose-300 focus:ring-2 focus:ring-rose-100/60 dark:focus:ring-rose-900/40 rounded-xl text-sm transition-all disabled:opacity-50 dark:text-white"
                 />
                 <button
-                  onClick={handleSend}
+                  onClick={() => handleSend()}
                   disabled={loading}
                   className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-gradient-to-r from-rose-400 to-amber-300 dark:from-rose-500 dark:to-amber-400 text-white rounded-lg hover:shadow-lg hover:shadow-rose-200/50 dark:hover:shadow-rose-900/50 transition-all disabled:opacity-50"
                 >

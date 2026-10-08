@@ -127,6 +127,13 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("user_id", "INTEGER"),
         ("owner_ip", "VARCHAR(64)"),
     ],
+    # 2026-10-08 十期 B3「可追问导读卡」：LLM 生成、站长采纳后才对访客可见。
+    # ai_intro 存 JSON 字符串 {summary, questions[], generated_at}；adopted 由
+    # 管理员（或 AI 助手走 ArticleUpdate）置 true，文章页只渲染已采纳的。
+    "articles": [
+        ("ai_intro", "TEXT"),
+        ("ai_intro_adopted", "BOOLEAN DEFAULT 0"),
+    ],
 }
 
 
