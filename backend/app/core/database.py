@@ -146,6 +146,19 @@ async def ensure_schema_columns() -> None:
     """
     from sqlalchemy import text
 
+    # ---- 十一期修复：无条件补建缺失的表（create_all 幂等 checkfirst）----
+    # init_db 此前只在 DEBUG 模式跑，生产从不执行；项目也从不用 Alembic
+    # （表结构演进一直靠本函数补列 + 种子函数）。结果：新增模型（如
+    # ChatQaCache）在生产永远建不出来——十一期实踩（启动后 no such table，
+    # 删表重启的对照实验复现）。create_all 默认 checkfirst=True，对已存在的
+    # 表零操作，生产多跑一次只是几十个 PRAGMA 检查，成本可忽略。
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        print(f"❌ create_all 补建新表失败: {e}")
+        raise
+
     async with engine.begin() as conn:
         for table, columns in _ADDED_COLUMNS.items():
             existing = {
@@ -153,7 +166,7 @@ async def ensure_schema_columns() -> None:
                 for row in (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()
             }
             if not existing:
-                # 表还不存在（全新库）：create_all 已按模型建好带列的表
+                # 表还不存在（全新库）：上面 create_all 已按模型建好带列的表
                 continue
             for name, ddl in columns:
                 if name in existing:
