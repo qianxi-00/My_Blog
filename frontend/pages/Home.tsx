@@ -56,7 +56,7 @@ const Home: React.FC = () => {
           </div>
           <h1 className="text-4xl md:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-tight transition-colors">
             你好，我是 <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-500 to-indigo-600">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-600">
               千禧
             </span>
           </h1>
@@ -92,7 +92,7 @@ const Home: React.FC = () => {
 
         {/* Abstract Avatar / Graphic */}
         <div className="relative w-64 h-64 md:w-80 md:h-80 flex-shrink-0">
-          <div className="absolute inset-0 bg-gradient-to-tr from-primary-100 to-indigo-100 dark:from-primary-900/30 dark:to-indigo-900/30 rounded-full blur-3xl opacity-70 animate-pulse transition-all"></div>
+          <div className="absolute inset-0 bg-gradient-to-tr from-cyan-100 to-purple-100 dark:from-cyan-900/30 dark:to-purple-900/30 rounded-full blur-3xl opacity-70 animate-pulse transition-all" style={{ animationDuration: '6s' }}></div>
           <div className="relative w-full h-full rounded-full bg-white dark:bg-slate-800 border-4 border-white dark:border-slate-700 shadow-2xl dark:shadow-slate-900/50 overflow-hidden flex items-center justify-center transition-all">
             {settings?.admin_avatar ? (
               <img
@@ -107,11 +107,11 @@ const Home: React.FC = () => {
             )}
           </div>
           {/* Floating badges */}
-          <div className="absolute -bottom-4 -right-4 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 flex items-center gap-2 animate-bounce transition-all delay-100" style={{ animationDuration: '3s' }}>
+          <div className="absolute -bottom-4 -right-4 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 flex items-center gap-2 animate-bounce transition-all delay-100" style={{ animationDuration: '6s' }}>
             <div className="bg-blue-100 dark:bg-blue-900/30 p-1.5 rounded-lg text-blue-600 dark:text-blue-400"><Icons.Code className="w-4 h-4" /></div>
             <div className="text-xs font-bold text-slate-700 dark:text-slate-200">编程开发</div>
           </div>
-          <div className="absolute top-0 -left-4 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 flex items-center gap-2 animate-bounce transition-all delay-100" style={{ animationDuration: '4s' }}>
+          <div className="absolute top-0 -left-4 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 flex items-center gap-2 animate-bounce transition-all delay-100" style={{ animationDuration: '7s' }}>
             <div className="bg-purple-100 dark:bg-purple-900/30 p-1.5 rounded-lg text-purple-600 dark:text-purple-400"><Icons.Bot className="w-4 h-4" /></div>
             <div className="text-xs font-bold text-slate-700 dark:text-slate-200">AI 研究</div>
           </div>
@@ -135,16 +135,25 @@ const Home: React.FC = () => {
         ) : (
           <div className="space-y-8">
             {articles.map((article, idx) => (
-              <article key={article.id} className="flex flex-col md:flex-row gap-6 group cursor-pointer">
+              <article key={article.id} className="flex flex-col md:flex-row gap-6 group cursor-pointer rounded-2xl border border-slate-100 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 backdrop-blur-sm p-4 md:p-5 shadow-sm hover:shadow-lg hover:-translate-y-0.5 hover:border-primary-100 dark:hover:border-primary-700 transition-all duration-300">
                 <div className="md:w-1/3 aspect-video rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 relative transition-colors">
-                  <img
-                    src={getFileUrl(article.cover_image) || `https://picsum.photos/seed/${article.id}/800/400`}
-                    alt={article.title}
-                    // 首图在视口内要立刻加载；从第二张起懒加载，否则一页封面图能拉 7MB+
-                    loading={idx === 0 ? 'eager' : 'lazy'}
-                    decoding="async"
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
+                  {article.cover_image ? (
+                    <img
+                      src={getFileUrl(article.cover_image)}
+                      alt={article.title}
+                      // 首图在视口内要立刻加载；从第二张起懒加载，否则一页封面图能拉 7MB+
+                      loading={idx === 0 ? 'eager' : 'lazy'}
+                      decoding="async"
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  ) : (
+                    // 无封面时用本地渐变占位（分类名首字），不再请求 picsum 外链
+                    <div className="w-full h-full bg-gradient-to-br from-cyan-100 to-purple-100 dark:from-cyan-900/40 dark:to-purple-900/40 flex items-center justify-center transition-transform duration-500 group-hover:scale-105">
+                      <span className="text-3xl font-bold text-cyan-600/70 dark:text-cyan-200/80 select-none">
+                        {(article.category || '其它').charAt(0)}
+                      </span>
+                    </div>
+                  )}
                   <div className="absolute top-2 left-2">
                     <span className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 shadow-sm transition-colors">
                       {article.category || '其它'}
@@ -205,7 +214,7 @@ const Home: React.FC = () => {
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <div className="flex flex-wrap gap-2">
                       {index < 3 && (
-                        <span className="px-2 py-1 rounded-md bg-rose-50 text-rose-600 border border-rose-200">TOP {index + 1}</span>
+                        <span className="px-2 py-1 rounded-md bg-rose-50 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">TOP {index + 1}</span>
                       )}
                       <span className="px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{item.primary_category || '未分类'}</span>
                     </div>

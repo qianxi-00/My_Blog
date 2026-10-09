@@ -177,13 +177,16 @@ const ForumNewThread: React.FC = () => {
           )}
         </div>
 
+        <div className="flex items-center justify-center gap-1.5 mt-6 text-xs text-slate-400">
+          千禧本人会亲自回复，无需注册
+        </div>
         <div className="flex items-center justify-end gap-3 mt-6">
           <Link to="/forum">
             <Button variant="ghost">取消</Button>
           </Link>
           <Button onClick={handleSubmit} disabled={!canSubmit || submitting} className="gap-2">
             <Icons.Send className="w-4 h-4" />
-            {submitting ? '提交中...' : '提交问题'}
+            {submitting ? '投递中...' : '投递给千禧'}
           </Button>
         </div>
       </Card>

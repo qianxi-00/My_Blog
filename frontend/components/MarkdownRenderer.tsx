@@ -1,8 +1,31 @@
-import React, { ReactNode, Suspense } from 'react';
+import React, { ReactNode, Suspense, useState } from 'react';
 import XmindViewer from './XmindViewer';
 
 // MermaidChart 会动态 import mermaid，自身按需加载，避免把图表引擎拖进首屏包
 const MermaidChart = React.lazy(() => import('./MermaidChart'));
+
+/** 十三期：代码块复制按钮（带"已复制"反馈——原来点完毫无反应，用户会连点） */
+const CodeCopyButton = ({ text }: { text: string }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1600);
+        });
+      }}
+      className={`px-3 py-1.5 rounded text-xs font-semibold transition-all hover:scale-105 ${
+        copied
+          ? 'bg-emerald-600 text-white'
+          : 'bg-slate-700 dark:bg-slate-800 text-slate-300 hover:bg-slate-600 dark:hover:bg-slate-700'
+      }`}
+    >
+      {copied ? '✓ 已复制' : '📋 复制'}
+    </button>
+  );
+};
 
 interface CustomComponentProps {
   children?: ReactNode;
@@ -131,7 +154,10 @@ export const markdownComponents = {
 
     const match = /language-([\w-]+)/.exec(className || '');
     const language = match ? match[1].toLowerCase() : 'text';
-    const codeText = String(children ?? '').replace(/\n$/, '');
+    // 十三期 P0 修复：rehype-highlight 先于组件运行，children 已是 hljs span 数组——
+    // 原 String(children) 得 "[object Object]"（全站代码块乱码+复制乱码+高亮全丢）。
+    // 纯文本只用于复制/mermaid（flattenMarkdownText 递归 span），渲染必须用 {children}。
+    const codeText = flattenMarkdownText(children).replace(/\n$/, '');
 
     if (language == 'mermaid') {
       return (
@@ -143,7 +169,7 @@ export const markdownComponents = {
 
     return (
       <div className="my-6 rounded-xl overflow-hidden shadow-lg border border-slate-200 dark:border-slate-700 group hover:shadow-2xl transition-shadow duration-300">
-        <div className="bg-slate-800 dark:bg-slate-900 text-slate-300 px-4 py-3 text-xs font-mono flex items-center justify-between hover:bg-slate-700 dark:hover:bg-slate-800 transition-colors">
+        <div className="bg-slate-800 dark:bg-slate-900 text-slate-300 px-4 py-3 text-xs font-mono flex items-center justify-between transition-colors">
           <div className="flex items-center gap-3">
             <span className="font-bold uppercase text-slate-400">{language}</span>
             {language && (
@@ -152,19 +178,12 @@ export const markdownComponents = {
               </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(codeText);
-            }}
-            className="px-3 py-1.5 rounded bg-slate-700 dark:bg-slate-800 text-slate-300 hover:bg-slate-600 dark:hover:bg-slate-700 transition-all text-xs font-semibold hover:scale-105"
-          >
-            📋 复制
-          </button>
+          <CodeCopyButton text={codeText} />
         </div>
-        <pre className="bg-slate-900 dark:bg-[#0a0e1a] text-slate-100 p-4 overflow-x-auto hover:bg-slate-950 transition-colors">
+        {/* 摘掉原 hover:bg-slate-950：选代码时整块变暗是反直觉的 */}
+        <pre className="bg-slate-900 dark:bg-[#0a0e1a] text-slate-100 p-4 overflow-x-auto">
           <code className={`language-${language} text-sm leading-relaxed whitespace-pre`}>
-            {codeText}
+            {children}
           </code>
         </pre>
       </div>
@@ -281,8 +300,10 @@ export const markdownComponents = {
   },
 
   p: ({ children }: CustomComponentProps) => {
+    // 十三期 D1：正文从 16px/1.625 升到 17px/1.85——中文长文（本站均 15min+）
+    // 的舒适区。只改这一个组件（compact 评论/聊天气泡不走 markdownComponents）。
     return (
-      <p className="text-slate-700 dark:text-slate-300 leading-relaxed mb-4 text-base">
+      <p className="text-slate-700 dark:text-slate-300 leading-[1.85] mb-4 text-[17px]">
         {children}
       </p>
     );

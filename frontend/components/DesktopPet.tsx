@@ -404,6 +404,12 @@ const DesktopPet: React.FC = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const petInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // 发送清空输入后，把多行输入框高度重置回单行（桌面/移动共用一个 ref，互斥渲染）
+  useEffect(() => {
+    if (!input && petInputRef.current) petInputRef.current.style.height = 'auto';
+  }, [input]);
   // 最后一条助手消息的 id：「问倒了转人工」入口只挂在它身上
   const lastAssistantId = useMemo(
     () => [...messages].reverse().find(m => m.role === 'assistant')?.id,
@@ -956,7 +962,7 @@ const DesktopPet: React.FC = () => {
 
     } catch (error: any) {
       console.error(error);
-      const errorMessage = error.message || '抱歉，我遇到了一些问��。请确保后端服务正常运行。';
+      const errorMessage = error.message || '抱歉，我遇到了一些问题。请确保后端服务正常运行。';
       setMessages(prev => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg.role === 'assistant' && lastMsg.content === '') {
@@ -1423,14 +1429,24 @@ const DesktopPet: React.FC = () => {
 
           <div className={`p-3 ${currentTheme.panelBg} ${currentTheme.panelBorder} transition-colors`}>
             <div className="relative" style={{ writingMode: 'horizontal-tb', textOrientation: 'mixed' }}>
-              <input
-                type="text"
+              <textarea
+                rows={1}
+                ref={petInputRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                placeholder="和小魄罗聊点什么..."
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 112)}px`;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"
                 disabled={loading}
-                className="w-full pl-4 pr-12 py-2.5 bg-white/70 dark:bg-slate-900/70 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-rose-300 focus:ring-2 focus:ring-rose-100/60 dark:focus:ring-rose-900/40 rounded-xl text-sm transition-all disabled:opacity-50 dark:text-white"
+                className="w-full pl-4 pr-12 py-2.5 bg-white/70 dark:bg-slate-900/70 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-rose-300 focus:ring-2 focus:ring-rose-100/60 dark:focus:ring-rose-900/40 rounded-xl text-sm transition-all disabled:opacity-50 dark:text-white resize-none overflow-y-auto max-h-28"
               />
               <button
                 onClick={() => handleSend()}
@@ -1562,14 +1578,24 @@ const DesktopPet: React.FC = () => {
 
             <div className={`p-3 ${currentTheme.panelBg} ${currentTheme.panelBorder}`}>
               <div className="relative" style={{ writingMode: 'horizontal-tb', textOrientation: 'mixed' }}>
-                <input
-                  type="text"
+                <textarea
+                  rows={1}
+                  ref={petInputRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                  placeholder="和小魄罗聊点什么..."
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 112)}px`;
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"
                   disabled={loading}
-                  className="w-full pl-4 pr-12 py-2.5 bg-white/70 dark:bg-slate-900/70 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-rose-300 focus:ring-2 focus:ring-rose-100/60 dark:focus:ring-rose-900/40 rounded-xl text-sm transition-all disabled:opacity-50 dark:text-white"
+                  className="w-full pl-4 pr-12 py-2.5 bg-white/70 dark:bg-slate-900/70 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-rose-300 focus:ring-2 focus:ring-rose-100/60 dark:focus:ring-rose-900/40 rounded-xl text-sm transition-all disabled:opacity-50 dark:text-white resize-none overflow-y-auto max-h-28"
                 />
                 <button
                   onClick={() => handleSend()}

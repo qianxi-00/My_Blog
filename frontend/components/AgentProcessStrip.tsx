@@ -20,10 +20,30 @@ const TOOL_LABELS: Record<string, { label: string; icon: string }> = {
 
 const AgentProcessStrip: React.FC<{ steps: ProcessStep[] }> = ({ steps }) => {
   const [showReasoning, setShowReasoning] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   if (!steps.length) return null;
 
   const reasoningStep = steps.find((s) => s.kind === 'reasoning' && s.reasoningText);
   const toolSteps = steps.filter((s) => s.kind === 'tool');
+
+  // 流全部完成（无 running 的工具/思考）后收成一行摘要，点击展开回原视图
+  const allDone = steps.every((s) => s.status !== 'running');
+  if (allDone && !expanded) {
+    const hasError = toolSteps.some((s) => s.status === 'error');
+    const parts: string[] = [];
+    if (toolSteps.length) parts.push(`🔧 ${toolSteps.length} 次检索 ${hasError ? '✗' : '✓'}`);
+    if (reasoningStep) parts.push(`💭 思考 ${reasoningStep.reasoningText!.length} 字`);
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        title="点击展开过程详情"
+        className="mb-2 block w-full rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/50 px-2.5 py-2 text-left text-xs text-slate-500 dark:text-slate-400 hover:border-cyan-300 dark:hover:border-cyan-600 transition-colors"
+      >
+        {parts.join(' · ')}
+      </button>
+    );
+  }
 
   return (
     <div className="mb-2 rounded-xl border border-slate-200/80 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/50 px-2.5 py-2 text-xs">

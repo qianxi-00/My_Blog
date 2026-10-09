@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Icons } from '../components/Icons';
-import { Card, Button } from '../components/Shared';
+import { Card } from '../components/Shared';
 import { StatCardProps } from '../types';
 import { getStatsOverview, getDailyStats, getPopularArticles, StatsOverview, DailyStat, PopularArticle } from '../api/stats';
 import { getFileUrl } from '../api/config';
@@ -18,22 +18,39 @@ const DASHBOARD_TABS: { key: DashboardTab; label: string }[] = [
 ];
 // 用户管理已挪为侧栏独立页「用户与权限」/admin/users（2026-09-26 二期）
 
-const StatCard: React.FC<StatCardProps> = ({ label, value, trend, trendUp, icon }) => (
-  <Card className="p-6">
-    <div className="flex items-center justify-between mb-4">
-      <div className="p-3 rounded-xl bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400">
-        {icon}
-      </div>
-      {trend && (
-        <span className="text-xs font-bold px-2 py-1 rounded-full bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 border border-cyan-100 dark:border-cyan-800">
-          {trend}
-        </span>
+// trendUp 语义 =「有待办/进行中」：true → amber 警示徽章；false → emerald 清零/静态。
+// actionText：待办卡的「去处理 →」指引（仅 trendUp 时展示，无待办时徽章文案变为「已清零」）；
+// to：整卡包 Link 跳转（如评论待审 → /admin/comments），带 hover 高亮与 ↗ 角标。
+const StatCard: React.FC<StatCardProps & { actionText?: string; to?: string }> = ({ label, value, trend, trendUp, icon, actionText, to }) => {
+  const body = (
+    <Card className={`p-6 h-full ${to ? 'relative group hover:border-cyan-300 dark:hover:border-cyan-700 hover:shadow-md cursor-pointer' : ''}`}>
+      {to && (
+        <Icons.ExternalLink aria-hidden className="absolute bottom-4 right-4 w-3.5 h-3.5 text-slate-300 dark:text-slate-600 group-hover:text-cyan-500 dark:group-hover:text-cyan-400 transition-colors" />
       )}
-    </div>
-    <div className="text-3xl font-black text-slate-800 dark:text-slate-100 mb-1">{value}</div>
-    <div className="text-sm text-slate-400 dark:text-slate-500 font-medium">{label}</div>
-  </Card>
-);
+      <div className="flex items-center justify-between mb-4">
+        <div className="p-3 rounded-xl bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400">
+          {icon}
+        </div>
+        {trend && (
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-bold px-2 py-1 rounded-full border ${trendUp
+              ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+              : 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800'
+              }`}>
+              {actionText && !trendUp ? '已清零' : trend}
+            </span>
+            {actionText && trendUp && (
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{actionText}</span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="text-3xl font-black text-slate-800 dark:text-slate-100 mb-1">{value}</div>
+      <div className="text-sm text-slate-400 dark:text-slate-500 font-medium">{label}</div>
+    </Card>
+  );
+  return to ? <Link to={to}>{body}</Link> : body;
+};
 
 const AdminDashboard: React.FC = () => {
   const { admin } = useAuth();
@@ -88,22 +105,20 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      {/* Welcome Banner */}
-      <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">
-            欢迎回来，{admin?.display_name || admin?.username || '管理员'}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400">这里是您的个人信息与站点核心指标汇聚地。</p>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={fetchData}>
-            <Icons.LayoutDashboard className="w-4 h-4 mr-2" /> 刷新数据
-          </Button>
-          <Link to="/admin/settings">
-            <Button variant="outline"><Icons.Settings className="w-4 h-4 mr-2" /> 站点设置</Button>
-          </Link>
-        </div>
+      {/* Welcome Bar —— 紧凑单行（打招呼 + 日期），把首屏留给统计卡；站点设置走侧栏，刷新保留为图标钮 */}
+      <div className="h-10 px-4 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between gap-3">
+        <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
+          欢迎回来，<span className="font-bold text-slate-800 dark:text-slate-100">{admin?.display_name || admin?.username || '管理员'}</span>
+          <span className="ml-3 hidden sm:inline">{new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</span>
+        </p>
+        <button
+          onClick={fetchData}
+          title="刷新数据"
+          aria-label="刷新数据"
+          className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 dark:text-slate-500 hover:text-cyan-600 dark:hover:text-cyan-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+        >
+          <Icons.RefreshCw className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Tabs */}
@@ -152,6 +167,8 @@ const AdminDashboard: React.FC = () => {
             trend={`${overview?.pending_comments || 0} 待审核`}
             trendUp={(overview?.pending_comments || 0) > 0}
             icon={<Icons.MessageCircle className="w-6 h-6" />}
+            actionText="去处理 →"
+            to="/admin/comments"
           />
           <StatCard
             label="AI 模型调用"

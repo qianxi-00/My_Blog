@@ -47,6 +47,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, [theme]);
 
     const toggleTheme = useCallback(() => {
+        // 十三期 B3：切换前给 <html> 加 .theme-switching（index.css 里对全元素
+        // 临时开 250ms 颜色过渡），320ms 后移除——卡片背景不再瞬变。
+        // 临时 class 避免全站常驻 transition 拖慢日常 hover。
+        const root = document.documentElement;
+        root.classList.add('theme-switching');
+        window.setTimeout(() => root.classList.remove('theme-switching'), 320);
         setTheme(prev => prev === 'dark' ? 'light' : 'dark');
     }, []);
 

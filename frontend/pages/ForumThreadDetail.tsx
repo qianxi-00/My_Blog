@@ -47,6 +47,7 @@ const ForumThreadDetailPage: React.FC = () => {
 
   const firstPost = posts.find(p => p.floor === 1);
   const replies = posts.filter(p => p.floor !== 1);
+  const answered = replies.some(p => p.is_admin_post);
 
   const replyToPost = useMemo(() => {
     if (!replyToFloor) return null;
@@ -177,6 +178,15 @@ const ForumThreadDetailPage: React.FC = () => {
                       置顶
                     </span>
                   )}
+                  {answered ? (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-emerald-500 to-teal-600 text-white">
+                      ✓ 千禧已回答
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border-2 border-dashed border-amber-300 text-amber-600 dark:text-amber-400">
+                      等待千禧回复
+                    </span>
+                  )}
                 </div>
                 <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white leading-tight">
                   {thread.title}
@@ -233,7 +243,7 @@ const ForumThreadDetailPage: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 {replies.map(p => (
-                  <Card key={p.id} className="p-5">
+                  <Card key={p.id} className={`p-5${p.is_admin_post ? ' border-l-4 !border-cyan-500 !bg-cyan-50/40 dark:!bg-cyan-900/10' : ''}`}>
                     <div className="flex items-start justify-between gap-4 mb-3">
                       <div className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                         <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200">

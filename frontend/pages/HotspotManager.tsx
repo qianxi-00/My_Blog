@@ -4,6 +4,9 @@ import { Icons } from '../components/Icons';
 import { Button } from '../components/Shared';
 import { deleteHotspot, getHotspots, hideHotspot, HotTopicListItem, publishHotspot, updateHotspot } from '../api/hotspots';
 import { errorText } from '../utils/errors';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import { TH, TD } from '../constants';
 
 type StatusFilter = 'all' | 'published' | 'draft' | 'hidden';
 type SortField = 'published_at' | 'heat_score';
@@ -18,9 +21,9 @@ const STATUS_OPTIONS: Array<{ label: string; value: StatusFilter }> = [
 
 const getStatusBadge = (status: HotTopicListItem['status']) => {
   const styles = {
-    published: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-    draft: 'bg-amber-50 text-amber-600 border-amber-200',
-    hidden: 'bg-slate-100 text-slate-600 border-slate-200',
+    published: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
+    draft: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+    hidden: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600',
   } as const;
 
   const labels = {
@@ -37,6 +40,8 @@ const getStatusBadge = (status: HotTopicListItem['status']) => {
 };
 
 const HotspotManager: React.FC = () => {
+  const { confirm, confirmDialog } = useConfirm();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<HotTopicListItem[]>([]);
@@ -92,6 +97,7 @@ const HotspotManager: React.FC = () => {
       setAllItems(statsRes.data || []);
     } catch (error) {
       console.error('获取热点列表失败:', error);
+      showToast(errorText(error, '获取热点列表失败'), 'error');
       setItems([]);
       setAllItems([]);
     } finally {
@@ -132,13 +138,20 @@ const HotspotManager: React.FC = () => {
   };
 
   const handleDelete = async (id: number, title: string) => {
-    if (!window.confirm(`确定要删除热点“${title}”吗？此操作会同时删除热点记录及其热点评论。`)) return;
+    const ok = await confirm({
+      title: '删除热点',
+      message: `确定要删除热点“${title}”吗？此操作会同时删除热点记录及其热点评论，且不可恢复。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await deleteHotspot(id);
       await loadData();
       setSelectedIds((prev) => prev.filter((itemId) => itemId !== id));
+      showToast('热点已删除', 'success');
     } catch (error: any) {
-      alert(errorText(error, '删除失败'));
+      showToast(errorText(error, '删除失败'), 'error');
     }
   };
 
@@ -256,12 +269,18 @@ const HotspotManager: React.FC = () => {
 
   const handleBatchAction = async (action: 'publish' | 'hide') => {
     if (selectedIds.length === 0) {
-      alert('请先选择要操作的热点');
+      showToast('请先选择要操作的热点', 'error');
       return;
     }
 
-    const confirmed = window.confirm(`确认批量${action === 'publish' ? '发布' : '隐藏'}已选中的 ${selectedIds.length} 条热点吗？`);
-    if (!confirmed) return;
+    // 批量隐藏会造成前台大面积下线，保留确认；批量发布可逆，但为防误点同样确认一次
+    const ok = await confirm({
+      title: action === 'publish' ? '批量发布' : '批量隐藏',
+      message: `确认批量${action === 'publish' ? '发布' : '隐藏'}已选中的 ${selectedIds.length} 条热点吗？`,
+      confirmText: action === 'publish' ? '批量发布' : '批量隐藏',
+      danger: action === 'hide',
+    });
+    if (!ok) return;
 
     setBatchLoading(true);
     let successCount = 0;
@@ -284,11 +303,11 @@ const HotspotManager: React.FC = () => {
 
       await loadData();
       setSelectedIds([]);
-      alert(
-        failedIds.length > 0
-          ? `已完成 ${successCount} 条，失败 ${failedIds.length} 条（ID: ${failedIds.join(', ')}）`
-          : `已成功${action === 'publish' ? '发布' : '隐藏'} ${successCount} 条热点`
-      );
+      if (failedIds.length > 0) {
+        showToast(`已完成 ${successCount} 条，失败 ${failedIds.length} 条（ID: ${failedIds.join(', ')}）`, 'error');
+      } else {
+        showToast(`已成功${action === 'publish' ? '发布' : '隐藏'} ${successCount} 条热点`, 'success');
+      }
     } finally {
       setBatchLoading(false);
     }
@@ -424,7 +443,7 @@ const HotspotManager: React.FC = () => {
             <table className="w-full min-w-[1040px] table-fixed">
               <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700">
                 <tr>
-                  <th className="w-12 px-4 py-3 text-left">
+                  <th className={`${TH} w-12`}>
                     <input
                       type="checkbox"
                       checked={allCurrentPageSelected}
@@ -432,20 +451,20 @@ const HotspotManager: React.FC = () => {
                       className="h-4 w-4 rounded border-slate-300 text-cyan-500 focus:ring-cyan-400"
                     />
                   </th>
-                  <th className="w-[36%] text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">热点</th>
-                  <th className="w-[22%] text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">分类 / 来源</th>
-                  <th className="w-[8%] text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                  <th className={`${TH} w-[36%]`}>热点</th>
+                  <th className={`${TH} w-[22%]`}>分类 / 来源</th>
+                  <th className={`${TH} w-[8%]`}>
                     <button type="button" onClick={() => toggleSort('heat_score')} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200">
                       热度 {renderSortIcon('heat_score')}
                     </button>
                   </th>
-                  <th className="w-[8%] text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">状态</th>
-                  <th className="w-[14%] text-left px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                  <th className={`${TH} w-[8%]`}>状态</th>
+                  <th className={`${TH} w-[14%]`}>
                     <button type="button" onClick={() => toggleSort('published_at')} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200 whitespace-nowrap">
                       发布时间 {renderSortIcon('published_at')}
                     </button>
                   </th>
-                  <th className="w-[12%] text-right px-3 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">操作</th>
+                  <th className={`${TH} w-[12%] text-right`}>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -455,8 +474,8 @@ const HotspotManager: React.FC = () => {
                     : item.source_type || '-';
 
                   return (
-                    <tr key={item.id} className="h-32 border-b border-slate-100 dark:border-slate-700 last:border-0 hover:bg-slate-50/70 dark:hover:bg-slate-700/30 align-top">
-                      <td className="px-3 py-3 align-top">
+                    <tr key={item.id} className="h-32 border-b border-slate-100 dark:border-slate-700 last:border-0 odd:bg-slate-50/60 dark:odd:bg-slate-900/20 hover:bg-cyan-50/50 dark:hover:bg-cyan-900/10 align-top transition-colors">
+                      <td className={TD}>
                         <input
                           type="checkbox"
                           checked={selectedIds.includes(item.id)}
@@ -464,14 +483,14 @@ const HotspotManager: React.FC = () => {
                           className="mt-1 h-4 w-4 rounded border-slate-300 text-cyan-500 focus:ring-cyan-400"
                         />
                       </td>
-                      <td className="px-3 py-3 align-top">
+                      <td className={TD}>
                         <div className="space-y-2 min-h-[104px]">
                           <div className="font-semibold text-slate-800 dark:text-slate-100 line-clamp-2 leading-6">{item.title}</div>
                           <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">ID #{item.id} · 选题日期 {item.topic_date || '-'}</div>
                           <div className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 leading-6">{item.summary || '暂无摘要'}</div>
                         </div>
                       </td>
-                      <td className="px-4 py-4 align-top">
+                      <td className={TD}>
                         <div className="space-y-2 min-h-[104px]">
                           <div className="text-sm font-medium text-slate-700 dark:text-slate-200 break-words">{item.primary_category || '-'}</div>
                           <div className="text-xs text-slate-500 dark:text-slate-400 break-words leading-5">来源：{sourceText}</div>
@@ -484,7 +503,7 @@ const HotspotManager: React.FC = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700 dark:text-slate-200">
+                      <td className={`${TD} text-sm text-slate-700 dark:text-slate-200`}>
                         {editingStatsId === item.id ? (
                           <div className="flex flex-col gap-2 max-w-[96px]">
                             <input
@@ -505,8 +524,8 @@ const HotspotManager: React.FC = () => {
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-4 align-top whitespace-nowrap">{getStatusBadge(item.status)}</td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-500 dark:text-slate-400">
+                      <td className={`${TD} whitespace-nowrap`}>{getStatusBadge(item.status)}</td>
+                      <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                         {editingTimeId === item.id ? (
                           <div className="flex flex-col gap-2 min-w-[180px]">
                             <input
@@ -526,7 +545,7 @@ const HotspotManager: React.FC = () => {
                           </button>
                         )}
                       </td>
-                      <td className="px-4 py-4 align-top">
+                      <td className={TD}>
                         <div className="flex flex-col items-end gap-2">
                           <Link
                             to={`/admin/hotspots/${item.id}/edit`}
@@ -578,6 +597,8 @@ const HotspotManager: React.FC = () => {
           </button>
         </div>
       )}
+
+      {confirmDialog}
     </div>
   );
 };

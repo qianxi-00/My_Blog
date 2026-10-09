@@ -226,16 +226,18 @@ li {
   transition: color 0.2s ease, transform 0.2s ease;
 }
 
-li:hover {
+/* 十三期：li:hover 的全站列表悬停位移收窄到正文 .prose 内——
+   原全局规则波及导航菜单/目录/评论区，整个页面都在抖 */
+.prose li:hover {
   color: #0284c7;
   transform: translateX(2px);
 }
 
-.dark li {
+.dark .prose li {
   color: #cbd5e1;
 }
 
-.dark li:hover {
+.dark .prose li:hover {
   color: #38bdf8;
 }
 
@@ -363,6 +365,58 @@ em {
 
 .animate-fade-in-down {
   animation: fade-in-down 0.3s ease-out;
+}
+
+/* ===== 十三期新增动效（全部短语义类，只动 opacity/transform） ===== */
+
+/* 路由切换淡入（PublicLayout 的 Outlet 包裹层用） */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page-enter {
+  animation: page-enter 180ms ease-out;
+}
+
+/* 评论点赞弹跳（ArticleDetail 的 Heart 图标用，类名契约） */
+@keyframes like-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.like-pop {
+  animation: like-pop 240ms ease-out;
+}
+
+/* Toast 出场（Toast.tsx 移除前先加此类，180ms 渐隐再删 DOM） */
+.toast-out {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+/* 主题切换柔和过渡（ThemeContext 切换时给 <html> 加 .theme-switching，320ms 后移除；
+   临时 class 避免全站常驻 transition 拖慢日常 hover） */
+.theme-switching * {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease !important;
+}
+
+/* 无障碍总闸：用户开了系统级"减少动态"时关掉本站新增动效 */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .toast-out,
+  .like-pop {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* ===== Dark Mode 主题切换动画 ===== */

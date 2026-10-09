@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg';
   children: React.ReactNode;
 }
@@ -20,6 +20,9 @@ export const Button: React.FC<ButtonProps> = ({
     secondary: "bg-slate-800 dark:bg-slate-600 hover:bg-slate-700 dark:hover:bg-slate-500 text-white shadow-md border border-transparent",
     outline: "bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 hover:border-primary-200 dark:hover:border-primary-600",
     ghost: "bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary-600 dark:hover:text-primary-400",
+    // 十三期 C2：危险操作统一令牌——此前删管理员是全站唯一实心红、删文章是浅红、
+    // 删订阅者是灰图标 hover 变红，三套权重随缘。此后不可逆操作一律 danger。
+    danger: "bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-500/20 border border-transparent",
   };
 
   const sizes = {

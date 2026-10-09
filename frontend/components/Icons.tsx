@@ -56,7 +56,8 @@ import {
   KeyRound,
   Plus,
   Pencil,
-  Trash2
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 
 export const Icons = {
@@ -117,6 +118,7 @@ export const Icons = {
   Plus,
   Pencil,
   Trash2,
+  AlertTriangle,
   // Custom Icons
   QQ: (props: React.SVGProps<SVGSVGElement>) => (
     <svg viewBox="0 0 24 24" fill="currentColor" {...props}>

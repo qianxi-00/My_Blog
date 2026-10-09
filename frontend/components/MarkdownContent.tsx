@@ -10,7 +10,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import { markdownComponents } from './MarkdownRenderer';
+import { markdownComponents, flattenMarkdownText } from './MarkdownRenderer';
 import { remarkDisableIndentedCodeBlock } from '../utils/remark-plugins';
 
 // 声明全局 mermaid 对象
@@ -218,8 +218,10 @@ const chatComponents: Record<string, any> = {
 
         const match = /language-([\w-]+)/.exec(className || '');
         const language = match ? match[1].toLowerCase() : 'text';
-        const codeText = String(children ?? '').replace(/\n$/, '');
-        return <CompactCodeBlock language={language} codeText={codeText} />;
+        // 十三期 P0 修复（同 MarkdownRenderer）：children 已是 hljs span 数组，
+        // String() 压成 [object Object]。纯文本仅用于复制，渲染传 children 保高亮。
+        const codeText = flattenMarkdownText(children).replace(/\n$/, '');
+        return <CompactCodeBlock language={language} codeText={codeText}>{children}</CompactCodeBlock>;
     },
 
     pre: ({ children }: any) => <>{children}</>,
@@ -254,8 +256,9 @@ const chatComponents: Record<string, any> = {
     ),
 };
 
-/** 气泡里的代码块：保留语言标签与复制按钮，但去掉文章版的大圆角/阴影/内边距 */
-const CompactCodeBlock: React.FC<{ language: string; codeText: string }> = ({ language, codeText }) => {
+/** 气泡里的代码块：保留语言标签与复制按钮，但去掉文章版的大圆角/阴影/内边距。
+ *  十三期：渲染用 children（保 hljs 高亮 span），复制用 codeText 纯文本。 */
+const CompactCodeBlock: React.FC<{ language: string; codeText: string; children?: React.ReactNode }> = ({ language, codeText, children }) => {
     const [copied, setCopied] = useState(false);
 
     const copy = () => {
@@ -280,20 +283,14 @@ const CompactCodeBlock: React.FC<{ language: string; codeText: string }> = ({ la
             </div>
             {/* 代码块要能横向滚动，不要 pre-wrap：语法高亮的换行会把缩进结构冲掉 */}
             <pre className="bg-slate-900 text-slate-100 p-2.5 overflow-x-auto text-[12px] leading-relaxed">
-                <code className={`language-${language} font-mono`}>{codeText}</code>
+                <code className={`language-${language} font-mono`}>{children ?? codeText}</code>
             </pre>
         </div>
     );
 };
 
-/** 把 React 子节点压成纯文本（需要剥掉内联 markdown 时才用） */
-function flattenMarkdownText(node: any): any {
-    if (node == null || typeof node === 'boolean') return null;
-    if (typeof node === 'string' || typeof node === 'number') return node;
-    if (Array.isArray(node)) return node.map(flattenMarkdownText);
-    if (node.props) return flattenMarkdownText(node.props.children);
-    return null;
-}
+// （十三期：本地 flattenMarkdownText 已删——它返回数组而非字符串，
+//  正确实现在 MarkdownRenderer.tsx 导出，直接 import 使用。）
 
 
 export default MarkdownContent;

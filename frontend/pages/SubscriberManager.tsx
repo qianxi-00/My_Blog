@@ -3,6 +3,9 @@ import { Icons } from '../components/Icons';
 import { Card, Button } from '../components/Shared';
 import api from '../api/config';
 import { errorText } from '../utils/errors';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import { TH, TD } from '../constants';
 
 interface Subscriber {
   id: number;
@@ -15,6 +18,8 @@ interface Subscriber {
 }
 
 const SubscriberManager: React.FC = () => {
+  const { confirm, confirmDialog } = useConfirm();
+  const { showToast } = useToast();
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -31,31 +36,40 @@ const SubscriberManager: React.FC = () => {
       setSubscribers(response.data);
     } catch (error) {
       console.error('获取订阅者列表失败:', error);
+      showToast(errorText(error, '获取订阅者列表失败'), 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (id: number, email: string) => {
-    if (!confirm(`确定要删除订阅者 ${email} 吗？`)) return;
+    const ok = await confirm({
+      title: '删除订阅者',
+      message: `确定要删除订阅者 ${email} 吗？删除后不可恢复。`,
+      confirmText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/subscribers/${id}`);
       setSubscribers(prev => prev.filter(s => s.id !== id));
+      showToast('订阅者已删除', 'success');
     } catch (error: any) {
-      alert(errorText(error, '删除失败'));
+      showToast(errorText(error, '删除失败'), 'error');
     }
   };
 
+  // 单条冻结/解冻为可逆操作：不弹确认，执行后 toast
   const handleFreeze = async (subscriber: Subscriber) => {
     const action = subscriber.is_frozen ? '解冻' : '冻结';
-    if (!confirm(`确定要${action}订阅者 ${subscriber.email} 吗？`)) return;
 
     try {
       const response = await api.put(`/subscribers/${subscriber.id}/freeze?frozen=${!subscriber.is_frozen}`);
       setSubscribers(prev => prev.map(s => s.id === subscriber.id ? response.data : s));
+      showToast(`${action}成功`, 'success');
     } catch (error: any) {
-      alert(errorText(error, `${action}失败`));
+      showToast(errorText(error, `${action}失败`), 'error');
     }
   };
 
@@ -63,14 +77,23 @@ const SubscriberManager: React.FC = () => {
   const handleFreezeAll = async (frozen: boolean) => {
     const action = frozen ? '冻结' : '解冻';
     const target = frozen ? '所有活跃订阅者' : '所有已冻结订阅者';
-    if (!confirm(`确定要${action}${target}吗？`)) return;
+    // 批量冻结影响所有活跃订阅者的邮件投递，属高风险批量操作，保留确认
+    if (frozen) {
+      const ok = await confirm({
+        title: '一键冻结全部',
+        message: `确定要${action}${target}吗？冻结期间将停止对其发送邮件。`,
+        confirmText: '全部冻结',
+        danger: true,
+      });
+      if (!ok) return;
+    }
 
     try {
       const response = await api.put(`/subscribers/freeze-all?frozen=${frozen}`);
-      alert(response.data.message);
+      showToast(response.data.message || `${action}成功`, 'success');
       fetchSubscribers(); // 重新加载列表
     } catch (error: any) {
-      alert(errorText(error, `${action}失败`));
+      showToast(errorText(error, `${action}失败`), 'error');
     }
   };
 
@@ -192,17 +215,17 @@ const SubscriberManager: React.FC = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
-                  <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">邮箱</th>
-                  <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">状态</th>
-                  <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">订阅时间</th>
-                  <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">退订时间</th>
-                  <th className="text-right p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">操作</th>
+                  <th className={TH}>邮箱</th>
+                  <th className={TH}>状态</th>
+                  <th className={TH}>订阅时间</th>
+                  <th className={TH}>退订时间</th>
+                  <th className={`${TH} text-right`}>操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                 {filteredSubscribers.map((subscriber) => (
-                  <tr key={subscriber.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                    <td className="p-4">
+                  <tr key={subscriber.id} className="odd:bg-slate-50/60 dark:odd:bg-slate-900/20 hover:bg-cyan-50/50 dark:hover:bg-cyan-900/10 transition-colors">
+                    <td className={TD}>
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-white dark:ring-slate-700">
                           {subscriber.email[0].toUpperCase()}
@@ -210,7 +233,7 @@ const SubscriberManager: React.FC = () => {
                         <span className="font-medium text-slate-700 dark:text-slate-200">{subscriber.email}</span>
                       </div>
                     </td>
-                    <td className="p-4">
+                    <td className={TD}>
                       {!subscriber.is_active ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-full text-xs font-medium">
                           <span className="w-1.5 h-1.5 bg-slate-400 rounded-full"></span>
@@ -228,16 +251,16 @@ const SubscriberManager: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                    <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                       {new Date(subscriber.subscribed_at).toLocaleString('zh-CN')}
                     </td>
-                    <td className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                    <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                       {subscriber.unsubscribed_at
                         ? new Date(subscriber.unsubscribed_at).toLocaleString('zh-CN')
                         : '-'
                       }
                     </td>
-                    <td className="p-4 text-right">
+                    <td className={`${TD} text-right`}>
                       <div className="flex items-center justify-end gap-2">
                         {subscriber.is_active && (
                           <button
@@ -283,6 +306,8 @@ const SubscriberManager: React.FC = () => {
           <div className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-medium">已退订</div>
         </Card>
       </div>
+
+      {confirmDialog}
     </div>
   );
 };

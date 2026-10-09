@@ -7,8 +7,13 @@ import { Link } from 'react-router-dom';
 import { getArticles, deleteArticle, publishArticle, updateArticlePublishedAt, ArticleListItem } from '../api/articles';
 import api from '../api/config';
 import { errorText } from '../utils/errors';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import { TH, TD } from '../constants';
 
 const ArticleManager: React.FC = () => {
+    const { confirm, confirmDialog } = useConfirm();
+    const { showToast } = useToast();
     const [articles, setArticles] = useState<ArticleListItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
@@ -40,6 +45,7 @@ const ArticleManager: React.FC = () => {
             setTotalPages(response.total_pages || 1);
         } catch (error) {
             console.error('获取文章列表失败:', error);
+            showToast(errorText(error, '获取文章列表失败'), 'error');
             setArticles([]);
         } finally {
             setLoading(false);
@@ -51,24 +57,31 @@ const ArticleManager: React.FC = () => {
     }, [page, filter, sortBy, sortOrder]);
 
     const handleDelete = async (id: number, title: string) => {
-        if (window.confirm(`确定要删除文章 "${title}" 吗？`)) {
-            try {
-                await deleteArticle(id);
-                fetchArticles();
-            } catch (error) {
-                console.error('删除文章失败:', error);
-            }
+        const ok = await confirm({
+            title: '删除文章',
+            message: `确定要删除文章 "${title}" 吗？删除后不可恢复。`,
+            confirmText: '删除',
+            danger: true,
+        });
+        if (!ok) return;
+        try {
+            await deleteArticle(id);
+            showToast('文章已删除', 'success');
+            fetchArticles();
+        } catch (error) {
+            console.error('删除文章失败:', error);
+            showToast(errorText(error, '删除文章失败'), 'error');
         }
     };
 
+    // 发布为可逆操作：不弹确认，执行后 toast
     const handlePublish = async (id: number, title: string) => {
-        if (window.confirm(`确定要发布文章 "${title}" 吗？`)) {
-            try {
-                await publishArticle(id);
-                fetchArticles();
-            } catch (error: any) {
-                alert(errorText(error, '发布失败'));
-            }
+        try {
+            await publishArticle(id);
+            showToast(`文章 "${title}" 已发布`, 'success');
+            fetchArticles();
+        } catch (error: any) {
+            showToast(errorText(error, '发布失败'), 'error');
         }
     };
 
@@ -137,32 +150,30 @@ const ArticleManager: React.FC = () => {
         }
     };
 
-    /** 下架文章（转为草稿） */
+    /** 下架文章（转为草稿）——可逆操作：不弹确认，执行后 toast */
     const handleUnpublish = async (id: number, title: string) => {
-        if (window.confirm(`确定要下架文章 "${title}" 吗？文章将转为草稿状态。`)) {
-            try {
-                await api.put(`/articles/${id}`, { status: 'draft' });
-                fetchArticles();
-            } catch (error: any) {
-                alert(errorText(error, '下架失败'));
-            }
+        try {
+            await api.put(`/articles/${id}`, { status: 'draft' });
+            showToast(`文章 "${title}" 已下架为草稿`, 'success');
+            fetchArticles();
+        } catch (error: any) {
+            showToast(errorText(error, '下架失败'), 'error');
         }
     };
 
+    // 状态徽章（深色变体写法与 components/UserAdminPanels.tsx 的 STATUS_BADGES 保持一致）
+    const STATUS_BADGES: Record<string, { label: string; className: string }> = {
+        published: { label: '已发布', className: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' },
+        draft: { label: '草稿', className: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800' },
+        scheduled: { label: '定时发布', className: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800' },
+    };
+    const FALLBACK_BADGE = 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600';
+
     const getStatusBadge = (status: string) => {
-        const styles = {
-            published: 'bg-green-50 text-green-600 border-green-200',
-            draft: 'bg-yellow-50 text-yellow-600 border-yellow-200',
-            scheduled: 'bg-blue-50 text-blue-600 border-blue-200',
-        };
-        const labels = {
-            published: '已发布',
-            draft: '草稿',
-            scheduled: '定时发布',
-        };
+        const badge = STATUS_BADGES[status] || { label: status, className: FALLBACK_BADGE };
         return (
-            <span className={`px-2 py-1 text-xs rounded-full border ${styles[status as keyof typeof styles] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                {labels[status as keyof typeof labels] || status}
+            <span className={`px-2 py-1 text-xs rounded-full ${badge.className}`}>
+                {badge.label}
             </span>
         );
     };
@@ -261,19 +272,19 @@ const ArticleManager: React.FC = () => {
                         <table className="w-full">
                             <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
                                 <tr>
-                                    <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400">标题</th>
-                                    <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">分类/标签</th>
-                                    <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">状态</th>
-                                    <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">浏览</th>
-                                    <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">点赞</th>
-                                    <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">发布时间</th>
-                                    <th className="px-3 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">操作</th>
+                                    <th className={TH}>标题</th>
+                                    <th className={TH}>分类/标签</th>
+                                    <th className={TH}>状态</th>
+                                    <th className={TH}>浏览</th>
+                                    <th className={TH}>点赞</th>
+                                    <th className={TH}>发布时间</th>
+                                    <th className={`${TH} text-right`}>操作</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                                 {articles.map((article) => (
-                                    <tr key={article.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                                        <td className="px-3 py-3">
+                                    <tr key={article.id} className="odd:bg-slate-50/60 dark:odd:bg-slate-900/20 hover:bg-cyan-50/50 dark:hover:bg-cyan-900/10 transition-colors">
+                                        <td className={TD}>
                                             <div className="flex items-center gap-2">
                                                 {article.is_pinned && (
                                                     <span className="text-yellow-500" title="置顶">📌</span>
@@ -281,7 +292,7 @@ const ArticleManager: React.FC = () => {
                                                 <span className="text-slate-800 dark:text-slate-200 font-medium max-w-[180px] truncate block text-sm" title={article.title}>{article.title}</span>
                                             </div>
                                         </td>
-                                        <td className="px-3 py-3 whitespace-nowrap">
+                                        <td className={`${TD} whitespace-nowrap`}>
                                             <div className="flex flex-col gap-1">
                                                 <span className="text-slate-600 dark:text-slate-300 text-sm">{article.category || '-'}</span>
                                                 {article.tags && article.tags.length > 0 && (
@@ -298,8 +309,8 @@ const ArticleManager: React.FC = () => {
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="px-3 py-3 whitespace-nowrap">{getStatusBadge(article.status)}</td>
-                                        <td className="px-3 py-3 whitespace-nowrap">
+                                        <td className={`${TD} whitespace-nowrap`}>{getStatusBadge(article.status)}</td>
+                                        <td className={`${TD} whitespace-nowrap`}>
                                             {editingStatsId === article.id ? (
                                                 <input
                                                     type="number"
@@ -318,7 +329,7 @@ const ArticleManager: React.FC = () => {
                                                 </button>
                                             )}
                                         </td>
-                                        <td className="px-3 py-3 whitespace-nowrap">
+                                        <td className={`${TD} whitespace-nowrap`}>
                                             {editingStatsId === article.id ? (
                                                 <div className="flex items-center gap-1.5">
                                                     <input
@@ -346,7 +357,7 @@ const ArticleManager: React.FC = () => {
                                                 <span className="text-slate-600 dark:text-slate-400 text-sm cursor-pointer hover:text-cyan-600 dark:hover:text-cyan-400 hover:underline transition-colors" onClick={() => handleStartEditStats(article)} title="点击编辑浏览量和点赞量">{article.like_count}</span>
                                             )}
                                         </td>
-                                        <td className="px-3 py-3 whitespace-nowrap">
+                                        <td className={`${TD} whitespace-nowrap`}>
                                             {editingTimeId === article.id ? (
                                                 /* 编辑发布时间模式 */
                                                 <div className="flex items-center gap-1.5">
@@ -381,7 +392,7 @@ const ArticleManager: React.FC = () => {
                                                 </button>
                                             )}
                                         </td>
-                                        <td className="px-3 py-3 text-right whitespace-nowrap">
+                                        <td className={`${TD} text-right whitespace-nowrap`}>
                                             <div className="flex justify-end gap-2">
                                                 {article.status === 'draft' && (
                                                     <button
@@ -450,6 +461,8 @@ const ArticleManager: React.FC = () => {
                     </button>
                 </div>
             )}
+
+            {confirmDialog}
         </div>
     );
 };

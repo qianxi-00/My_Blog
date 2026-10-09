@@ -1,5 +1,9 @@
 import { Article, Prompt, Comment } from './types';
 
+// 表格密度令牌（后台管理表格统一引用，配合 tbody 行斑马纹使用）
+export const TH = "px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap";
+export const TD = "px-3 py-2.5 align-top";
+
 export const ARTICLES: Article[] = [
   {
     id: 1,

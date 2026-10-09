@@ -5,6 +5,8 @@ import React, { useState, useEffect } from 'react';
 import { getPrompts, getPendingPrompts, approvePrompt, rejectPrompt, deletePrompt, createPrompt, updatePrompt, Prompt, PromptCategory, PromptCreate } from '../api/prompts';
 import { Icons } from '../components/Icons';
 import { errorText } from '../utils/errors';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 type TabType = 'approved' | 'pending';
 
@@ -27,6 +29,8 @@ const emptyForm: PromptFormData = {
 };
 
 const PromptManager: React.FC = () => {
+    const { confirm, confirmDialog } = useConfirm();
+    const { showToast } = useToast();
     const [prompts, setPrompts] = useState<Prompt[]>([]);
     const [loading, setLoading] = useState(true);
     const [tab, setTab] = useState<TabType>('approved');
@@ -49,6 +53,7 @@ const PromptManager: React.FC = () => {
             setTotalPages(response.total_pages);
         } catch (error) {
             console.error('获取 Prompt 列表失败:', error);
+            showToast(errorText(error, '获取 Prompt 列表失败'), 'error');
         } finally {
             setLoading(false);
         }
@@ -62,8 +67,10 @@ const PromptManager: React.FC = () => {
         try {
             await approvePrompt(id);
             setPrompts((prev) => prev.filter((p) => p.id !== id));
+            showToast('已通过', 'success');
         } catch (error) {
             console.error('审核 Prompt 失败:', error);
+            showToast(errorText(error, '审核 Prompt 失败'), 'error');
         }
     };
 
@@ -71,19 +78,28 @@ const PromptManager: React.FC = () => {
         try {
             await rejectPrompt(id);
             setPrompts((prev) => prev.filter((p) => p.id !== id));
+            showToast('已拒绝', 'success');
         } catch (error) {
             console.error('拒绝 Prompt 失败:', error);
+            showToast(errorText(error, '拒绝 Prompt 失败'), 'error');
         }
     };
 
     const handleDelete = async (id: number, title: string) => {
-        if (window.confirm(`确定要删除 Prompt "${title}" 吗？`)) {
-            try {
-                await deletePrompt(id);
-                setPrompts((prev) => prev.filter((p) => p.id !== id));
-            } catch (error) {
-                console.error('删除 Prompt 失败:', error);
-            }
+        const ok = await confirm({
+            title: '删除 Prompt',
+            message: `确定要删除 Prompt "${title}" 吗？删除后不可恢复。`,
+            confirmText: '删除',
+            danger: true,
+        });
+        if (!ok) return;
+        try {
+            await deletePrompt(id);
+            setPrompts((prev) => prev.filter((p) => p.id !== id));
+            showToast('已删除', 'success');
+        } catch (error) {
+            console.error('删除 Prompt 失败:', error);
+            showToast(errorText(error, '删除 Prompt 失败'), 'error');
         }
     };
 
@@ -313,7 +329,7 @@ const PromptManager: React.FC = () => {
 
                         <form onSubmit={handleSubmit} className="p-6 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                     标题 <span className="text-red-500">*</span>
                                 </label>
                                 <input
@@ -326,7 +342,7 @@ const PromptManager: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                     分类
                                 </label>
                                 <select
@@ -341,7 +357,7 @@ const PromptManager: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                     描述
                                 </label>
                                 <input
@@ -354,7 +370,7 @@ const PromptManager: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                     Prompt 内容 <span className="text-red-500">*</span>
                                 </label>
                                 <textarea
@@ -370,7 +386,7 @@ const PromptManager: React.FC = () => {
                             {editingPrompt && (
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                             使用次数
                                         </label>
                                         <input
@@ -382,7 +398,7 @@ const PromptManager: React.FC = () => {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                             点赞量
                                         </label>
                                         <input
@@ -416,6 +432,8 @@ const PromptManager: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {confirmDialog}
         </div>
     );
 };

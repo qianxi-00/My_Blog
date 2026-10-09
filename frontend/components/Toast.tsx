@@ -4,6 +4,8 @@ interface Toast {
     id: number;
     message: string;
     type: 'success' | 'error' | 'info';
+    /** 十三期：出场标记——true 时加 toast-out 渐隐（index.css 定义） */
+    exiting?: boolean;
 }
 
 interface ToastContextType {
@@ -31,9 +33,13 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
         const id = Date.now();
         setToasts(prev => [...prev, { id, message, type }]);
 
-        // 2 秒后自动移除
+        // 十三期：出场动画——2 秒后先加 toast-out 渐隐 180ms，动画结束再真正删除。
+        // 原来是 2s 直接删 DOM，闪断很生硬。
         setTimeout(() => {
-            setToasts(prev => prev.filter(t => t.id !== id));
+            setToasts(prev => prev.map(t => t.id === id ? { ...t, exiting: true } : t));
+            setTimeout(() => {
+                setToasts(prev => prev.filter(t => t.id !== id));
+            }, 190);
         }, 2000);
     }, []);
 
@@ -72,7 +78,7 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
                 {toasts.map(toast => (
                     <div
                         key={toast.id}
-                        className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in-down ${getToastStyles(toast.type)}`}
+                        className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in-down ${toast.exiting ? 'toast-out' : ''} ${getToastStyles(toast.type)}`}
                     >
                         <span className="text-lg">{getIcon(toast.type)}</span>
                         <span className="text-sm font-medium">{toast.message}</span>

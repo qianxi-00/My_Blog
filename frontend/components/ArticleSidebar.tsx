@@ -130,9 +130,10 @@ const ArticleSidebar: React.FC<ArticleSidebarProps> = ({ article, relatedArticle
                             )}
                         </div>
 
-                        {/* 动态显示的信息框 */}
-                        {activeContact && (
-                            <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3 animate-in fade-in slide-in-from-top-1 duration-200 transition-colors">
+                            {/* 动态显示的信息框（十三期：animate-in 是 tailwindcss-animate
+                                插件语法、CDN 未引入该插件——死类，换全站通用的 animate-fade-in-down） */}
+                            {activeContact && (
+                            <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3 animate-fade-in-down transition-colors">
                                 {activeContact === 'email' && (
                                     <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                         <span className="font-bold text-cyan-500 min-w-[32px]">Email</span>

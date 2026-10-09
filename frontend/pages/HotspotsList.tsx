@@ -281,8 +281,8 @@ const HotspotTop3Carousel: React.FC<HotspotTop3CarouselProps> = ({ items }) => {
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] gap-0">
         <div className="relative overflow-hidden p-6 md:p-7 bg-gradient-to-br from-slate-50 via-white to-cyan-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.10),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.08),transparent_26%)]" />
-          <div className={`pointer-events-none absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-white/55 to-transparent dark:from-slate-900/55 ${direction === 'next' ? 'animate-[fade-in_420ms_ease]' : 'opacity-0'}`} />
-          <div className={`pointer-events-none absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-white/55 to-transparent dark:from-slate-900/55 ${direction === 'prev' ? 'animate-[fade-in_420ms_ease]' : 'opacity-0'}`} />
+          <div className={`pointer-events-none absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-white/55 to-transparent dark:from-slate-900/55 ${direction === 'next' ? 'animate-fade-in-down' : 'opacity-0'}`} />
+          <div className={`pointer-events-none absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-white/55 to-transparent dark:from-slate-900/55 ${direction === 'prev' ? 'animate-fade-in-down' : 'opacity-0'}`} />
 
           <div key={`${activeItem.id}-${direction}`} className={`relative space-y-5 ${direction === 'next' ? 'animate-[slide-in-right_420ms_ease]' : 'animate-[slide-in-left_420ms_ease]'}`}>
             <div className="flex flex-wrap items-center gap-2 text-xs">

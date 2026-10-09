@@ -26,6 +26,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from './Shared';
 import { UserDetailDrawer } from './UserDetailDrawer';
 import { errorText } from '../utils/errors';
+import { useConfirm } from './ConfirmDialog';
+import { TH, TD } from '../constants';
 
 const PAGE_SIZE = 20;
 
@@ -139,11 +141,11 @@ export const UserArticleReviewPanel: React.FC = () => {
                     <table className="w-full">
                         <thead>
                             <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
-                                <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">标题</th>
-                                <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">作者</th>
-                                <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">提交时间</th>
-                                <th className="text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">状态</th>
-                                <th className="text-right p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">操作</th>
+                                <th className={TH}>标题</th>
+                                <th className={TH}>作者</th>
+                                <th className={TH}>提交时间</th>
+                                <th className={TH}>状态</th>
+                                <th className={`${TH} text-right`}>操作</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
@@ -152,24 +154,24 @@ export const UserArticleReviewPanel: React.FC = () => {
                                 return (
                                     <React.Fragment key={article.id}>
                                         <tr className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                                            <td className="p-4">
+                                            <td className={TD}>
                                                 <span className="font-medium text-slate-700 dark:text-slate-200">{article.title}</span>
                                                 {article.category && (
                                                     <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">{article.category}</span>
                                                 )}
                                             </td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">
+                                            <td className={`${TD} text-sm text-slate-600 dark:text-slate-300`}>
                                                 {article.author?.display_name || article.author?.username || '-'}
                                             </td>
-                                            <td className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                                            <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                                                 {new Date(article.created_at).toLocaleString('zh-CN')}
                                             </td>
-                                            <td className="p-4">
+                                            <td className={TD}>
                                                 <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${badge.className}`}>
                                                     {badge.label}
                                                 </span>
                                             </td>
-                                            <td className="p-4 text-right">
+                                            <td className={`${TD} text-right`}>
                                                 <div className="flex items-center justify-end gap-2">
                                                     <button
                                                         onClick={() => handleApprove(article)}
@@ -195,7 +197,7 @@ export const UserArticleReviewPanel: React.FC = () => {
                                         </tr>
                                         {rejectingId === article.id && (
                                             <tr className="bg-slate-50 dark:bg-slate-900/30">
-                                                <td colSpan={5} className="p-4">
+                                                <td colSpan={5} className={TD}>
                                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                                         驳回理由 *
                                                     </label>
@@ -367,9 +369,8 @@ export const AdminUserPanel: React.FC = () => {
         }
     };
 
-    const th = "text-left p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap";
     const thBtn = (key: string, label: string) => (
-        <th className={`${th} cursor-pointer select-none hover:text-slate-700 dark:hover:text-slate-200`}
+        <th className={`${TH} cursor-pointer select-none hover:text-slate-700 dark:hover:text-slate-200`}
             onClick={() => {
                 if (sort === key) { setOrder(order === 'desc' ? 'asc' : 'desc'); }
                 else { setSort(key); setOrder('desc'); }
@@ -442,15 +443,15 @@ export const AdminUserPanel: React.FC = () => {
                         <table className="w-full min-w-[920px]">
                             <thead>
                                 <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
-                                    <th className={th}>ID</th>
+                                    <th className={TH}>ID</th>
                                     {thBtn('created_at', '用户名')}
-                                    <th className={th}>昵称</th>
-                                    <th className={th}>邮箱</th>
-                                    <th className={th}>角色</th>
+                                    <th className={TH}>昵称</th>
+                                    <th className={TH}>邮箱</th>
+                                    <th className={TH}>角色</th>
                                     {thBtn('article_count', '文章')}
-                                    <th className={th}>评论</th>
+                                    <th className={TH}>评论</th>
                                     {thBtn('last_login_at', '最后登录')}
-                                    <th className={th}>状态</th>
+                                    <th className={TH}>状态</th>
                                     <th className="text-right p-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">操作</th>
                                 </tr>
                             </thead>
@@ -459,21 +460,21 @@ export const AdminUserPanel: React.FC = () => {
                                     const banned = isBanned(user);
                                     return (
                                         <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer" onClick={() => setDetailId(user.id)}>
-                                            <td className="p-4 text-sm text-slate-400 dark:text-slate-500">{user.id}</td>
-                                            <td className="p-4 font-medium text-slate-700 dark:text-slate-200">{user.username}</td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">
+                                            <td className={`${TD} text-sm text-slate-400 dark:text-slate-500`}>{user.id}</td>
+                                            <td className={`${TD} font-medium text-slate-700 dark:text-slate-200`}>{user.username}</td>
+                                            <td className={`${TD} text-sm text-slate-600 dark:text-slate-300`}>
                                                 <div className="max-w-[140px] truncate" title={user.display_name || user.username}>
                                                     {user.display_name || '-'}
                                                 </div>
                                             </td>
-                                            <td className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                                            <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                                                 {user.email || <span className="text-slate-300 dark:text-slate-600">未绑定</span>}
                                             </td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">{roleLabel(user.role)}</td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{(user as any).article_count ?? 0}</td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{(user as any).comment_count ?? 0}</td>
-                                            <td className="p-4 text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap">{fmtDateTime((user as any).last_login_at)}</td>
-                                            <td className="p-4">
+                                            <td className={`${TD} text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap`}>{roleLabel(user.role)}</td>
+                                            <td className={`${TD} text-sm text-slate-600 dark:text-slate-300`}>{(user as any).article_count ?? 0}</td>
+                                            <td className={`${TD} text-sm text-slate-600 dark:text-slate-300`}>{(user as any).comment_count ?? 0}</td>
+                                            <td className={`${TD} text-sm text-slate-500 dark:text-slate-400 whitespace-nowrap`}>{fmtDateTime((user as any).last_login_at)}</td>
+                                            <td className={TD}>
                                                 {banned ? (
                                                     <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-full text-xs font-medium border border-red-200 dark:border-red-800 whitespace-nowrap">
                                                         <span className="w-1.5 h-1.5 bg-red-500 rounded-full"></span>
@@ -486,7 +487,7 @@ export const AdminUserPanel: React.FC = () => {
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                            <td className={`${TD} text-right`} onClick={(e) => e.stopPropagation()}>
                                                 <div className="flex gap-2 justify-end">
                                                     <button
                                                         onClick={() => setDetailId(user.id)}
@@ -743,15 +744,15 @@ export const AdminAccountsPanel: React.FC = () => {
                                     const isSelf = admin.id === me?.id;
                                     return (
                                         <tr key={admin.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                                            <td className="p-4 text-sm text-slate-400 dark:text-slate-500">{admin.id}</td>
-                                            <td className="p-4 font-medium text-slate-700 dark:text-slate-200">
+                                            <td className={`${TD} text-sm text-slate-400 dark:text-slate-500`}>{admin.id}</td>
+                                            <td className={`${TD} font-medium text-slate-700 dark:text-slate-200`}>
                                                 {admin.username}{isSelf && <span className="ml-2 text-xs text-cyan-600 dark:text-cyan-400">(我)</span>}
                                             </td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{admin.display_name || '-'}</td>
-                                            <td className="p-4 text-sm text-slate-500 dark:text-slate-400">{admin.email || <span className="text-slate-300 dark:text-slate-600">未绑定</span>}</td>
-                                            <td className="p-4 text-sm text-slate-600 dark:text-slate-300">{roleLabel(admin.role)}</td>
-                                            <td className="p-4 text-sm text-slate-500 dark:text-slate-400">{fmtDateTime(admin.created_at)}</td>
-                                            <td className="p-4">
+                                            <td className={`${TD} text-sm text-slate-600 dark:text-slate-300`}>{admin.display_name || '-'}</td>
+                                            <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>{admin.email || <span className="text-slate-300 dark:text-slate-600">未绑定</span>}</td>
+                                            <td className={`${TD} text-sm text-slate-600 dark:text-slate-300`}>{roleLabel(admin.role)}</td>
+                                            <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>{fmtDateTime(admin.created_at)}</td>
+                                            <td className={TD}>
                                                 {active ? (
                                                     <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 rounded-full text-xs font-medium border border-green-200 dark:border-green-800">
                                                         <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
@@ -764,7 +765,7 @@ export const AdminAccountsPanel: React.FC = () => {
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="p-4 text-right">
+                                            <td className={`${TD} text-right`}>
                                                 <div className="flex gap-2 justify-end">
                                                     {!isSelf && admin.role !== 'super_admin' && (
                                                         <button

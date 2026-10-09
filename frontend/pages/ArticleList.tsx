@@ -87,17 +87,8 @@ const ArticleList: React.FC = () => {
     const views = articles.reduce((sum, article) => sum + Number(article.view_count || 0), 0);
     const likes = articles.reduce((sum, article) => sum + Number(article.like_count || 0), 0);
     const comments = articles.reduce((sum, article) => sum + Number(article.comment_count || 0), 0);
-    const minutes = articles.reduce((sum, article) => sum + Number(article.read_time_minutes || 0), 0);
-    const hotArticle = [...articles].sort((a, b) => Number(b.view_count || 0) - Number(a.view_count || 0))[0];
 
-    return {
-      views,
-      likes,
-      comments,
-      minutes,
-      hotArticle,
-      avgRead: articles.length ? Math.max(1, Math.round(minutes / articles.length)) : 0,
-    };
+    return { views, likes, comments };
   }, [articles]);
 
   const hotTags = useMemo(() => tags.slice(0, 12), [tags]);
@@ -116,13 +107,13 @@ const ArticleList: React.FC = () => {
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 dark:bg-slate-800/70 border border-white dark:border-slate-700 text-xs font-black tracking-wide text-primary-600 dark:text-primary-300 mb-4">
-              <Icons.Sparkles className="w-3.5 h-3.5" /> ARTICLE COMMAND CENTER
+              <Icons.Sparkles className="w-3.5 h-3.5" /> 阅读清单
             </div>
             <h1 className="text-3xl md:text-5xl font-black text-slate-900 dark:text-white tracking-tight mb-3">
-              {searchQuery ? `搜索: "${searchQuery}"` : selectedTag ? `标签: #${selectedTag}` : '文章工作台'}
+              {searchQuery ? `搜索: "${searchQuery}"` : selectedTag ? `标签: #${selectedTag}` : '全部文章'}
             </h1>
             <p className="text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
-              用排序、标签和搜索快速定位文章；右侧雷达会跟随当前页实时展示阅读、点赞和互动强度。
+              共 {total} 篇 AI / 大模型实战笔记，持续更新；可按标签、关键词与排序自由检索。
             </p>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 min-w-full lg:min-w-[460px]">
@@ -146,37 +137,6 @@ const ArticleList: React.FC = () => {
       <div className="flex flex-col xl:flex-row gap-12">
         {/* Main Content */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-8">
-            <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3 transition-colors">
-              <span className="w-2 h-8 bg-primary-500 rounded-full"></span>
-              {searchQuery ? `搜索: "${searchQuery}"` : selectedTag ? `标签: #${selectedTag}` : '所有文章'}
-            </h1>
-            <span className="text-slate-500 dark:text-slate-400 font-medium transition-colors">共 {total} 篇</span>
-          </div>
-
-          {!loading && articles.length > 0 && (
-            <div className="mb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2"><Icons.Clock className="w-3.5 h-3.5" /> 平均阅读</div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{pageStats.avgRead} min</div>
-                <div className="mt-2 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"><div className="h-full bg-gradient-to-r from-primary-400 to-cyan-300" style={{ width: `${Math.min(100, pageStats.avgRead * 8)}%` }} /></div>
-              </div>
-              <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm">
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2"><Icons.TrendingUp className="w-3.5 h-3.5" /> 本页热度</div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{pageStats.views + pageStats.likes * 3 + pageStats.comments * 5}</div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">阅读 + 点赞×3 + 评论×5</p>
-              </div>
-              <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 shadow-sm overflow-hidden">
-                <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2"><Icons.Sparkles className="w-3.5 h-3.5" /> 热门焦点</div>
-                {pageStats.hotArticle ? (
-                  <Link to={`/articles/${pageStats.hotArticle.id}`} className="block text-sm font-bold text-slate-800 dark:text-slate-100 hover:text-primary-600 dark:hover:text-primary-400 line-clamp-2">
-                    {pageStats.hotArticle.title}
-                  </Link>
-                ) : <span className="text-sm text-slate-400">暂无</span>}
-              </div>
-            </div>
-          )}
-
           {/* 排序选项 */}
           <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-2">

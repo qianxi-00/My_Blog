@@ -72,7 +72,15 @@ const PublicLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900 relative transition-colors duration-300">
+    <div className="min-h-screen flex flex-col relative transition-colors duration-300">
+      {/* 十三期 B1：夜空氛围层铺全站（从登录页下放）——fixed 让长页面全程可见；
+          根节点不再设 bg（body 已带 slate-50/dark:slate-900，留着会盖住 -z-10 渐变） */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10
+        bg-[radial-gradient(ellipse_60%_50%_at_50%_38%,rgba(6,182,212,0.06),transparent_70%)]
+        dark:bg-[radial-gradient(ellipse_60%_50%_at_50%_38%,rgba(6,182,212,0.10),transparent_70%)]" />
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10
+        bg-[radial-gradient(ellipse_45%_40%_at_70%_80%,rgba(139,92,246,0.05),transparent_70%)]
+        dark:bg-[radial-gradient(ellipse_45%_40%_at_70%_80%,rgba(139,92,246,0.09),transparent_70%)]" />
       <header className={`fixed top-0 w-full z-50 transition-all duration-300 ${isScrolled
         ? 'bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 shadow-sm'
         : 'bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm'}`}>
@@ -309,7 +317,10 @@ const PublicLayout: React.FC = () => {
       </header>
 
       <main className="flex-grow pt-16">
-        <Outlet />
+        {/* 十三期 B2：路由切换淡入 + 切页归顶。key 路径变化触发重挂载跑 page-enter 动画 */}
+        <div key={location.pathname} className="page-enter">
+          <Outlet />
+        </div>
       </main>
 
       <footer className="bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700 mt-auto transition-colors">

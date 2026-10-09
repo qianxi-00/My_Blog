@@ -17,18 +17,20 @@ const FloatingActions: React.FC<FloatingActionsProps> = ({
     onScrollToComments
 }) => {
     const [showScrollTop, setShowScrollTop] = useState(false);
+    const [showMobileTop, setShowMobileTop] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [position, setPosition] = useState({ x: 32, y: 50 }); // 默认右侧居中 (x 是距右边距离, y 是百分比)
     const containerRef = useRef<HTMLDivElement>(null);
     const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
 
-    // 滚动监听
+    // 滚动监听（passive：只读 scrollY，不阻滚动）
     useEffect(() => {
         const handleScroll = () => {
             setShowScrollTop(window.scrollY > 300);
+            setShowMobileTop(window.scrollY > 600);
         };
-        window.addEventListener('scroll', handleScroll);
+        window.addEventListener('scroll', handleScroll, { passive: true });
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
@@ -91,6 +93,7 @@ const FloatingActions: React.FC<FloatingActionsProps> = ({
         hover:shadow-lg transition-all cursor-pointer relative group hover:bg-white dark:hover:bg-slate-800`;
 
     return (
+        <>
         <div
             ref={containerRef}
             className={`fixed z-40 hidden xl:flex flex-col gap-3 transition-all duration-300 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
@@ -155,6 +158,25 @@ const FloatingActions: React.FC<FloatingActionsProps> = ({
                 <Icons.ArrowDown className="w-5 h-5" />
             </button>
         </div>
+
+        {/* 十三期 D2：移动/窄屏救活——xl 以下整条悬浮栏消失，连返回顶部都没有，
+            读长文想回顶只能干滚。渲染最小版：只有返回顶部，44px 触控目标，
+            滚动 >600px 才出现，右下角毛玻璃圆钮（避让桌宠的左侧区域）。 */}
+        {showMobileTop && (
+            <button
+                onClick={scrollToTop}
+                aria-label="返回顶部"
+                className="fixed bottom-6 right-4 z-40 xl:hidden w-11 h-11 rounded-full
+                    bg-white/80 dark:bg-slate-800/80 backdrop-blur-md shadow-lg
+                    border border-slate-200 dark:border-slate-700
+                    flex items-center justify-center text-slate-600 dark:text-slate-300
+                    hover:text-cyan-600 dark:hover:text-cyan-400 active:scale-95
+                    transition-all animate-fade-in-down"
+            >
+                <Icons.ChevronUp className="w-5 h-5" />
+            </button>
+        )}
+        </>
     );
 };
 

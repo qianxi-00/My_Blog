@@ -4,7 +4,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>千禧的个人博客</title>
+  <title>千禧的个人博客 — AI 与大模型实战笔记</title>
+  <!-- 十三期 D5：分享卡与搜索引擎摘要（此前分享到微信/QQ 是裸链接） -->
+  <meta name="description" content="千禧的 AI / 大模型学习笔记：模型原理拆解、工程化部署实战、踩坑与思考。含提示词库、AIHOT 日报与站内 AI 问答。" />
+  <meta property="og:title" content="千禧的个人博客 — AI 与大模型实战笔记" />
+  <meta property="og:description" content="模型原理拆解、工程化部署实战、踩坑与思考；含提示词库、AIHOT 日报与站内 AI 问答。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://blog.qianxi7988.me" />
+  <meta property="og:image" content="https://blog.qianxi7988.me/logo.png" />
+  <meta name="twitter:card" content="summary" />
   <link rel="icon" href="/logo.png" type="image/png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -13,16 +21,42 @@
       theme: {
         extend: {
           colors: {
+            // 十三期 A3：补齐 primary 全色阶。原 config 只定义 5 档，但全站引用
+            // 200/300/400/800/900/950 共 132 处——CDN JIT 对未定义档不生成 CSS，
+            // 深色模式一半的配色精雕一直静默失效。primary 即 sky 色系，补的也是
+            // sky 原值，零色相漂移。
             primary: {
               50: '#f0f9ff',
               100: '#e0f2fe',
+              200: '#bae6fd',
+              300: '#7dd3fc',
+              400: '#38bdf8',
               500: '#0ea5e9',
               600: '#0284c7',
               700: '#0369a1',
+              800: '#075985',
+              900: '#0c4a6e',
+              950: '#082f49',
             },
             slate: {
               850: '#1e293b', // Custom dark
             }
+          },
+          spacing: {
+            // 十三期 A5：w-4.5/h-4.5 全站 10 处在用，Tailwind 默认 spacing 无 4.5
+            // ——类被静默丢弃（图标回退 24px 偏大）。一处 config 胜过改十处代码。
+            4.5: '1.125rem',
+          },
+          keyframes: {
+            // 十三期 A5：PublicLayout 的 animate-pulse-slow 此前无定义（死类），
+            // 太阳图标从未动过。
+            'pulse-slow': {
+              '0%, 100%': { opacity: '1' },
+              '50%': { opacity: '0.5' },
+            },
+          },
+          animation: {
+            'pulse-slow': 'pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
           },
           fontFamily: {
             sans: ['Noto Sans SC', 'Inter', 'system-ui', 'sans-serif'],
@@ -31,8 +65,10 @@
       }
     }
   </script>
+  <!-- 十三期 D7：字重减法——300 档全站零引用（grep font-light=0），砍掉省请求；
+       400/500/600/700/900 五档全在用，保留。 -->
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap"
     rel="stylesheet">
   <script type="importmap">
 {

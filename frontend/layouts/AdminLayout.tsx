@@ -1,16 +1,32 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { Icons, IconName } from '../components/Icons';
 import { SIDEBAR_ITEMS } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { getFileUrl } from '../api/config';
+import { getStatsOverview } from '../api/stats';
 
 const AdminLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { admin, isAuthenticated, isAdmin, isLoading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pendingComments, setPendingComments] = useState(0);
+
+  // 路由变化时自动收起移动端侧栏
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  // 侧栏「评论审核」待办徽标：鉴权就绪后拉一次概览（非管理员不打这个接口）
+  useEffect(() => {
+    if (!isAuthenticated || !isAdmin) return;
+    getStatsOverview()
+      .then((res) => setPendingComments(res.pending_comments || 0))
+      .catch(() => {});
+  }, [isAuthenticated, isAdmin]);
 
   // 加载中显示
   if (isLoading) {
@@ -38,8 +54,17 @@ const AdminLayout: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors">
+      {/* 移动端遮罩：侧栏打开时点击关闭 */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 sm:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all -translate-x-full sm:translate-x-0">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} sm:translate-x-0`}>
         <div className="flex flex-col h-full">
           {/* Header —— 品牌区：hover 时图标轻旋 6°，不浮夸 */}
           <div className="h-20 flex items-center px-6 border-b border-slate-100 dark:border-slate-700">
@@ -74,6 +99,12 @@ const AdminLayout: React.FC = () => {
                   )}
                   <Icon className={`w-5 h-5 mr-3.5 transition-colors ${isActive ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`} />
                   {item.label}
+                  {/* 待审评论徽标：0 时不渲染 */}
+                  {item.path === '/admin/comments' && pendingComments > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center ml-auto">
+                      {pendingComments}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -120,10 +151,21 @@ const AdminLayout: React.FC = () => {
 
       {/* Main Content */}
       <div className="flex-1 sm:ml-64 flex flex-col min-h-screen">
-        <header className="h-16 bg-white/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-8 sticky top-0 z-40 backdrop-blur-sm transition-colors">
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white">
-            {SIDEBAR_ITEMS.find(i => i.path === location.pathname)?.label || '概览'}
-          </h2>
+        <header className="h-16 bg-white/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-40 backdrop-blur-sm transition-colors">
+          <div className="flex items-center gap-3">
+            {/* 移动端汉堡钮：窄屏打开侧栏（sm 以上侧栏常驻隐藏此钮） */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="sm:hidden p-2 -ml-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              title="打开导航"
+              aria-label="打开导航菜单"
+            >
+              <Icons.Menu className="w-5 h-5" />
+            </button>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-white">
+              {SIDEBAR_ITEMS.find(i => i.path === location.pathname)?.label || '概览'}
+            </h2>
+          </div>
           <div className="flex items-center gap-4">
             {/* Theme Toggle */}
             <button
@@ -142,7 +184,7 @@ const AdminLayout: React.FC = () => {
             </Link>
           </div>
         </header>
-        <main className="p-8 flex-1 overflow-auto">
+        <main className="p-4 sm:p-8 flex-1 overflow-auto">
           <Outlet />
         </main>
       </div>

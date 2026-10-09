@@ -1,5 +1,5 @@
-import React, { Suspense } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, useEffect } from 'react';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './components/Toast';
@@ -47,12 +47,29 @@ const HotspotEditor = React.lazy(() => import('./pages/HotspotEditor'));
 const HotspotUploadPage = React.lazy(() => import('./pages/HotspotUploadPage'));
 const AdminAccounts = React.lazy(() => import('./pages/AdminAccounts'));
 
-// 路由切换 / 首次进入页面时的轻量占位，避免空白页
+// 路由切换 / 首次进入页面时的轻量占位：整页文字"加载中..."闪白难看，
+// 十三期改成居中 mini spinner（不占满屏，和 page-enter 淡入衔接）
 const RouteFallback: React.FC = () => (
-  <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center transition-colors">
-    <div className="text-primary-600 dark:text-primary-400 font-medium animate-pulse">加载中...</div>
+  <div className="min-h-[60vh] flex items-center justify-center transition-colors">
+    <svg className="w-7 h-7 text-primary-500 animate-spin" viewBox="0 0 24 24" fill="none" aria-label="加载中">
+      <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
   </div>
 );
+
+/**
+ * 十三期 B2：路由级切页归顶。全站原本没有 ScrollToTop（切页滚动位置保留），
+ * 且 index.css 开着 scroll-behavior:smooth——必须用 'instant' 覆盖，
+ * 否则归顶会被 smooth 拖成一段滑行动画。
+ */
+const ScrollToTop: React.FC = () => {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
+  }, [pathname]);
+  return null;
+};
 
 const App: React.FC = () => {
   return (
@@ -61,6 +78,7 @@ const App: React.FC = () => {
       <ToastProvider>
         <AuthProvider>
           <HashRouter>
+            <ScrollToTop />
             <Suspense fallback={<RouteFallback />}>
             <Routes>
               {/* Public Routes */}
