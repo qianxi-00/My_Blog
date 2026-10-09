@@ -94,27 +94,55 @@ const Register: React.FC = () => {
         }
     };
 
-    const inputCls = "w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all focus:bg-white dark:focus:bg-slate-700";
+    const inputCls = "w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/70 focus:border-transparent focus:shadow-[0_0_0_4px_rgba(6,182,212,0.12)] focus:bg-white dark:focus:bg-slate-700 transition-all";
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4 transition-colors">
-            <div className="w-full max-w-md">
+        <div className="min-h-screen relative flex items-center justify-center p-4 transition-colors overflow-hidden
+            bg-slate-50 dark:bg-slate-950">
+            {/* 十一期美化：与 Login 同一套径向渐变夜空 */}
+            <div aria-hidden className="pointer-events-none absolute inset-0
+                bg-[radial-gradient(ellipse_60%_50%_at_50%_38%,rgba(6,182,212,0.10),transparent_70%)]
+                dark:bg-[radial-gradient(ellipse_60%_50%_at_50%_38%,rgba(6,182,212,0.16),transparent_70%)]" />
+            <div aria-hidden className="pointer-events-none absolute inset-0
+                bg-[radial-gradient(ellipse_45%_40%_at_65%_75%,rgba(147,51,234,0.08),transparent_70%)]
+                dark:bg-[radial-gradient(ellipse_45%_40%_at_65%_75%,rgba(147,51,234,0.14),transparent_70%)]" />
+
+            <div className="w-full max-w-md relative">
                 {/* Logo */}
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-500 to-purple-600 bg-clip-text text-transparent">
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 to-purple-600 shadow-lg shadow-cyan-500/25 dark:shadow-cyan-500/40 mb-4">
+                        <span className="text-3xl">🚀</span>
+                    </div>
+                    <h1 className="text-4xl font-black bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-600 bg-clip-text text-transparent tracking-tight">
                         千禧的博客
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-2">
+                    <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm">
                         {step === 1 ? '创建账号，开始你的创作之旅' : `第 2 步：完成 ${email} 的验证`}
                     </p>
                 </div>
 
-                {/* Register Form */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-slate-200 dark:border-slate-700 shadow-xl shadow-slate-200/50 dark:shadow-none">
-                    {/* Step indicator */}
-                    <div className="flex items-center gap-2 mb-6">
-                        <span className={`flex-1 h-1.5 rounded-full ${step >= 1 ? 'bg-cyan-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
-                        <span className={`flex-1 h-1.5 rounded-full ${step >= 2 ? 'bg-cyan-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
+                {/* Register Form —— 毛玻璃卡片（与 Login 同体系） */}
+                <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl rounded-2xl p-8 border border-white/60 dark:border-slate-700/60 shadow-xl shadow-slate-200/50 dark:shadow-black/40">
+                    {/* Step indicator —— 编号节点点亮式：节点圆 + 连接线，当前步放大 */}
+                    <div className="flex items-center mb-8">
+                        {[1, 2].map((n, idx) => (
+                            <React.Fragment key={n}>
+                                <div className="flex flex-col items-center">
+                                    <span className={`flex items-center justify-center rounded-full font-bold text-xs transition-all duration-300
+                                        ${step >= n
+                                            ? 'w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/40 scale-110'
+                                            : 'w-7 h-7 bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                                        {n}
+                                    </span>
+                                    <span className={`mt-1.5 text-[10px] font-medium whitespace-nowrap ${step >= n ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-400 dark:text-slate-500'}`}>
+                                        {n === 1 ? '填写信息' : '邮箱验证'}
+                                    </span>
+                                </div>
+                                {idx === 0 && (
+                                    <div className={`flex-1 h-0.5 mx-3 mb-5 rounded-full transition-colors duration-300 ${step >= 2 ? 'bg-gradient-to-r from-cyan-400 to-blue-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
+                                )}
+                            </React.Fragment>
+                        ))}
                     </div>
 
                     {step === 1 ? (

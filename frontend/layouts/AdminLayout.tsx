@@ -41,12 +41,17 @@ const AdminLayout: React.FC = () => {
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all -translate-x-full sm:translate-x-0">
         <div className="flex flex-col h-full">
-          {/* Header */}
+          {/* Header —— 品牌区：hover 时图标轻旋 6°，不浮夸 */}
           <div className="h-20 flex items-center px-6 border-b border-slate-100 dark:border-slate-700">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-200 dark:shadow-cyan-900/30 mr-3">
-              <Icons.Bot className="w-6 h-6 text-white" />
+            <div className="group flex items-center">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-200 dark:shadow-cyan-900/30 mr-3 transition-transform duration-300 group-hover:rotate-6">
+                <Icons.Bot className="w-6 h-6 text-white" />
+              </div>
+              <div className="leading-tight">
+                <span className="text-xl font-black text-slate-800 dark:text-white tracking-tight block">DevLog</span>
+                <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-widest">Admin Console</span>
+              </div>
             </div>
-            <span className="text-xl font-black text-slate-800 dark:text-white tracking-tight">DevLog</span>
           </div>
 
           {/* Nav */}
@@ -58,11 +63,15 @@ const AdminLayout: React.FC = () => {
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`flex items-center px-4 py-3.5 text-sm font-semibold rounded-2xl transition-all duration-200 group ${isActive
+                  className={`relative flex items-center px-4 py-3.5 text-sm font-semibold rounded-2xl transition-all duration-200 group ${isActive
                     ? 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 shadow-sm shadow-cyan-100/50 dark:shadow-none'
                     : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
                     }`}
                 >
+                  {/* 十一期美化：激活态左侧指示条 —— 亮色高 2px 渐变竖条 */}
+                  {isActive && (
+                    <span aria-hidden className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-full bg-gradient-to-b from-cyan-400 to-blue-600 shadow-[0_0_8px_rgba(6,182,212,0.5)]" />
+                  )}
                   <Icon className={`w-5 h-5 mr-3.5 transition-colors ${isActive ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`} />
                   {item.label}
                 </Link>

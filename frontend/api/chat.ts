@@ -48,57 +48,11 @@ export const createChatSession = async (title?: string): Promise<ChatSession> =>
     return response.data;
 };
 
-// 发送消息
-export const sendMessage = async (sessionId: string, content: string): Promise<ChatResponse> => {
-    const response = await api.post('/chat/message', {
-        session_id: sessionId,
-        content,
-    });
-    return response.data;
-};
+// （十一期收敛：旧的 /chat/message 非流式与 /message/stream 伪流式端点已下线，
+//  所有对话统一走 /message/agentic 真 SSE——见 streamAgenticChat。）
 
 // 流式发送消息
-export const sendMessageStream = async (
-    sessionId: string,
-    content: string,
-    onChunk: (chunk: string) => void
-): Promise<void> => {
-    const token = localStorage.getItem('access_token');
-    const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-    };
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${api.defaults.baseURL}/chat/message/stream`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-            session_id: sessionId,
-            content
-        })
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || response.statusText);
-    }
-
-    if (!response.body) return;
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-            break;
-        }
-        const chunk = decoder.decode(value, { stream: true });
-        onChunk(chunk);
-    }
-};
+// （sendMessageStream 伪流式已下线，随 /chat/message/stream 端点一并移除。）
 
 // ---------- A-RAG 流式对话（SSE：思考 / 工具调用 / 回答） ----------
 
@@ -107,7 +61,8 @@ export type AgenticEvent =
     | { type: 'text'; content: string }
     | { type: 'tool_start'; name: string; input?: string }
     | { type: 'tool_result'; name: string; ok: boolean; summary?: string }
-    | { type: 'done'; session_id?: string }
+    | { type: 'evidence_warning'; message: string }
+    | { type: 'done'; session_id?: string; cached?: boolean }
     | { type: 'error'; message: string };
 
 export const streamAgenticChat = async (
@@ -182,6 +137,9 @@ export const streamAgenticChat = async (
                     break;
                 case 'tool_result':
                     onEvent({ type: 'tool_result', name: data.name || 'tool', ok: !!data.ok, summary: data.summary });
+                    break;
+                case 'evidence_warning':
+                    onEvent({ type: 'evidence_warning', message: data.message || '' });
                     break;
                 case 'done':
                     onEvent({ type: 'done', session_id: data.session_id });

@@ -1,9 +1,12 @@
 # CI/CD：push master → 自动检查 → 通过后自动部署到生产服务器。
 #
 #   backend-checks   安装后端依赖，跑 26 项技能契约自检（backend/scripts/selfcheck_skills.py）
-#   frontend-checks  npm ci + tsc --noEmit + vite build
+#   frontend-checks  npm ci + tsc --noEmit + vite build → 产物存 artifact
 #   deploy           按实际变更选择性执行：后端换镜像+health check+失败回滚；
-#                    前端在服务器上构建+原子替换（代码即产物，不经上传）
+#                    前端 = runner 构建产物经 artifact→scp 上传→服务器只做原子替换。
+#
+# ⚠️ 红线：前端构建永远不在生产服务器上做（1G 内存宿主机跑 npm 会挤压线上服务）——
+#   构建放 GitHub runner，服务器只接收产物并原子替换。
 #
 # 触发面：backend/** 或 frontend/** 变化才部署；docs/** 与纯 *.md 不触发本流程。
 # 服务器地址等敏感值在仓库 secrets（DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY），
@@ -67,6 +70,13 @@ jobs:
       - name: 构建
         run: npm run build
         working-directory: frontend
+      # 产物传给 deploy job：runner 构建完成 → deploy 只做上传+替换，服务器零构建
+      - name: 存构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 3
 
   deploy:
     needs: [backend-checks, frontend-checks]
@@ -129,7 +139,33 @@ jobs:
             git fetch origin master && git reset --hard origin/master
             bash scripts/ci/deploy_backend.sh "ci-${{ github.run_number }}"
 
-      - name: 部署前端
+      # 前端：runner 拿 artifact → 打包 → scp 到服务器 → ssh 只做原子替换。
+      # 服务器全程不执行 npm/node（红线）。
+      - name: 取前端产物
+        if: steps.what.outputs.do_frontend == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: fe-dist
+
+      - name: 打包产物
+        if: steps.what.outputs.do_frontend == 'true'
+        run: |
+          [ -f fe-dist/index.html ] || { echo "!! 产物缺 index.html"; exit 1; }
+          tar -czf frontend-dist.tar.gz -C fe-dist .
+          echo "文件数: $(find fe-dist -type f | wc -l)"
+
+      - name: 上传产物到服务器
+        if: steps.what.outputs.do_frontend == 'true'
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: frontend-dist.tar.gz
+          target: /root/ci-fe-pkg
+
+      - name: 服务器原子替换（零构建）
         if: steps.what.outputs.do_frontend == 'true'
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -137,7 +173,11 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script_stop: true
-          command_timeout: 30m
+          command_timeout: 15m
           script: |
             set -euo pipefail
-            bash /data/blog/repo-tmp/scripts/ci/deploy_frontend.sh
+            cd /data/blog/repo-tmp
+            export GIT_SSH_COMMAND="ssh -i /root/.ssh/github_my_blog_deploy_repo -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+            git fetch origin master && git reset --hard origin/master
+            bash scripts/ci/deploy_frontend.sh /root/ci-fe-pkg/frontend-dist.tar.gz
+            rm -rf /root/ci-fe-pkg

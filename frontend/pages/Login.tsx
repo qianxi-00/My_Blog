@@ -38,20 +38,32 @@ const Login: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4 transition-colors">
-            <div className="w-full max-w-md">
+        <div className="min-h-screen relative flex items-center justify-center p-4 transition-colors overflow-hidden
+            bg-slate-50 dark:bg-slate-950">
+            {/* 十一期美化：径向渐变夜空背景 —— 中心亮、四周暗，卡片像浮在光圈上 */}
+            <div aria-hidden className="pointer-events-none absolute inset-0
+                bg-[radial-gradient(ellipse_60%_50%_at_50%_38%,rgba(6,182,212,0.10),transparent_70%)]
+                dark:bg-[radial-gradient(ellipse_60%_50%_at_50%_38%,rgba(6,182,212,0.16),transparent_70%)]" />
+            <div aria-hidden className="pointer-events-none absolute inset-0
+                bg-[radial-gradient(ellipse_45%_40%_at_65%_75%,rgba(147,51,234,0.08),transparent_70%)]
+                dark:bg-[radial-gradient(ellipse_45%_40%_at_65%_75%,rgba(147,51,234,0.14),transparent_70%)]" />
+
+            <div className="w-full max-w-md relative">
                 {/* Logo */}
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-500 to-purple-600 bg-clip-text text-transparent">
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 to-purple-600 shadow-lg shadow-cyan-500/25 dark:shadow-cyan-500/40 mb-4">
+                        <span className="text-3xl">🐾</span>
+                    </div>
+                    <h1 className="text-4xl font-black bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-600 bg-clip-text text-transparent tracking-tight">
                         千禧的博客
                     </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-2">
+                    <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm">
                         登录后：粘入笔记一键成稿投稿 · 你的评论可被站内 AI 引用为参考
                     </p>
                 </div>
 
-                {/* Login Form */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-slate-200 dark:border-slate-700 shadow-xl shadow-slate-200/50 dark:shadow-none">
+                {/* Login Form —— 毛玻璃卡片：半透明底 + backdrop-blur，浮在渐变上 */}
+                <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl rounded-2xl p-8 border border-white/60 dark:border-slate-700/60 shadow-xl shadow-slate-200/50 dark:shadow-black/40">
                     <form onSubmit={handleSubmit} className="space-y-6">
                         {/* Error Message */}
                         {error && (
@@ -70,7 +82,7 @@ const Login: React.FC = () => {
                                 id="login-username"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all focus:bg-white dark:focus:bg-slate-700"
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/70 focus:border-transparent focus:shadow-[0_0_0_4px_rgba(6,182,212,0.12)] focus:bg-white dark:focus:bg-slate-700 transition-all"
                                 placeholder="请输入用户名"
                                 required
                                 autoFocus
@@ -87,7 +99,7 @@ const Login: React.FC = () => {
                                 id="login-password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all focus:bg-white dark:focus:bg-slate-700"
+                                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/70 focus:border-transparent focus:shadow-[0_0_0_4px_rgba(6,182,212,0.12)] focus:bg-white dark:focus:bg-slate-700 transition-all"
                                 placeholder="请输入密码"
                                 required
                             />

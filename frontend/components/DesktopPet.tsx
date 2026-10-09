@@ -3,7 +3,7 @@ import { Icons } from './Icons';
 import { ChatMessage } from '../types';
 import MarkdownContent from './MarkdownContent';
 import AgentProcessStrip, { ProcessStep } from './AgentProcessStrip';
-import { createChatSession, sendMessageStream, streamAgenticChat, getChatHistory, ChatSession, getMyChatSessions, MyChatSessionItem } from '../api/chat';
+import { createChatSession, streamAgenticChat, getChatHistory, ChatSession, getMyChatSessions, MyChatSessionItem } from '../api/chat';
 import { createForumThread, getForumCategories } from '../api/forum';
 
 type PetVariant = {
@@ -374,6 +374,12 @@ const ChatBubble: React.FC<{
                             </div>
                         );
                     })()
+                )}
+                {/* 十一期证据评估门：答案没引用来源时的软警示 */}
+                {!isUser && msg.evidenceWarning && (
+                    <div className="mt-1.5 rounded-md bg-amber-50/80 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40 px-2.5 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                        ⚠️ {msg.evidenceWarning}
+                    </div>
                 )}
                 {/* 只在最后一条助手回复上给入口，历史消息不打扰 */}
                 {!isUser && showEscalate && msg.content && (
@@ -932,6 +938,11 @@ const DesktopPet: React.FC = () => {
             patchAi({ content: fullContent });
             break;
           }
+          case 'evidence_warning': {
+            // 十一期证据评估门：后端判定"用了检索但答案没引用来源"的软警示
+            patchAi({ evidenceWarning: event.message });
+            break;
+          }
           case 'error': {
             fullContent = fullContent || event.message;
             patchAi({ content: fullContent });
@@ -1101,9 +1112,13 @@ const DesktopPet: React.FC = () => {
 
     try {
       let fullContent = '';
-      await sendMessageStream(sessionId, prompt, (chunk) => {
+      // 十一期收敛：气泡也走 agentic SSE（旧的 /message/stream 伪流式端点已下线）。
+      // 气泡只要 60 字文案，工具/思考事件全部忽略。
+      await streamAgenticChat(sessionId, prompt, (event) => {
         if (bubbleRequestRef.current !== requestId) return;
-        fullContent += chunk;
+        if (event.type === 'text') {
+          fullContent += event.content;
+        }
       });
       if (bubbleRequestRef.current !== requestId) return pickFallbackBubble();
       const trimmed = fullContent.trim();

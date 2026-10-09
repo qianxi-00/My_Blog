@@ -27,6 +27,8 @@ export interface ChatMessage {
   timestamp: Date;
   /** A-RAG 过程事件（思考 / 工具调用），仅流式会话期间填充 */
   process?: ProcessStep[];
+  /** 十一期证据评估门：用了检索但答案无来源时后端发的软警示文案 */
+  evidenceWarning?: string;
 }
 
 export interface NavItem {

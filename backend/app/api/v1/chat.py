@@ -5,6 +5,7 @@ AI 聊天 API
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -18,13 +19,12 @@ from ...core.ratelimit import rate_limit
 from ...models.chat import ChatSession, ChatMessage
 from ...models.user import User
 from ...schemas.chat import (
-    ChatMessageCreate, ChatResponse, ChatSessionResponse,
+    ChatMessageCreate, ChatSessionResponse,
     ChatSessionWithMessages, ChatMessageResponse,
     PromptLabRequest, PromptLabResponse,
     MyChatSessionItem,
 )
 from ...services.openai_service import OpenAIService
-from ...services.poro_rag_agent import PoroRagAgent
 from ...services.arag_agent import build_arag_agent
 from .stats import record_ai_call
 from ...core.prompt import SYSTEM_PROMPT_CHAT
@@ -107,6 +107,23 @@ def _summarize_tool_output(output: Any) -> str:
     return text[:80]
 
 
+import hashlib as _hashlib
+import re as _re_mod
+
+
+def _normalize_question(question: str) -> str:
+    """QA 缓存的键归一化：小写、压空白、去标点——挡"全角半角/多个空格"这类假性差异。
+    不做分词/同义（那要向量），保持确定性。"""
+    text = (question or "").strip().lower()
+    text = _re_mod.sub(r"\s+", " ", text)
+    text = _re_mod.sub(r"[，。？！、,.?!~～;；:：\s]+$", "", text)
+    return text
+
+
+def _question_hash(question: str) -> str:
+    return _hashlib.sha256(_normalize_question(question).encode("utf-8")).hexdigest()
+
+
 
 @router.post("/session", response_model=ChatSessionResponse,
              dependencies=[Depends(rate_limit("chat_session", **_CHAT_LIMIT))])
@@ -130,215 +147,8 @@ async def create_session(
     return ChatSessionResponse.model_validate(session)
 
 
-@router.post("/message", response_model=ChatResponse,
-             dependencies=[Depends(rate_limit("chat_message", **_CHAT_HEAVY_LIMIT))])
-async def send_message(
-    message_data: ChatMessageCreate,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user),
-):
-    """
-    发送消息并获取 AI 回复
-    """
-    client_ip = _client_ip(request)
-
-    # 获取或创建会话
-    if message_data.session_id:
-        result = await db.execute(
-            select(ChatSession)
-            .options(selectinload(ChatSession.messages))
-            .where(ChatSession.id == message_data.session_id)
-        )
-        session = result.scalar_one_or_none()
-        
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="会话不存在"
-            )
-        # 2026-09-30：不能往别人的会话里写消息（会把其历史一起喂进 LLM）
-        if not _owns_session(session, current_user, client_ip):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该会话")
-    else:
-        # 创建新会话
-        session = ChatSession(
-            title="新对话",
-            user_id=current_user.id if current_user else None,
-            owner_ip=client_ip,
-        )
-        db.add(session)
-        await db.flush()
-    
-    # 保存用户消息
-    user_message = ChatMessage(
-        session_id=session.id,
-        role="user",
-        content=message_data.content
-    )
-    db.add(user_message)
-    await db.flush()
-    
-    # 获取历史消息用于上下文（短期记忆，最近10条）
-    result = await db.execute(
-        select(ChatMessage)
-        .where(ChatMessage.session_id == session.id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(10)
-    )
-    history = list(reversed(result.scalars().all()))
-    
-    # 小魄罗无向量 RAG Agent：让模型按需调用关键词检索、目录/glob、文章读取等工具。
-    poro_agent = PoroRagAgent(db)
-
-    try:
-        agent_result = await poro_agent.run(
-            history=[
-                {"role": msg.role, "content": msg.content}
-                for msg in history
-            ]
-        )
-        ai_response = agent_result["answer"]
-        # 记录 AI 调用
-        await record_ai_call(db)
-    except Exception as e:
-        error_text = str(e)
-        if "Invalid token" in error_text or "401" in error_text:
-            ai_response = "抱歉，小魄罗的模型网关鉴权失败了，暂时无法回答。请站长检查后端 AI API Key 配置。"
-        else:
-            ai_response = "抱歉，小魄罗的 Agent 服务暂时不可用，请稍后再试。"
-    
-    # 保存 AI 回复
-    assistant_message = ChatMessage(
-        session_id=session.id,
-        role="assistant",
-        content=ai_response
-    )
-    db.add(assistant_message)
-    
-    # 更新会话标题（如果是第一条消息）
-    if len(history) <= 1:
-        # 使用第一条消息的前20个字符作为标题
-        session.title = message_data.content[:20] + "..." if len(message_data.content) > 20 else message_data.content
-    
-    await db.commit()
-    await db.refresh(user_message)
-    await db.refresh(assistant_message)
-    
-    return ChatResponse(
-        session_id=session.id,
-        message=ChatMessageResponse.model_validate(user_message),
-        reply=ChatMessageResponse.model_validate(assistant_message)
-    )
-
 from fastapi.responses import StreamingResponse
 
-@router.post("/message/stream",
-             dependencies=[Depends(rate_limit("chat_message", **_CHAT_HEAVY_LIMIT))])
-async def send_message_stream(
-    message_data: ChatMessageCreate,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user),
-):
-    """
-    流式发送消息
-    """
-    client_ip = _client_ip(request)
-
-    # 获取或创建会话
-    if message_data.session_id:
-        result = await db.execute(
-            select(ChatSession)
-            .options(selectinload(ChatSession.messages))
-            .where(ChatSession.id == message_data.session_id)
-        )
-        session = result.scalar_one_or_none()
-        
-        if not session:
-            # 如果会话不存在，创建新会话（容错处理）
-            session = ChatSession(
-                title="新对话",
-                user_id=current_user.id if current_user else None,
-                owner_ip=client_ip,
-            )
-            db.add(session)
-            await db.flush()
-        elif not _owns_session(session, current_user, client_ip):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该会话")
-    else:
-        session = ChatSession(
-            title="新对话",
-            user_id=current_user.id if current_user else None,
-            owner_ip=client_ip,
-        )
-        db.add(session)
-        await db.flush()
-    
-    # 保存用户消息
-    user_message = ChatMessage(
-        session_id=session.id,
-        role="user",
-        content=message_data.content
-    )
-    db.add(user_message)
-    await db.flush() # 获取 ID
-    await db.refresh(user_message)
-    # 必须在这里落库：用户输入不是可有可无的副产物，客户端中途断开不该把它一起回滚
-    await db.commit()
-    
-    # 获取历史消息
-    result = await db.execute(
-        select(ChatMessage)
-        .where(ChatMessage.session_id == session.id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(10)
-    )
-    history = list(reversed(result.scalars().all()))
-    
-    # 流式接口保持响应协议不变：先由 Agent 完成工具检索和推理，再按文本块返回。
-    poro_agent = PoroRagAgent(db)
-    
-    async def generate():
-        ai_response_content = ""
-        try:
-            agent_result = await poro_agent.run(
-                history=[
-                    {"role": msg.role, "content": msg.content} 
-                    for msg in history
-                ]
-            )
-            ai_response_content = agent_result["answer"]
-            for i in range(0, len(ai_response_content), 24):
-                yield ai_response_content[i:i + 24]
-        except Exception as e:
-            error_text = str(e)
-            if "Invalid token" in error_text or "401" in error_text:
-                yield "抱歉，小魄罗的模型网关鉴权失败了，暂时无法回答。请站长检查后端 AI API Key 配置。"
-            else:
-                yield "抱歉，小魄罗的 Agent 服务暂时不可用，请稍后再试。"
-        
-        # 保存 AI 回复
-        if ai_response_content:
-            assistant_message = ChatMessage(
-                session_id=session.id,
-                role="assistant",
-                content=ai_response_content
-            )
-            db.add(assistant_message)
-            
-            # 更新标题
-            if len(history) <= 1:
-                title = message_data.content[:20] + "..." if len(message_data.content) > 20 else message_data.content
-                # Update DB via update statement or session merge? session object is attached.
-                session.title = title
-            
-            # 记录 AI 调用
-            await record_ai_call(db)
-            
-            await db.commit()
-            
-    return StreamingResponse(generate(), media_type="text/plain")
 
 
 @router.post("/message/agentic",
@@ -414,12 +224,52 @@ async def send_message_agentic(
     is_first_turn = len(history) <= 1
     history_msgs = [{"role": msg.role, "content": msg.content} for msg in history]
 
+    # ---- 十一期「QA 一级缓存」：归一化精确命中 → 免 LLM 免检索，直接回放 ----
+    # 放在 user_message 落库之后：会话历史保持完整，追问历史/上下文不受影响。
+    q_hash = _question_hash(message_data.content)
+    from ...models.chat import ChatQaCache
+    cached_hit = (
+        await db.execute(select(ChatQaCache).where(ChatQaCache.question_hash == q_hash))
+    ).scalar_one_or_none()
+
+    if cached_hit:
+        async def replay():
+            # 前端事件形态与正常流程一致；done 带 cached 标记（前端不特判也可）
+            yield _sse("text", {"content": cached_hit.answer})
+            yield _sse("done", {"session_id": session_id, "cached": True})
+
+        async def replay_persist():
+            cached_hit.hit_count += 1
+            cached_hit.last_hit_at = datetime.utcnow()
+            db.add(cached_hit)
+            assistant_message = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content=cached_hit.answer,
+            )
+            db.add(assistant_message)
+            if is_first_turn:
+                title = message_data.content[:20] + "..." if len(message_data.content) > 20 else message_data.content
+                await db.execute(
+                    text("UPDATE chat_sessions SET title = :t WHERE id = :sid"),
+                    {"t": title, "sid": session_id},
+                )
+            await db.commit()
+
+        await replay_persist()
+        return StreamingResponse(
+            replay(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     async def generate():
         if _ARAG_SEMAPHORE.locked():
             yield _sse("error", {"message": "小魄罗正在招呼太多客人啦，请稍等片刻再试～"})
             return
         async with _ARAG_SEMAPHORE:
             final_text = ""
+            tool_call_count = 0  # QA 缓存写入条件之一：用过检索工具的回答才值得缓存
             try:
                 queue: asyncio.Queue = asyncio.Queue()
                 # langgraph v3 messages 通道不透传 reasoning，改由模型子类回调直接入队
@@ -436,6 +286,8 @@ async def send_message_agentic(
 
                 async def pump_tools():
                     async for call in stream.tool_calls:
+                        nonlocal tool_call_count
+                        tool_call_count += 1
                         input_text = call.input if isinstance(call.input, str) else json.dumps(
                             call.input if call.input else {}, ensure_ascii=False, default=str)
                         await queue.put(("tool_start", {
@@ -470,6 +322,11 @@ async def send_message_agentic(
                 finally:
                     for t in tasks:
                         t.cancel()
+                # 十一期「证据评估门」：用了检索工具但回答里一个 URL 都没有 →
+                # 发软警示（零额外 LLM 调用的"诚实信号"）。不打断不拦，只让访客
+                # 知道这条答案没引用来源。
+                if tool_call_count > 0 and final_text and "http" not in final_text:
+                    yield _sse("evidence_warning", {"message": "这次小魄罗没有引用到文章来源，答案请自行核实～"})
                 yield _sse("done", {"session_id": session_id})
             except Exception as e:
                 error_text = str(e)
@@ -495,6 +352,32 @@ async def send_message_agentic(
                     )
                 await record_ai_call(db)
                 await db.commit()
+
+                # 十一期 QA 缓存写入：带证据（URL）且用过工具的回答才缓存——
+                # 排掉闲聊与"没查到"的兜底话术。**独立事务**：缓存写失败绝不回滚
+                # 上面已提交的会话记录（教训：往同一事务里 add 唯一键冲突对象再
+                # rollback，会把 assistant 消息一起滚掉）。
+                if tool_call_count > 0 and "http" in final_text:
+                    try:
+                        db.add(ChatQaCache(
+                            question_hash=q_hash,
+                            question=message_data.content,
+                            answer=final_text,
+                        ))
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                        try:
+                            existing = (
+                                await db.execute(
+                                    select(ChatQaCache).where(ChatQaCache.question_hash == q_hash)
+                                )
+                            ).scalar_one_or_none()
+                            if existing is not None:
+                                existing.answer = final_text  # 同题新答 → 覆盖旧缓存
+                                await db.commit()
+                        except Exception:
+                            await db.rollback()
 
     return StreamingResponse(
         generate(),
