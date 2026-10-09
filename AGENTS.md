@@ -270,6 +270,10 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 
 ai-architecture.md：9 工具表补评论语料说明、端点收敛单通道（旧端点标注已下线 404）、新增 QA 缓存/证据门/内容闭环三节、事件协议补 evidence_warning 与 cached；features.md 与 history.md 同步。**全站 3 个 mermaid 块真浏览器渲染验证 3/3**（改图必验的既定流程）。docs/** 推送触发 Pages workflow 与 CI/CD 双绿，线上抽查三处内容均生效。
 
+### 追补：会话栏可收起（`795b467`）
+
+用户澄清首版重排版没接住真实痛点——不是视觉层次是**空间分配**：后台里 AdminLayout 导航（256px）与会话栏（256px）两栏相叠，聊天区被挤成中间一条。会话栏改为可收起：展开 256px ↔ 收起 56px 窄条（渐变展开钮 + 快捷新建），默认收起（聊天区优先），偏好记 localStorage。实测：聊天区 617px → 873px。
+
 ### 本期踩坑
 
 - `TARGET_UID=1` 硬编码差点误诊：boot page 注入 token 进不了后台，真因是**路由路径写错**（`#/admin/agent` 应为 `#/admin/ai-agent`，被通配路由弹回首页）——浏览器路由守卫的「弹回」行为是路径错误的第一嫌疑。
