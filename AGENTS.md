@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `a892737`）。
-当前生产镜像 **`qianxi-blog:ci-5`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` **均已推 GitHub**，`origin/master` = `a892737`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `93c5fa7`）。
+当前生产镜像 **`qianxi-blog:ci-9`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,47 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 十一期：agentic-rag 收敛 + 前端构建移出服务器 + 基建修复（2026-10-09，提交 `93c5fa7`，生产镜像 `qianxi-blog:ci-9`）
+
+按架构图做资源受限的 agentic-rag 化（千禧拍板：不搞向量召回；前端构建不在生产服务器上做，能在 GitHub 弄的都在 GitHub 弄）。
+
+### 一、问答端收敛（单一通道）
+
+| 端点 | 处置 |
+|---|---|
+| `POST /chat/message`（非流式，旧 PoroRagAgent） | **下线**（404） |
+| `POST /chat/message/stream`（伪流式切片吐） | **下线**（404） |
+| `POST /chat/message/agentic`（真 SSE） | **唯一通道**；气泡主动搭话也切到它（只收 text 事件） |
+
+配套：`poro_rag_agent.py`（500+ 行旧手写工具循环）退役归档 `.retired`；`Live2DWaifu.tsx` 是零引用死代码且阻塞旧 API 删函数（tsc 会炸），一并删除；`api/chat.ts` 删 `sendMessage`/`sendMessageStream`。
+
+### 二、缓存层 + 证据门（架构图的资源受限映射）
+
+- **QA 一级缓存** `chat_qa_cache`：归一化（小写/压空白/去尾标点）→ sha256 **精确命中**才回放（近似命中要相似度=要向量，明确不做）。写入双条件（用过检索工具 且 回答含 URL）排掉闲聊与兜底话术；回放照常写会话消息保持历史完整；缓存写入**独立事务**（教训：同事务 add 唯键冲突对象再 rollback 会连坐滚掉 assistant 消息）。实测：**同题 50s → 0s**，`cached:true`，hit_count 递增。
+- **证据评估门**：tool 用过但回答零 URL → SSE `evidence_warning` 软警示（零额外 LLM 的"诚实信号"），前端气泡下方黄底提示。
+
+### 三、前端部署链路改造（红线：服务器零构建）
+
+此前 deploy_frontend.sh 在生产服务器 npm ci + build（1G 内存宿主机被构建挤压会伤线上服务）。改为：**runner 构建**（frontend-checks → upload-artifact）→ deploy job download-artifact → 打包 → **scp 上传** → 服务器只做解包+结构校验（index.html / 主 chunk 存在 / 文件数≥50，挡半包坏包）+ 原子替换 + 保留 uploads/data + 公网验证 + 失败回滚。部署日志复核：**服务器全程无 npm 痕迹**。
+
+### 四、基建修复：生产建不出新表的缝隙（本轮最重要的发现）
+
+`chat_qa_cache` 启动后 `no such table`——**删表重启的对照实验复现**后定位根因链：
+1. `create_all` 挂在 `if settings.DEBUG:` 下，生产 DEBUG=false **从不执行**；
+2. 项目从不用 Alembic（表结构演进一直靠 `ensure_schema_columns` 补列）；
+3. 于是"新增模型"在生产永远不生效——十一期前没暴露是因为**此前从没加过新表**（只加过列）。
+
+修法：幂等 create_all（checkfirst）挂进 lifespan 无条件执行的 `ensure_schema_columns` 开头。**决定性实验验证**：删表 → 重启 → 表自动建出（7 列完整）。今后新模型上线即自动建表。
+
+### 五、前端美化（Login / Register / AdminLayout）
+
+Login/Register：径向渐变夜空背景（3 层）+ 毛玻璃卡片（blur 24px，实测）+ 🐾/🚀 logo 徽章 + 36px 渐变标题 + 输入焦点青色发光；Register 进度条改编号节点点亮式。AdminLayout：品牌区双行（DevLog / ADMIN CONSOLE）+ hover 轻旋，侧边栏激活态左侧 3px 渐变辉光指示条（浏览器实测全中）。
+
+### 本期踩坑与教训
+
+- **本地删除的文件不会随 stage 流上传**——poro_rag_agent.py/Live2DWaifu.tsx 只在本地删了，服务器仓库还在，`git add -A` 在服务器端看不到删除 → **0073f90 的 CI 如预期炸在 tsc**（Live2DWaifu 引用已删函数）。CI 拦截是设计内（失败不碰生产），但补丁提交（fb54808）本可避免：**stage 流程不传"删除"是它的固有盲区，删文件要么走服务器端 git rm，要么在本地 commit 后用别的同步方式**。
+- **ChatQaCache 先在函数内 import** → 模块加载时不在 Base.metadata → create_all 跳过。函数内 import 只在"调用时才注册模型"，新模型必须顶部 import——这类"注册型副作用"不适用按需加载。
+- 两处 CLI 验证脚本里 `grep -c` 返回 0 + `set -e` 会把"计数脚本"误杀——计数场景要 `\|\| true`。
 ## 十期：头脑风暴落地（2026-10-08，提交 `a892737`，生产镜像 `qianxi-blog:ci-5`）
 
 六路头脑风暴（五角度创意 + 魔鬼代言人）的落地轮。拍板：AIHOT 日报邮件推送不做，其余六项全做。**首次由 CI/CD 全自动部署的业务改动**（ci-5：backend+frontend 双部署，检查全绿后 Actions 自行完成，无需人工跑任何脚本）。
