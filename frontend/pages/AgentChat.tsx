@@ -280,6 +280,17 @@ const AgentChat: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingText, setRenamingText] = useState('');
+  // 十二期补：会话栏可收起——后台里 AdminLayout 导航(256px)+会话栏(256px) 两栏相叠，
+  // 聊天区被挤成中间一条（用户点名"聊天界面太小"）。默认收起成窄条，偏好记 localStorage。
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem('agentchat-sidebar') === 'open'
+  );
+  const toggleSidebar = () => {
+    setSidebarOpen((v) => {
+      localStorage.setItem('agentchat-sidebar', v ? 'collapsed' : 'open');
+      return !v;
+    });
+  };
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -820,16 +831,29 @@ const AgentChat: React.FC = () => {
         bg-[radial-gradient(ellipse_40%_35%_at_8%_92%,rgba(139,92,246,0.05),transparent_70%)]
         dark:bg-[radial-gradient(ellipse_40%_35%_at_8%_92%,rgba(139,92,246,0.09),transparent_70%)]" />
 
-      {/* ---------------- 左侧会话栏 ---------------- */}
-      <aside className="w-64 shrink-0 relative z-10 border-r border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm flex flex-col">
+      {/* ---------------- 左侧会话栏（可收起：收起 56px / 展开 256px） ---------------- */}
+      <aside
+        className={`${sidebarOpen ? 'w-64' : 'w-14'} shrink-0 relative z-10 border-r border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm flex flex-col transition-all duration-300 overflow-hidden`}
+      >
+        {sidebarOpen ? (
+        <>
         <div className="p-3 space-y-2.5 border-b border-slate-200 dark:border-slate-800">
-          <button
-            onClick={startNew}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 text-white text-sm font-medium transition-all hover:opacity-90 hover:shadow-lg hover:shadow-cyan-500/20 active:scale-[.99] shadow-sm"
-          >
-            <Icons.Plus className="w-4 h-4" />
-            新建对话
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={startNew}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 text-white text-sm font-medium transition-all hover:opacity-90 hover:shadow-lg hover:shadow-cyan-500/20 active:scale-[.99] shadow-sm"
+            >
+              <Icons.Plus className="w-4 h-4" />
+              新建对话
+            </button>
+            <button
+              onClick={toggleSidebar}
+              title="收起会话栏（聊天区变大）"
+              className="shrink-0 p-2.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+              <Icons.ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
           <div className="relative">
             <Icons.Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
@@ -925,6 +949,26 @@ const AgentChat: React.FC = () => {
             </div>
           ))}
         </div>
+        </>
+        ) : (
+        /* 收起态：56px 窄条——展开钮 + 快捷新建 */
+        <div className="p-2 flex flex-col items-center gap-2 border-b border-slate-200 dark:border-slate-800">
+          <button
+            onClick={toggleSidebar}
+            title="展开会话栏"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 text-white shadow-md shadow-cyan-500/25 hover:opacity-90 transition-all"
+          >
+            <Icons.ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            onClick={startNew}
+            title="新建对话"
+            className="w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:border-cyan-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-all"
+          >
+            <Icons.Plus className="w-4 h-4" />
+          </button>
+        </div>
+        )}
       </aside>
 
       {/* ---------------- 右侧主区 ---------------- */}
