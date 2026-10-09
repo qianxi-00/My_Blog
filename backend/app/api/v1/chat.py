@@ -5,7 +5,7 @@ AI 聊天 API
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from ...core.database import get_db
-from ...core.deps import get_optional_user
+from ...core.deps import get_optional_user, get_current_admin
 from ...core.ratelimit import rate_limit
 from ...models.chat import ChatSession, ChatMessage, ChatQaCache
 from ...models.user import User
@@ -124,6 +124,18 @@ def _question_hash(question: str) -> str:
     return _hashlib.sha256(_normalize_question(question).encode("utf-8")).hexdigest()
 
 
+def _has_citation(text: str) -> bool:
+    """回答里是否带了来源引用。完整 URL 或站内裸路径（#/articles/5）都算——
+    十二期 review 修正：原来只认 "http"，模型用裸路径引用会被误判"没来源"。"""
+    return "http" in text or "/articles/" in text
+
+
+# QA 缓存有效期：个人博客的文章会更新，旧答案 7 天自愈（过期走 LLM 重答 + 覆盖更新）。
+# 不做"文章变更联动失效"——那要解析答案里的文章 id 并挂到文章更新路径上，复杂度
+# 换来的时效收益对低频更新的个人博客不划算，TTL 自愈足够。
+_QA_CACHE_TTL_DAYS = 7
+
+
 
 @router.post("/session", response_model=ChatSessionResponse,
              dependencies=[Depends(rate_limit("chat_session", **_CHAT_LIMIT))])
@@ -228,9 +240,17 @@ async def send_message_agentic(
     # 放在 user_message 落库之后：会话历史保持完整，追问历史/上下文不受影响。
     # 注意 ChatQaCache 的 import 在模块顶部——create_all 只建"已注册进
     # Base.metadata"的表，函数内 import 会导致启动时表建不出来（实踩）。
+    # 十二期 review 补丁：加 7 天 TTL——文章更新后旧答案最多滞留 7 天自愈；
+    # 过期行不删除，同题重答后走唯一键冲突的覆盖分支（同步刷 created_at 重置 TTL）。
     q_hash = _question_hash(message_data.content)
+    qa_ttl_cutoff = datetime.utcnow() - timedelta(days=_QA_CACHE_TTL_DAYS)
     cached_hit = (
-        await db.execute(select(ChatQaCache).where(ChatQaCache.question_hash == q_hash))
+        await db.execute(
+            select(ChatQaCache).where(
+                ChatQaCache.question_hash == q_hash,
+                ChatQaCache.created_at > qa_ttl_cutoff,
+            )
+        )
     ).scalar_one_or_none()
 
     if cached_hit:
@@ -323,10 +343,10 @@ async def send_message_agentic(
                 finally:
                     for t in tasks:
                         t.cancel()
-                # 十一期「证据评估门」：用了检索工具但回答里一个 URL 都没有 →
+                # 十一期「证据评估门」：用了检索工具但回答里一个来源引用都没有 →
                 # 发软警示（零额外 LLM 调用的"诚实信号"）。不打断不拦，只让访客
                 # 知道这条答案没引用来源。
-                if tool_call_count > 0 and final_text and "http" not in final_text:
+                if tool_call_count > 0 and final_text and not _has_citation(final_text):
                     yield _sse("evidence_warning", {"message": "这次小魄罗没有引用到文章来源，答案请自行核实～"})
                 yield _sse("done", {"session_id": session_id})
             except Exception as e:
@@ -358,7 +378,7 @@ async def send_message_agentic(
                 # 排掉闲聊与"没查到"的兜底话术。**独立事务**：缓存写失败绝不回滚
                 # 上面已提交的会话记录（教训：往同一事务里 add 唯一键冲突对象再
                 # rollback，会把 assistant 消息一起滚掉）。
-                if tool_call_count > 0 and "http" in final_text:
+                if tool_call_count > 0 and _has_citation(final_text):
                     try:
                         db.add(ChatQaCache(
                             question_hash=q_hash,
@@ -376,6 +396,10 @@ async def send_message_agentic(
                             ).scalar_one_or_none()
                             if existing is not None:
                                 existing.answer = final_text  # 同题新答 → 覆盖旧缓存
+                                # 同步刷 created_at 重置 TTL——十二期 review 补丁：
+                                # 不刷的话 TTL 过期的行每次重答都走 LLM 再覆盖，
+                                # 永远命不中缓存（旧答案残留 created_at 又立刻过期）。
+                                existing.created_at = datetime.utcnow()
                                 await db.commit()
                         except Exception:
                             await db.rollback()
@@ -385,6 +409,71 @@ async def send_message_agentic(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---- 十二期 review 补丁：QA 缓存管理通道 ----
+# 十一期上缓存时漏了管理面——差答案一旦入缓存永久回放，只能手敲 sqlite 清。
+# 管理员（含 AI 助手 call_api 兜底）现在可以列/清/单删。前端不做管理 UI：
+# 量小，AI 助手对话里说"看看/清空 QA 缓存"即可。
+
+@router.get("/qa-cache", dependencies=[Depends(get_current_admin)])
+async def list_qa_cache(
+    db: AsyncSession = Depends(get_db),
+    stale_only: bool = False,
+):
+    """列出 QA 缓存条目（按创建时间倒序，前 50 条）。?stale_only=true 只看过期行。"""
+    cutoff = datetime.utcnow() - timedelta(days=_QA_CACHE_TTL_DAYS)
+    q = select(ChatQaCache).order_by(ChatQaCache.created_at.desc()).limit(50)
+    if stale_only:
+        q = q.where(ChatQaCache.created_at <= cutoff)
+    rows = (await db.execute(q)).scalars().all()
+    return {
+        "total_shown": len(rows),
+        "ttl_days": _QA_CACHE_TTL_DAYS,
+        "items": [
+            {
+                "id": r.id,
+                "question": r.question,
+                "answer_preview": (r.answer or "")[:200],
+                "hit_count": r.hit_count,
+                "created_at": r.created_at,
+                "stale": r.created_at <= cutoff,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.delete("/qa-cache", dependencies=[Depends(get_current_admin)])
+async def clear_qa_cache(
+    stale_only: bool = True,
+    db: AsyncSession = Depends(get_db),
+):
+    """清 QA 缓存。默认只清过期行（stale_only=true）；传 false 全清。"""
+    cutoff = datetime.utcnow() - timedelta(days=_QA_CACHE_TTL_DAYS)
+    q = select(ChatQaCache)
+    if stale_only:
+        q = q.where(ChatQaCache.created_at <= cutoff)
+    rows = (await db.execute(q)).scalars().all()
+    for r in rows:
+        await db.delete(r)
+    await db.commit()
+    return {"deleted": len(rows), "stale_only": stale_only}
+
+
+@router.delete("/qa-cache/{cache_id}", dependencies=[Depends(get_current_admin)])
+async def delete_qa_cache_entry(
+    cache_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """单删一条 QA 缓存（清那条答得差的）。"""
+    row = (await db.execute(select(ChatQaCache).where(ChatQaCache.id == cache_id))).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="缓存条目不存在")
+    await db.delete(row)
+    await db.commit()
+    return {"deleted": 1, "id": cache_id}
+
 
 @router.get("/sessions", response_model=list[MyChatSessionItem])
 async def list_my_sessions(

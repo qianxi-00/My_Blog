@@ -59,11 +59,8 @@ class ChatSessionWithMessages(ChatSessionResponse):
     messages: List[ChatMessageResponse] = []
 
 
-class ChatResponse(BaseModel):
-    """聊天响应模型"""
-    session_id: str
-    message: ChatMessageResponse
-    reply: ChatMessageResponse
+# （十一期收敛：ChatResponse——非流式 /chat/message 端点的响应模型——
+#  随该端点下线已成孤儿，删除。对话统一走 /message/agentic 的 SSE。）
 
 
 class PromptLabRequest(BaseModel):

@@ -736,27 +736,27 @@ const AgentChat: React.FC = () => {
 
   const renderTurn = (turn: Turn) => (
     <div key={turn.key} className="group/turn space-y-5">
-      {/* 用户消息：中性浅底气泡（原来青底白字太刺眼），右对齐 */}
+      {/* 用户消息：中性浅底气泡 + 渐变描边点缀，右对齐 */}
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-slate-100 dark:bg-slate-800 px-4 py-2.5">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-white dark:bg-slate-800 px-4 py-2.5 border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="text-[14px] leading-relaxed text-slate-800 dark:text-slate-100 whitespace-pre-wrap break-words">
             {turn.user}
           </div>
         </div>
       </div>
 
-      {/* 助手消息：头像 + 内容流（无气泡，让内容自己说话） */}
+      {/* 助手消息：头像 + 白卡内容流（原来无卡片底白字贴白页零层次，十二期重排） */}
       <div className="flex gap-3">
-        <div className="shrink-0 w-7 h-7 mt-0.5 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-sm">
-          <Icons.Sparkles className="w-3.5 h-3.5 text-white" />
+        <div className="shrink-0 w-8 h-8 mt-1 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-md shadow-cyan-500/25 ring-2 ring-white dark:ring-slate-800">
+          <Icons.Sparkles className="w-4 h-4 text-white" />
         </div>
-        <div className="flex-1 min-w-0 space-y-3">
+        <div className="flex-1 min-w-0 rounded-2xl bg-white dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60 shadow-sm px-4 py-3.5 space-y-3">
           {turn.tools.length > 0 && (
             <div className="space-y-1.5">{turn.tools.map(renderToolCard)}</div>
           )}
 
           {turn.thinking && (
-            <details className="group rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/30">
+            <details className="group rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-slate-50/70 dark:bg-slate-900/40">
               <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none text-xs text-slate-500 dark:text-slate-400 hover:brightness-95 transition">
                 <Icons.ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
                 <span>思考过程</span>
@@ -811,13 +811,21 @@ const AgentChat: React.FC = () => {
   /* ------------------------------ 主渲染 ------------------------------ */
 
   return (
-    <div className="h-[calc(100vh-80px)] bg-white dark:bg-slate-900 overflow-hidden flex">
+    <div className="h-[calc(100vh-80px)] relative bg-white dark:bg-slate-900 overflow-hidden flex">
+      {/* 十二期重排版：极淡渐变氛围层（与登录页同语言，工具区克制版） */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0
+        bg-[radial-gradient(ellipse_45%_40%_at_85%_8%,rgba(6,182,212,0.06),transparent_70%)]
+        dark:bg-[radial-gradient(ellipse_45%_40%_at_85%_8%,rgba(6,182,212,0.10),transparent_70%)]" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0
+        bg-[radial-gradient(ellipse_40%_35%_at_8%_92%,rgba(139,92,246,0.05),transparent_70%)]
+        dark:bg-[radial-gradient(ellipse_40%_35%_at_8%_92%,rgba(139,92,246,0.09),transparent_70%)]" />
+
       {/* ---------------- 左侧会话栏 ---------------- */}
-      <aside className="w-64 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 flex flex-col">
+      <aside className="w-64 shrink-0 relative z-10 border-r border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm flex flex-col">
         <div className="p-3 space-y-2.5 border-b border-slate-200 dark:border-slate-800">
           <button
             onClick={startNew}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-medium transition-all hover:opacity-90 active:scale-[.99] shadow-sm"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 text-white text-sm font-medium transition-all hover:opacity-90 hover:shadow-lg hover:shadow-cyan-500/20 active:scale-[.99] shadow-sm"
           >
             <Icons.Plus className="w-4 h-4" />
             新建对话
@@ -920,12 +928,14 @@ const AgentChat: React.FC = () => {
       </aside>
 
       {/* ---------------- 右侧主区 ---------------- */}
-      <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-900">
-        {/* 顶栏 */}
-        <header className="h-14 px-5 flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <Icons.Sparkles className="w-4 h-4 text-cyan-500 shrink-0" />
+      <main className="flex-1 flex flex-col min-w-0 relative z-10">
+        {/* 顶栏：毛玻璃 + 渐变标题（与 AdminLayout 同语言） */}
+        <header className="h-14 px-5 flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800/80 shrink-0 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-md shadow-cyan-500/20 shrink-0">
+            <Icons.Sparkles className="w-4 h-4 text-white" />
+          </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
+            <div className="text-sm font-semibold bg-gradient-to-r from-cyan-600 to-violet-600 dark:from-cyan-400 dark:to-violet-400 bg-clip-text text-transparent truncate">
               {activeSession?.title || (turns.length ? '新对话' : 'AI 助手')}
             </div>
             <div className="text-[11px] text-slate-400 dark:text-slate-500">
@@ -936,28 +946,28 @@ const AgentChat: React.FC = () => {
             <button
               onClick={() => void handleDelete(activeSession.id)}
               title="删除当前会话"
-              className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
             >
               <Icons.Trash2 className="w-4 h-4" />
             </button>
           )}
         </header>
 
-        {/* 消息区 */}
-        <div ref={listRef} className="flex-1 overflow-y-auto">
+        {/* 消息区：淡灰底让助手白卡浮起（原来是白底白字零层次——十二期用户点名重排） */}
+        <div ref={listRef} className="flex-1 overflow-y-auto bg-slate-50/60 dark:bg-slate-950/40">
           {turns.length === 0 ? (
             /* 空状态引导 */
             <div className="h-full flex flex-col items-center justify-center px-6 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center mb-5 shadow-lg shadow-cyan-500/20">
-                <Icons.Sparkles className="w-7 h-7 text-white" />
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center mb-5 shadow-xl shadow-cyan-500/25">
+                <Icons.Sparkles className="w-8 h-8 text-white" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-1.5">
+              <h2 className="text-xl font-bold bg-gradient-to-r from-cyan-600 to-violet-600 dark:from-cyan-400 dark:to-violet-400 bg-clip-text text-transparent mb-2">
                 今天想对站点做什么？
               </h2>
               <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-7 max-w-md leading-relaxed">
                 我可以帮你查数据、审评论、管文章和订阅者。涉及写操作时我会先跟你确认。
               </p>
-              <div className="grid sm:grid-cols-2 gap-2 max-w-xl w-full">
+              <div className="grid sm:grid-cols-2 gap-2.5 max-w-xl w-full">
                 {EMPTY_STARTERS.map((q) => (
                   <button
                     key={q}
@@ -965,8 +975,9 @@ const AgentChat: React.FC = () => {
                       setInput(q);
                       requestAnimationFrame(() => textareaRef.current?.focus());
                     }}
-                    className="text-left px-3.5 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 hover:border-cyan-300 dark:hover:border-cyan-800 hover:bg-cyan-50/50 dark:hover:bg-slate-800 transition-all text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed"
+                    className="group/st text-left px-4 py-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-800/60 hover:border-cyan-300 dark:hover:border-cyan-700 hover:shadow-md hover:shadow-cyan-500/5 hover:-translate-y-0.5 transition-all text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed"
                   >
+                    <span className="mr-1.5 text-cyan-500/60 group-hover/st:text-cyan-500 transition-colors">◆</span>
                     {q}
                   </button>
                 ))}
@@ -974,12 +985,12 @@ const AgentChat: React.FC = () => {
             </div>
           ) : (
             /* 收窄正文宽度：太长的一行读起来很累 */
-            <div className="px-6 py-6 space-y-7 max-w-4xl mx-auto">{turns.map(renderTurn)}</div>
+            <div className="px-6 py-7 space-y-8 max-w-4xl mx-auto">{turns.map(renderTurn)}</div>
           )}
         </div>
 
-        {/* 输入区 */}
-        <div className="border-t border-slate-200 dark:border-slate-800 px-6 py-4 shrink-0">
+        {/* 输入区：与顶栏同语言的毛玻璃收边 */}
+        <div className="border-t border-slate-200/80 dark:border-slate-800/80 px-6 py-4 shrink-0 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md">
           <div className="max-w-4xl mx-auto">
             <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-400/15 transition-all">
               <textarea
