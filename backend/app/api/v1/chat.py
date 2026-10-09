@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 from ...core.database import get_db
 from ...core.deps import get_optional_user
 from ...core.ratelimit import rate_limit
-from ...models.chat import ChatSession, ChatMessage
+from ...models.chat import ChatSession, ChatMessage, ChatQaCache
 from ...models.user import User
 from ...schemas.chat import (
     ChatMessageCreate, ChatSessionResponse,
@@ -226,8 +226,9 @@ async def send_message_agentic(
 
     # ---- 十一期「QA 一级缓存」：归一化精确命中 → 免 LLM 免检索，直接回放 ----
     # 放在 user_message 落库之后：会话历史保持完整，追问历史/上下文不受影响。
+    # 注意 ChatQaCache 的 import 在模块顶部——create_all 只建"已注册进
+    # Base.metadata"的表，函数内 import 会导致启动时表建不出来（实踩）。
     q_hash = _question_hash(message_data.content)
-    from ...models.chat import ChatQaCache
     cached_hit = (
         await db.execute(select(ChatQaCache).where(ChatQaCache.question_hash == q_hash))
     ).scalar_one_or_none()
