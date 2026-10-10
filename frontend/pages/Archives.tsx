@@ -63,18 +63,31 @@ const Archives: React.FC = () => {
   const [hotspotView, setHotspotView] = useState<'theme' | 'time'>('theme');
   const [expandedHotspotGroups, setExpandedHotspotGroups] = useState<Set<string>>(new Set());
   const [openHotspotMonths, setOpenHotspotMonths] = useState<Record<string, boolean>>({});
+  // 十七期：主题组整组折叠（默认全部收起——组头一行，点开再看）
+  const [openHotspotThemes, setOpenHotspotThemes] = useState<Set<string>>(new Set());
+  const [dailyView, setDailyView] = useState<'theme' | 'date'>('theme');
   const [dailyTopics, setDailyTopics] = useState<AiDailyTopics | null>(null);
+  const [dailyIndex, setDailyIndex] = useState<AiDailyIndex | null>(null);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [expandedDailyTopics, setExpandedDailyTopics] = useState<Set<string>>(new Set());
+  // 十七期：日报主题组整组折叠（默认收起）+ 日期视图的月份折叠
+  const [openDailyTopicGroups, setOpenDailyTopicGroups] = useState<Set<string>>(new Set());
+  const [openDailyMonths, setOpenDailyMonths] = useState<Record<string, boolean>>({});
   // tab 计数即时显示（修复"变成几个点"）：挂载就拉轻量计数，不等到切 tab
   const [hotspotTotal, setHotspotTotal] = useState<number | null>(null);
   const [dailyTotal, setDailyTotal] = useState<number | null>(null);
 
-  // 计数探针（挂载即跑）：日报索引一个小 JSON；热点 page_size=1 只取 total
+  // 计数探针（挂载即跑）：日报索引一个小 JSON（index 顺便存下——"按日期"视图直接用）；
+  // 热点 page_size=1 只取 total
   useEffect(() => {
     let mounted = true;
     getAiDailyIndex().then((index) => {
-      if (mounted && index) setDailyTotal(index.total);
+      if (!mounted || !index) return;
+      setDailyTotal(index.total);
+      setDailyIndex(index);
+      if (index.months?.length) {
+        setOpenDailyMonths({ [index.months[0].month]: true });
+      }
     }).catch(() => {});
     getHotspots({ page: 1, page_size: 1, status: 'published' })
       .then((res) => { if (mounted) setHotspotTotal(res.total); })
@@ -183,6 +196,16 @@ const Archives: React.FC = () => {
       return next;
     });
   };
+  // 十七期：整组折叠切换（热点主题组 / 日报主题组）
+  const toggleSetKey = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (key: string) => {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const toggleHotspotTheme = toggleSetKey(setOpenHotspotThemes);
+  const toggleDailyTopicGroup = toggleSetKey(setOpenDailyTopicGroups);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -350,35 +373,45 @@ const Archives: React.FC = () => {
                 <div className="rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center text-slate-400 text-sm">暂无已发布热点</div>
               )}
 
-              {/* 主题视图：LLM topic_tag 分组，每组默认 8 条 */}
+              {/* 主题视图：LLM topic_tag 分组——十七期：整组可折叠（默认收起，组头一行） */}
               {!hotspotsLoading && hotspotView === 'theme' && hotspotsByTheme.map(({ theme, items }) => {
+                const groupOpen = openHotspotThemes.has(theme);
                 const expanded = expandedHotspotGroups.has(theme);
                 const display = expanded ? items : items.slice(0, HOTSPOT_PREVIEW);
                 const hasMore = items.length > HOTSPOT_PREVIEW;
                 return (
-                  <div key={theme} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                  <div key={theme} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => toggleHotspotTheme(theme)}
+                      className={`w-full flex items-center justify-between gap-3 p-5 text-left rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${groupOpen ? 'border-b border-slate-100 dark:border-slate-700' : ''}`}
+                    >
+                      <span className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                        <Icons.ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${groupOpen ? 'rotate-0' : '-rotate-90'}`} />
                         <Icons.Folder className="w-4 h-4 text-amber-500" /> {theme}
-                      </h2>
+                      </span>
                       <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">{items.length} 个专题</span>
-                    </div>
-                    <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                      {display.map((h) => (
-                        <button key={h.id} type="button" onClick={() => navigate(`/hotspots/${h.id}`)} className="w-full flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group">
-                          <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{(h.topic_date || '').slice(5) || '——'}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{h.title}</div>
-                            {h.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{h.summary}</p>}
-                          </div>
-                          <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400"><Icons.Eye className="w-3 h-3" /> {h.heat_score}</span>
-                        </button>
-                      ))}
-                    </div>
-                    {hasMore && (
-                      <button type="button" onClick={() => toggleHotspotGroup(theme)} className="mt-3 w-full text-center py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:opacity-80 transition-opacity">
-                        {expanded ? '收起 ↑' : `查看全部 ${items.length} 个 →`}
-                      </button>
+                    </button>
+                    {groupOpen && (
+                      <div className="p-5 pt-3">
+                        <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                          {display.map((h) => (
+                            <button key={h.id} type="button" onClick={() => navigate(`/hotspots/${h.id}`)} className="w-full flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group">
+                              <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{(h.topic_date || '').slice(5) || '——'}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{h.title}</div>
+                                {h.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{h.summary}</p>}
+                              </div>
+                              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400"><Icons.Eye className="w-3 h-3" /> {h.heat_score}</span>
+                            </button>
+                          ))}
+                        </div>
+                        {hasMore && (
+                          <button type="button" onClick={() => toggleHotspotGroup(theme)} className="mt-3 w-full text-center py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:opacity-80 transition-opacity">
+                            {expanded ? '收起 ↑' : `查看该主题全部 ${items.length} 个 →`}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
@@ -427,59 +460,116 @@ const Archives: React.FC = () => {
             </section>
           )}
 
-          {/* ===== AI 日报归档：滚动 30 天，纯主题聚合（点条目直达源文） ===== */}
+          {/* ===== AI 日报归档：滚动 30 天——十七期：按主题（默认，组可折叠）+ 按日期 双视图 ===== */}
           {activeTab === 'ai-daily' && (
             <section className="space-y-6">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                AIHOT 源头仅保留 30 天成稿，本站同步滚动；按主题聚合回看，点条目直达原文。
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                {([['theme', '按主题'], ['date', '按日期']] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setDailyView(key)}
+                    className={`rounded-full px-3 py-1 text-xs border transition-all ${dailyView === key ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-700 font-bold' : 'bg-white/70 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 font-medium hover:border-amber-200'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <span className="text-xs text-slate-400">AIHOT 源头仅保留 30 天成稿，本站同步滚动</span>
+              </div>
+
               {dailyLoading && (
                 <div className="flex flex-col items-center justify-center py-16 space-y-3">
                   <div className="w-8 h-8 border-2 border-slate-200 dark:border-slate-700 border-t-amber-500 rounded-full animate-spin"></div>
-                  <p className="text-slate-400 text-sm">正在拉取日报主题索引...</p>
+                  <p className="text-slate-400 text-sm">正在拉取日报索引...</p>
                 </div>
               )}
-              {!dailyLoading && !dailyTopics && (
+
+              {/* 主题视图：组头可点折叠（默认收起），展开时 8 条预览 + 查看全部 */}
+              {!dailyLoading && dailyView === 'theme' && (!dailyTopics ? (
                 <div className="rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center text-slate-400 text-sm">日报主题索引暂时不可用</div>
-              )}
-              {!dailyLoading && dailyTopics?.topics?.map((topic) => {
+              ) : dailyTopics.topics.map((topic) => {
+                const groupOpen = openDailyTopicGroups.has(topic.label);
                 const expanded = expandedDailyTopics.has(topic.label);
                 const display = expanded ? topic.items : topic.items.slice(0, HOTSPOT_PREVIEW);
                 const hasMore = topic.items.length > HOTSPOT_PREVIEW;
                 return (
-                  <div key={topic.label} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                  <div key={topic.label} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => toggleDailyTopicGroup(topic.label)}
+                      className={`w-full flex items-center justify-between gap-3 p-5 text-left rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${groupOpen ? 'border-b border-slate-100 dark:border-slate-700' : ''}`}
+                    >
+                      <span className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                        <Icons.ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${groupOpen ? 'rotate-0' : '-rotate-90'}`} />
                         <Icons.Folder className="w-4 h-4 text-amber-500" /> {topic.label}
-                      </h2>
+                      </span>
                       <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">近 30 天 {topic.count} 条</span>
-                    </div>
-                    <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                      {display.map((item, idx) => (
-                        <a
-                          key={`${topic.label}-${item.date}-${idx}`}
-                          href={item.sourceUrl || '#'}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group"
-                        >
-                          <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{item.date.slice(5)}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{item.title}</div>
-                            {item.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{item.summary}</p>}
-                          </div>
-                          {item.sourceUrl && <Icons.ExternalLink className="shrink-0 w-3.5 h-3.5 mt-1 text-slate-300 group-hover:text-amber-500" />}
-                        </a>
-                      ))}
-                    </div>
-                    {hasMore && (
-                      <button type="button" onClick={() => toggleDailyTopic(topic.label)} className="mt-3 w-full text-center py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:opacity-80 transition-opacity">
-                        {expanded ? '收起 ↑' : `查看该主题全部 ${topic.count} 条 →`}
-                      </button>
+                    </button>
+                    {groupOpen && (
+                      <div className="p-5 pt-3">
+                        <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                          {display.map((item, idx) => (
+                            <a
+                              key={`${topic.label}-${item.date}-${idx}`}
+                              href={item.sourceUrl || '#'}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group"
+                            >
+                              <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{item.date.slice(5)}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{item.title}</div>
+                                {item.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{item.summary}</p>}
+                              </div>
+                              {item.sourceUrl && <Icons.ExternalLink className="shrink-0 w-3.5 h-3.5 mt-1 text-slate-300 group-hover:text-amber-500" />}
+                            </a>
+                          ))}
+                        </div>
+                        {hasMore && (
+                          <button type="button" onClick={() => toggleDailyTopic(topic.label)} className="mt-3 w-full text-center py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:opacity-80 transition-opacity">
+                            {expanded ? '收起 ↑' : `查看该主题全部 ${topic.count} 条 →`}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
-              })}
+              }))}
+
+              {/* 日期视图：月份可折叠，点某天深链到当日简报 */}
+              {!dailyLoading && dailyView === 'date' && (!dailyIndex ? (
+                <div className="rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center text-slate-400 text-sm">日报索引暂时不可用</div>
+              ) : dailyIndex.months.map((month) => {
+                const open = !!openDailyMonths[month.month];
+                return (
+                  <div key={month.month} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setOpenDailyMonths((prev) => ({ ...prev, [month.month]: !prev[month.month] }))}
+                      className={`w-full flex items-center justify-between gap-3 p-5 text-left rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${open ? 'border-b border-slate-100 dark:border-slate-700' : ''}`}
+                    >
+                      <span className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                        <Icons.ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-0' : '-rotate-90'}`} />
+                        {month.label}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">{month.count} 期</span>
+                    </button>
+                    {open && (
+                      <div className="p-5 pt-3 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                        {(month.days || []).map((day) => (
+                          <a
+                            key={day.path}
+                            href={`#/ai-daily?p=${encodeURIComponent(day.path)}`}
+                            className="text-center rounded-xl border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:border-amber-300 dark:hover:border-amber-700 hover:text-amber-600 dark:hover:text-amber-300 hover:bg-amber-50/50 dark:hover:bg-amber-900/10 transition-colors"
+                          >
+                            {day.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }))}
             </section>
           )}
 
