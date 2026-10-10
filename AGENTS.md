@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `b2311c4`）。
-当前生产镜像 **`qianxi-blog:ci-16`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `4543da5`）。
+当前生产镜像 **`qianxi-blog:ci-18`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,29 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 十六期：归档主题化 + AI 日报滚动 30 天 + LLM 热点打标（2026-10-10，提交 `4543da5`，生产镜像 `qianxi-blog:ci-18`）
+
+用户拍板：AIHOT 源头只开放 30 天历史（/dailies 列表实测 2026-09-11→10-10），6-8 月补不了——本地同样滚动 30 天；归档页只按主题组织；热点打标借助系统 AIAgent。
+
+### AI 日报滚动 30 天
+- fetch_ai_daily.py 加 prune_old_dailies：cron 每 30 分钟无条件滚动清理（304 未更新也清）；6-8 月零散旧档删除，index/topics 无条件重建。新增 build_topics：按 section.label 聚合生成 ai-daily-topics.json（实测 319 条/5 组：技巧与观点 85、产品发布 72、行业动态 68、模型发布 64、论文研究 30）
+- 顺手回填 AIHOT 窗口内缺的 13 天（backfill_daily.py 一次性，9-11→9-23），9 月完整
+- 数据链路澄清：生产数据源是 dist/data（/etc/cron.d/blog-ai-daily 每 30 分钟直写，deploy_frontend.sh L42 保留 data 目录）；repo 的 public/data 仅快照，已对齐生产态
+
+### 热点 LLM 打标（558/558 全量完成）
+- hot_topics 加 topic_tag 列；tag_hotspots.py 容器内跑 grok-4.7（系统同款 new-api 链路），10 主题词表归一——primary_category 中英混杂不可用（"AI基础设施"90 vs "AI-Infrastructure"33）
+- 分布：研究论文 134/推理与部署 90/Agent与工具 82/多模态 70/安全与对齐 66/行业与商业 39/开源生态 31/模型发布 18/编程实践 16/其他 12；幂等可增量补新热点
+
+### 归档页主题化
+- 热点默认主题视图 + "按时间"切换（月折叠+月内 8 条截断展开）；tab 计数挂载即拉（修复"几个点"）
+- AI 日报纯主题视图（topics.json，条目直达源文）
+
+### AiDaily 补漏
+- 简报条目标题整条可点源文；"返回最新日报"→"回到今天"（已是最新时禁用置灰）；?p= 深链加载后自动滚到简报区；零内容日（如 10-05）空态卡
+
+### 踩坑
+- **手动序列化漏带新列**：HotTopicListItem schema 加了字段但 _to_list_item/_to_detail 手动构造没传——主题分组全落"未分类"。教训：**加 DB 列三件套 = ALTER + model + schema + 所有手动构造点**。
+- ssh 断连会杀远端执行中的 docker exec——长任务用 setsid nohup 脱离会话，脚本设计要幂等（本例每批 commit，断点续跑零损失）。
 ## 十五期：AI 日报上下结构 + 时间轴折叠 + 三合一归档（2026-10-10，提交 `b2311c4`，生产镜像 `qianxi-blog:ci-16`）
 
 用户三点反馈一次落地：
