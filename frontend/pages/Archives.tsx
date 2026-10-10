@@ -384,6 +384,7 @@ const Archives: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => toggleHotspotTheme(theme)}
+                      aria-expanded={groupOpen}
                       className={`w-full flex items-center justify-between gap-3 p-5 text-left rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${groupOpen ? 'border-b border-slate-100 dark:border-slate-700' : ''}`}
                     >
                       <span className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
@@ -427,7 +428,7 @@ const Archives: React.FC = () => {
                 return (
                   <div key={month} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <button type="button" onClick={() => setOpenHotspotMonths((prev) => ({ ...prev, [month]: !prev[month] }))} className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100 hover:text-amber-600 dark:hover:text-amber-300 transition-colors">
+                      <button type="button" onClick={() => setOpenHotspotMonths((prev) => ({ ...prev, [month]: !prev[month] }))} aria-expanded={open} className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100 hover:text-amber-600 dark:hover:text-amber-300 transition-colors">
                         <Icons.ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-0' : '-rotate-90'}`} />
                         {month} 月
                       </button>
@@ -497,6 +498,7 @@ const Archives: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => toggleDailyTopicGroup(topic.label)}
+                      aria-expanded={groupOpen}
                       className={`w-full flex items-center justify-between gap-3 p-5 text-left rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${groupOpen ? 'border-b border-slate-100 dark:border-slate-700' : ''}`}
                     >
                       <span className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
@@ -546,6 +548,7 @@ const Archives: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setOpenDailyMonths((prev) => ({ ...prev, [month.month]: !prev[month.month] }))}
+                      aria-expanded={open}
                       className={`w-full flex items-center justify-between gap-3 p-5 text-left rounded-3xl hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${open ? 'border-b border-slate-100 dark:border-slate-700' : ''}`}
                     >
                       <span className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">

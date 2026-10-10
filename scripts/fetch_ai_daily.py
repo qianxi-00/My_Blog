@@ -284,11 +284,12 @@ def prune_old_dailies(keep_days: int = KEEP_DAYS) -> list[str]:
     return removed
 
 
-def build_topics(limit_per_topic: int = 30) -> dict:
+def build_topics() -> dict:
     """按 section.label（AIHOT 自带的主题分类）聚合滚动窗口内的日报条目。
 
-    归档页的"AI 日报 · 按主题"视图直接消费这个静态文件——30 天窗口内
-    每天最多十几条、每主题截最近 30 条，文件体积可控。
+    归档页的"AI 日报 · 按主题"视图直接消费这个静态文件。十七期 review
+    修正：不截断——30 天全量 319 条 gzip 后仅几十 KB；此前每组截 30 条
+    导致前端"查看该主题全部 N 条"名实不符（展开永远只有 30 条）。
     """
     by_topic: dict[str, list[dict]] = {}
     total = 0
@@ -315,7 +316,7 @@ def build_topics(limit_per_topic: int = 30) -> dict:
     topics = []
     for label, items in sorted(by_topic.items(), key=lambda kv: -len(kv[1])):
         items.sort(key=lambda x: x['date'], reverse=True)
-        topics.append({'label': label, 'count': len(items), 'items': items[:limit_per_topic]})
+        topics.append({'label': label, 'count': len(items), 'items': items})
     return {'updatedAt': now_bj(), 'total': total, 'topics': topics}
 
 
