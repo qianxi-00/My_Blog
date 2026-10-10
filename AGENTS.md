@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `11fb0f2`）。
-当前生产镜像 **`qianxi-blog:ci-11`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `3f68d0c`）。
+当前生产镜像 **`qianxi-blog:ci-13`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,33 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 十三期：头脑风暴六路落地——4 个生产事故 + 全站质感批次（2026-10-09，提交 `3f68d0c`，生产镜像 `qianxi-blog:ci-13`）
+
+第二轮头脑风暴（五顾问 + 魔鬼代言人，全部实读源码）拍板全做：26 文件 +1211/-843 一批交付。魔鬼预算线全程遵守：零新依赖、短语义类、改动可逐行验收。
+
+### 生产事故修复（顾问挖出的比美化更值钱）
+
+| 事故 | 根因 | 修复 |
+|---|---|---|
+| **A1 代码块全站乱码（P0）** | `String(children)` 把 rehype-highlight 的 span 数组压成 `[object Object]`，文章页+看板娘回答代码块零高亮+复制乱码（生产带着跑了） | 渲染改 `{children}` 保 span，复制用同文件已导出的 flattenMarkdownText；复制按钮加"已复制"反馈 |
+| **A2 移动端后台不可导航（P0）** | 侧栏 `-translate-x-full` 被挪走但全文件无汉堡钮/遮罩 | 汉堡+遮罩+路由自动收起；CDP 窄视口全链实测过 |
+| **A3 primary 色阶静默失效（P1）** | config 只定义 5 档、全站引用 9 档 132 处——CDN JIT 对未定义档不生成 CSS，暗色一半配色从没上过线 | 补 sky 色阶 6 档零漂移；浏览器实测 400/900 规则已生成 |
+| **A4 TOC 死链（P1，两个根因）** | ① 手搓 id 算法与渲染侧不一致（95 篇 5/9 死链）② 提取正则不排除代码块，`# 注释` 误进目录（106 篇 12/32 死链） | ① 改 import 渲染侧同一函数 ② fenced 剥离后再匹配 |
+
+外加：3 个死动画类清零（pulse-slow 补定义、animate-in 插件语法替换、幽灵 fade-in）；DesktopPet 存量文案 U+FFFD 乱码字符修复。
+
+### 质感与效率批次（生产实测全绿）
+
+- **评论区五合一**：嵌套回复补回复按钮（原来想回二级回复只能错挂到顶级）+ 回复框共用提取 + 登录用户假昵称表单隐藏；作者回应渐变信封；点赞乐观更新（瞬变+校准+回滚，Heart 替换 emoji + like-pop）；正文 17px/1.85 中文舒适区；移动端目录抽屉（胶囊+底部 sheet）
+- **全站**：夜空氛围层铺 PublicLayout（fixed 长页可见）；路由 180ms 淡入 + ScrollToTop（instant 覆盖 smooth）；主题切换 320ms 柔和过渡（临时 class）；Toast 出场动画；reduced-motion 总闸；og 分享元数据；Home 卡片化+picsum 换本地渐变；ArticleList 话术从"运营工作台"改回读者书架
+- **后台**：评论审核从装饰卡降密度为审核行（**42 行同屏** vs 原 2-3 卡；"当前：N 条"计数修复恒显 0 的存量 bug）；ConfirmDialog 统一 17 处原生 confirm（danger 红钮+深色卡实测）；表格 TH/TD 令牌+斑马纹；Settings 整页 dark 补全；Dashboard trendUp 从死 prop 变待办仪表（amber/emerald 实测）+ 侧栏待审红点
+- **社区/AI 触点**：过程流折叠态（流结束收一行摘要）；看板娘输入区两处 textarea 化（Enter 发送/Shift+Enter 换行/发送后高度重置）；问千禧"等待千禧回复/千禧已回答"双态徽章+"投递给千禧"文案（实测显示等待态）
+
+### 执行机制与踩坑
+
+- **六路 subagent 分工**（文件清单零重叠）+ 主线手术我亲手。**两路输出崩坏**：subD 整簇未落盘（由主会话接手补完六个文件）；subB 半成品（6 处小写 th 笔误 + 声称 tsc 全绿是假话）——教训：**subagent 收尾消息不可信，落盘状态以 git diff + tsc 为准**；乱码扫描要进收尾流程（本轮 U+FFFD 1 处写入存量文案属存量但被扫描抓出）。
+- **boot page 时序坑**：CI 部署的原子替换会清掉部署前创建的 boot page → 必须部署完成后再生成。
+- 真实测试覆盖 14 项（hljs span 100 个、42 行审核列表、CDP 窄视口全链、ConfirmDialog 深色 danger、theme-switching 类生命周期、og/氛围层/卡片/徽章），全部生产浏览器实测。
 ## 十二期：review 驱动完善（2026-10-09，提交 `11fb0f2`，生产镜像 `qianxi-blog:ci-11`）
 
 十一期上线后的全量 review 轮：用户点名「review 博客更改 + AgentChat 三段式排版不美观 + 重点检查 Agentic-RAG 是否完善 + 同步 Pages 文档站」。
