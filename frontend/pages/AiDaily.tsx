@@ -170,7 +170,14 @@ const AiDaily: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedError, setSelectedError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedPath, setSelectedPath] = useState('/data/ai-daily.json');
+  // 十五期：支持 ?p= 归档深链——归档页的日期按钮跳 #/ai-daily?p=<encoded path>
+  const initialPath = useMemo(() => {
+    const match = window.location.hash.match(/[?&]p=([^&]+)/);
+    return match ? decodeURIComponent(match[1]) : '/data/ai-daily.json';
+  }, []);
+  const [selectedPath, setSelectedPath] = useState(initialPath);
+  // 十五期：时间轴按月折叠——默认只展开最新一个月，避免月份数增长后无限长
+  const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let mounted = true;
@@ -207,17 +214,19 @@ const AiDaily: React.FC = () => {
     return () => { mounted = false; };
   }, []);
 
-  const featured = useMemo(() => {
-    if (!daily) return [];
-    return daily.sections.flatMap((section) => (section.items || []).slice(0, 2).map((item) => ({ ...item, label: section.label }))).slice(0, 5);
-  }, [daily]);
-
   const totalPages = daily ? Math.max(1, Math.ceil(daily.sections.length / SECTIONS_PER_PAGE)) : 1;
   const pagedSections = useMemo(() => {
     if (!daily) return [];
     const start = (currentPage - 1) * SECTIONS_PER_PAGE;
     return daily.sections.slice(start, start + SECTIONS_PER_PAGE);
   }, [daily, currentPage]);
+
+  // 索引到达后默认展开最新一个月（只此一个，其余折叠）
+  useEffect(() => {
+    if (archiveIndex?.months?.length) {
+      setOpenMonths({ [archiveIndex.months[0].month]: true });
+    }
+  }, [archiveIndex]);
 
   const goPage = (page: number) => {
     const next = Math.min(Math.max(page, 1), totalPages);
@@ -256,54 +265,24 @@ const AiDaily: React.FC = () => {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors">
       <section className="relative overflow-hidden bg-gradient-to-br from-slate-50 via-white to-cyan-50/70 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 border-b border-slate-100 dark:border-slate-800">
         <div className="absolute inset-0 opacity-60 dark:opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 15% 20%, rgba(14,165,233,.16), transparent 28%), radial-gradient(circle at 85% 10%, rgba(99,102,241,.14), transparent 24%)' }} />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-12">
-          <div className="grid lg:grid-cols-[minmax(0,0.95fr)_minmax(520px,1.05fr)] gap-7 xl:gap-10 items-stretch">
-            <div className="flex flex-col justify-center">
-              {/* 十四期首屏瘦身：两个 hero 合一——砍 3 张统计卡 + 2 个锚点按钮
-                  （统计与精选面板重复、按钮指向的区块就在下屏），介绍砍到一句。
-                  同步时间并进徽章行，信息零丢失。 */}
+        {/* 十五期：左右双栏砍成单列紧凑头——原左栏文字少显得空洞、右栏"实时榜"
+            与下方精选网格是同一批数据的重复子集，整块删除。精选面板直接承接为首屏主体。 */}
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+            <div>
               <div className="inline-flex w-fit items-center gap-2 px-3 py-1.5 rounded-full bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 shadow-sm">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 实时精选 · 每 30 分钟更新 · {formatTime(selected?.fetchedAt || daily.fetchedAt)}
               </div>
-              <h1 className="mt-5 text-3xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <h1 className="mt-4 text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
                 AI日报<span className="text-primary-500"> · 实时热点精选</span>
               </h1>
-              <p className="mt-4 max-w-xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-                上方是与 AI HOT 对齐的实时精选流（{selected?.total || 0} 条在池），下方保留每日成稿简报与历史归档。
+              <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                与 AI HOT 对齐的实时精选流（{selected?.total || 0} 条在池），下方保留每日成稿简报与历史归档。
               </p>
             </div>
-
-            <div className="bg-white/90 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-3xl p-5 md:p-6 shadow-xl shadow-slate-200/60 dark:shadow-black/20 backdrop-blur self-center">
-              <div className="flex items-center justify-between mb-5">
-                <div>
-                  <div className="text-sm text-slate-500 dark:text-slate-400">实时榜</div>
-                  <div className="text-xl font-bold text-slate-900 dark:text-white">现在值得先看</div>
-                </div>
-                <Icons.Sparkles className="w-6 h-6 text-primary-500" />
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {(selected?.items?.slice(0, 5) || []).map((item, index) => (
-                  <a key={`${item.id || item.url}-${index}`} href={item.url || '#'} target="_blank" rel="noreferrer" className={`block rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/40 p-4 hover:border-primary-200 dark:hover:border-primary-700 hover:bg-white dark:hover:bg-slate-800 transition-colors ${index === 0 ? 'sm:col-span-2' : ''}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`px-2 py-0.5 rounded-full border text-[11px] font-bold ${selectedCategoryBadge(item.category)}`}>{selectedCategoryName(item.category)}</span>
-                      <span className="text-xs text-slate-400">#{index + 1}</span>
-                    </div>
-                    <div className="font-bold text-slate-900 dark:text-white line-clamp-2">{item.title}</div>
-                    {item.summary && <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400 line-clamp-2">{item.summary}</p>}
-                  </a>
-                ))}
-                {!selected?.items?.length && featured.map((item, index) => (
-                  <a key={`${item.title}-${index}`} href={item.sourceUrl || '#'} target="_blank" rel="noreferrer" className={`block rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/40 p-4 hover:border-primary-200 dark:hover:border-primary-700 hover:bg-white dark:hover:bg-slate-800 transition-colors ${index === 0 ? 'sm:col-span-2' : ''}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`px-2 py-0.5 rounded-full border text-[11px] font-bold ${categoryStyle(item.label)}`}>{item.label}</span>
-                      <span className="text-xs text-slate-400">#{index + 1}</span>
-                    </div>
-                    <div className="font-bold text-slate-900 dark:text-white line-clamp-2">{item.title}</div>
-                    {item.summary && <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400 line-clamp-2">{item.summary}</p>}
-                  </a>
-                ))}
-              </div>
+            <div className="text-sm font-semibold text-slate-500 dark:text-slate-400 shrink-0">
+              {formatDate(daily.date)} · {totalItems(daily.sections)} 条简报
             </div>
           </div>
         </div>
@@ -329,26 +308,36 @@ const AiDaily: React.FC = () => {
                 <Icons.Clock className="w-4 h-4 text-primary-500" /> 日报时间轴
               </div>
               <div className="space-y-1">
-                {months.slice(0, 8).map((month) => (
-                  <div key={month.month} className="relative pl-5 py-3 border-l border-slate-200 dark:border-slate-700 last:border-transparent">
-                    <span className="absolute -left-[5px] top-5 w-2.5 h-2.5 rounded-full bg-primary-400 ring-4 ring-primary-50 dark:ring-primary-900/30" />
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-bold text-slate-800 dark:text-slate-100">{month.label}</div>
+                {months.map((month) => (
+                  <div key={month.month} className="relative pl-5 border-l border-slate-200 dark:border-slate-700 last:border-transparent">
+                    <span className={`absolute -left-[5px] w-2.5 h-2.5 rounded-full ring-4 top-3.5 ${openMonths[month.month] ? 'bg-primary-400 ring-primary-50 dark:ring-primary-900/30' : 'bg-slate-300 dark:bg-slate-600 ring-transparent dark:ring-transparent'}`} />
+                    {/* 十五期：月份行可点折叠——月份数会一直增长，默认只展开最新一个月 */}
+                    <button
+                      type="button"
+                      onClick={() => setOpenMonths((prev) => ({ ...prev, [month.month]: !prev[month.month] }))}
+                      className="w-full flex items-center justify-between gap-3 py-3 rounded-xl px-2 -ml-1 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-100">
+                        <Icons.ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${openMonths[month.month] ? 'rotate-0' : '-rotate-90'}`} />
+                        {month.label}
+                      </div>
                       <div className="text-sm font-bold text-slate-400 dark:text-slate-500">{month.count}</div>
-                    </div>
-                    <div className="mt-3 space-y-1.5">
-                      {(month.days || []).slice(0, 12).map((day) => (
-                        <button
-                          key={day.path}
-                          type="button"
-                          onClick={() => setSelectedPath(day.path)}
-                          className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-sm transition-colors ${selectedPath === day.path ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 font-bold' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
-                        >
-                          <span>{day.label}</span>
-                          {selectedPath === day.path && <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />}
-                        </button>
-                      ))}
-                    </div>
+                    </button>
+                    {openMonths[month.month] && (
+                      <div className="mt-1 mb-3 space-y-1.5">
+                        {(month.days || []).map((day) => (
+                          <button
+                            key={day.path}
+                            type="button"
+                            onClick={() => setSelectedPath(day.path)}
+                            className={`w-full flex items-center justify-between rounded-xl px-3 py-2 text-sm transition-colors ${selectedPath === day.path ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 font-bold' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
+                          >
+                            <span>{day.label}</span>
+                            {selectedPath === day.path && <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
