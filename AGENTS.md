@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `f93c43f`）。
-当前生产镜像 **`qianxi-blog:ci-15`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `b2311c4`）。
+当前生产镜像 **`qianxi-blog:ci-16`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,15 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 十五期：AI 日报上下结构 + 时间轴折叠 + 三合一归档（2026-10-10，提交 `b2311c4`，生产镜像 `qianxi-blog:ci-16`）
+
+用户三点反馈一次落地：
+
+1. **AI 日报 hero 改上下结构**：十四期留下的左右双栏仍不佳——左栏文字少显空洞、右栏"实时榜"5 卡与下方精选网格同源重复。双栏整块删除，hero 瘦成一行紧凑头（实测 721px → **203px**），精选面板直接承接首屏主体。
+2. **日报时间轴按月折叠**：月份行整行可点 + chevron，默认只展开最新月；去掉 8 月/12 天截断（折叠后无需）。实测 5 个月份钮、展开月 10 天可见。
+3. **归档页三合一**（文章/热点/AI 日报，全前端零后端改动）：文章 tab 沿用标签文件夹+热力条；热点 tab 全量拉取按 topic_date 月份分组（实测 7 组）；AI 日报 tab 用 getAiDailyIndex 月/日索引（月份同款折叠）。热点/日报数据切 tab 懒加载。**深链闭环**：归档点某天 → `#/ai-daily?p=<encoded path>` → AiDaily 用 `?p=` 初始化 selectedPath 直达当日简报（实测通）。
+
+踩坑备注：deploy 后旧 tab 必须 reload 才加载新 chunk（hash 导航不重载），"现在值得先看"字样残留是旧 chunk 不是回滚。
 ## 十四期：AI 日报首屏瘦身（2026-10-09，提交 `f93c43f`，生产镜像 `qianxi-blog:ci-15`）
 
 用户实测反馈"一打开上面一大坨"——诊断：首屏两个叠着的巨型 hero（hero + 精选面板各自的开场三连/统计卡），内容网格被推到 ~2500px 下，且两坨数据自我重复（实时榜 top5 vs featured top3 同源、同步时间统计卡 ×2）。
