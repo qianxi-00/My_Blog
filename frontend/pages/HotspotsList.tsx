@@ -72,19 +72,12 @@ interface HotspotArchiveSidebarProps {
 }
 
 const PAGE_SIZE = 10;
-// 十八期：20→100——静态快照退役后页面走 API 全量拉取（558 条），
+// 十八期：20→100——快照链路删除后页面走 API 全量拉取（558 条），
 // 20/页要串行 28 次请求（3-5 秒），100/页 6 次秒级。
 const HOTSPOT_FETCH_PAGE_SIZE = 100;
-const HOTSPOT_SNAPSHOT_PATH = '/data/hotspots-published.json';
 const MAX_ARCHIVE_MONTHS = 12;
 const ARCHIVE_MIN_MONTH = '2026-03';
 const STACK_COLLAPSED_LIMIT = 8;
-
-type HotspotSnapshot = {
-  updatedAt?: string;
-  total?: number;
-  items?: HotTopicListItem[];
-};
 
 const parsePositiveInt = (value: string | null, fallback = 1) => {
   const parsed = Number(value || fallback);
@@ -132,19 +125,8 @@ const getHeatScore = (item: HotTopicListItem) => Number(item.heat_score || 0);
 
 const dedupeHotspots = (items: HotTopicListItem[]) => Array.from(new Map(items.map((item) => [item.id, item])).values());
 
-const fetchHotspotSnapshot = async (): Promise<HotTopicListItem[]> => {
-  const response = await fetch(HOTSPOT_SNAPSHOT_PATH, { cache: 'default' });
-  if (!response.ok) {
-    throw new Error(`热点快照加载失败: ${response.status}`);
-  }
-
-  const payload = (await response.json()) as HotspotSnapshot;
-  if (!Array.isArray(payload.items)) {
-    throw new Error('热点快照格式无效');
-  }
-
-  return dedupeHotspots(payload.items.filter((item) => item?.status === 'published'));
-};
+// 十八期：fetchHotspotSnapshot 与 HOTSPOT_SNAPSHOT_PATH 已删除（陈旧快照
+// 是"热点页看不到 DB 更新"的根因，且无生成链路）。数据源 = API 全量分页拉取。
 
 const fetchHotspotsFromApi = async (): Promise<HotTopicListItem[]> => {
   let currentPage = 1;
@@ -700,14 +682,10 @@ const HotspotsList: React.FC = () => {
     const fetchAllPublished = async () => {
       setLoading(true);
       try {
-        let deduped: HotTopicListItem[] = [];
-        try {
-          deduped = await fetchHotspotSnapshot();
-        } catch (snapshotError) {
-          console.warn('热点静态快照不可用，回退到 API 拉取', snapshotError);
-          deduped = await fetchHotspotsFromApi();
-        }
-
+        // 十八期：静态快照链路删除——它是 2026-07-09 的一次性陈旧产物（无生成链路），
+        // 页面一直吃旧数据看不到 DB 更新；且文件缺失时 nginx SPA fallback 返回 200+HTML，
+        // fetch(cache:'default') 在浏览器缓存命中时照样吃到旧 JSON。数据源直连 API。
+        const deduped = await fetchHotspotsFromApi();
         if (alive) {
           setAllItems(deduped);
         }
