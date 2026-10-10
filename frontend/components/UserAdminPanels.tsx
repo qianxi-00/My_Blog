@@ -284,6 +284,8 @@ interface UsersStats {
 export const AdminUserPanel: React.FC = () => {
     const { showToast } = useToast();
     const { admin: me } = useAuth();
+    // 检修补丁：封禁/解封确认换统一 ConfirmDialog（原 window.confirm 深色下白框）
+    const { confirm, confirmDialog } = useConfirm();
     const [users, setUsers] = useState<ManagedUser[]>([]);
     const [stats, setStats] = useState<UsersStats | null>(null);
     const [loading, setLoading] = useState(true);
@@ -350,7 +352,14 @@ export const AdminUserPanel: React.FC = () => {
     const handleToggleBan = async (user: ManagedUser) => {
         const banned = isBanned(user);
         const action = banned ? '解封' : '封禁';
-        if (!window.confirm(`确定要${action}用户 ${user.display_name || user.username} 吗？`)) return;
+        // 检修补丁：封禁是不可逆伤人操作 → danger
+        const ok = await confirm({
+            title: `${action}用户`,
+            message: `确定要${action}用户「${user.display_name || user.username}」吗？`,
+            confirmText: action,
+            danger: !banned,
+        });
+        if (!ok) return;
 
         setActingId(user.id);
         try {
@@ -548,6 +557,9 @@ export const AdminUserPanel: React.FC = () => {
                 onClose={() => setDetailId(null)}
                 onChanged={() => { fetchUsers(); fetchStats(); }}
             />
+
+            {/* 检修补丁：统一确认弹窗 */}
+            {confirmDialog}
         </div>
     );
 };
@@ -558,6 +570,8 @@ export const AdminUserPanel: React.FC = () => {
 export const AdminAccountsPanel: React.FC = () => {
     const { showToast } = useToast();
     const { admin: me } = useAuth();
+    // 检修补丁：停用/重置密码/删除管理员的确认换统一 ConfirmDialog
+    const { confirm, confirmDialog } = useConfirm();
     const [admins, setAdmins] = useState<AdminUserItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [actingId, setActingId] = useState<number | null>(null);
@@ -616,7 +630,13 @@ export const AdminAccountsPanel: React.FC = () => {
     const handleToggleActive = async (admin: AdminUserItem) => {
         const active = admin.is_active !== false;
         const action = active ? '停用' : '启用';
-        if (!window.confirm(`确定要${action}管理员 ${admin.display_name || admin.username} 吗？${active ? '其所有登录会话将立即失效。' : ''}`)) return;
+        const ok = await confirm({
+            title: `${action}管理员`,
+            message: `确定要${action}管理员「${admin.display_name || admin.username}」吗？${active ? '其所有登录会话将立即失效。' : ''}`,
+            confirmText: action,
+            danger: active,
+        });
+        if (!ok) return;
         setActingId(admin.id);
         try {
             await updateAdmin(admin.id, { is_active: !active });
@@ -634,7 +654,13 @@ export const AdminAccountsPanel: React.FC = () => {
             showToast('新密码至少 6 位', 'error');
             return;
         }
-        if (!window.confirm(`确定重置 ${admin.display_name || admin.username} 的密码吗？其所有登录会话将立即失效。`)) return;
+        const ok = await confirm({
+            title: '重置密码',
+            message: `确定重置「${admin.display_name || admin.username}」的密码吗？其所有登录会话将立即失效。`,
+            confirmText: '重置',
+            danger: true,
+        });
+        if (!ok) return;
         setActingId(admin.id);
         try {
             await resetAdminPassword(admin.id, { new_password: newPwd });
@@ -650,7 +676,13 @@ export const AdminAccountsPanel: React.FC = () => {
     };
 
     const handleDelete = async (admin: AdminUserItem) => {
-        if (!window.confirm(`确定删除管理员 ${admin.display_name || admin.username} 吗？此操作不可逆。`)) return;
+        const ok = await confirm({
+            title: '删除管理员',
+            message: `确定删除管理员「${admin.display_name || admin.username}」吗？此操作不可逆。`,
+            confirmText: '删除',
+            danger: true,
+        });
+        if (!ok) return;
         setActingId(admin.id);
         try {
             await deleteAdmin(admin.id);
@@ -850,6 +882,9 @@ export const AdminAccountsPanel: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* 检修补丁：统一确认弹窗 */}
+            {confirmDialog}
         </div>
     );
 };

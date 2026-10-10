@@ -5,6 +5,7 @@ import MarkdownContent from './MarkdownContent';
 import AgentProcessStrip, { ProcessStep } from './AgentProcessStrip';
 import { createChatSession, streamAgenticChat, getChatHistory, ChatSession, getMyChatSessions, MyChatSessionItem } from '../api/chat';
 import { createForumThread, getForumCategories } from '../api/forum';
+import { useConfirm } from './ConfirmDialog';
 
 type PetVariant = {
   id: string;
@@ -393,6 +394,8 @@ const ChatBubble: React.FC<{
 const DesktopPet: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [session, setSession] = useState<ChatSession | null>(null);
+  // 检修补丁：统一确认弹窗（清空聊天用它，替换原生 window.confirm）
+  const { confirm, confirmDialog } = useConfirm();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -980,8 +983,15 @@ const DesktopPet: React.FC = () => {
     }
   };
 
-  const handleClearChat = () => {
-    if (window.confirm('确定要清空聊天记录吗？')) {
+  const handleClearChat = async () => {
+    // 检修补丁：原生 window.confirm 换统一 ConfirmDialog（深色模式下白框撕裂）
+    const ok = await confirm({
+      title: '清空聊天记录',
+      message: '当前对话将被清空，看板娘会重新开场。确定吗？',
+      confirmText: '清空',
+      danger: true,
+    });
+    if (ok) {
       setMessages([{
         id: '1',
         role: 'assistant',
@@ -1439,7 +1449,9 @@ const DesktopPet: React.FC = () => {
                   e.target.style.height = `${Math.min(e.target.scrollHeight, 112)}px`;
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  // 检修补丁：isComposing 保护——中文输入法按 Enter 选候选词不发送
+                  // （AgentChat 早有同款，两处 textarea 漏抄）
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault();
                     handleSend();
                   }
@@ -1588,7 +1600,7 @@ const DesktopPet: React.FC = () => {
                     e.target.style.height = `${Math.min(e.target.scrollHeight, 112)}px`;
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                       e.preventDefault();
                       handleSend();
                     }
@@ -1750,6 +1762,9 @@ const DesktopPet: React.FC = () => {
           <div className={`absolute inset-0 rounded-full ${currentTheme.avatarGlow} blur-xl -z-10 transition-all`}></div>
         </div>
       </div>
+
+      {/* 检修补丁：统一确认弹窗（清空聊天记录用） */}
+      {confirmDialog}
     </div>
   );
 };

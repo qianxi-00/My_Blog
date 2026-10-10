@@ -66,12 +66,21 @@ export function useConfirm() {
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2.5">
-          <Button variant="outline" size="sm" onClick={() => settle(false)}>取消</Button>
+          {/* 检修补丁：danger 场景焦点给"取消"——弹窗后误按 Enter 不能直接执行
+              删除类操作，必须显式点击确认（普通场景保持确认钮 autoFocus） */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => settle(false)}
+            autoFocus={state.danger}
+          >
+            取消
+          </Button>
           <Button
             variant={state.danger ? 'danger' : 'primary'}
             size="sm"
             onClick={() => settle(true)}
-            autoFocus
+            autoFocus={!state.danger}
           >
             {state.confirmText || '确认'}
           </Button>

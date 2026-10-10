@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import { Icons } from './Icons';
 import { Button } from './Shared';
 import { useToast } from './Toast';
+import { useConfirm } from './ConfirmDialog';
 import { useAuth } from '../contexts/AuthContext';
 import {
     AdminUserDetail,
@@ -45,6 +46,8 @@ const Badge: React.FC<{ status?: string }> = ({ status }) => {
 export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onClose, onChanged }) => {
     const { showToast } = useToast();
     const { admin: me } = useAuth();
+    // 检修补丁：抽屉内 4 处危险操作确认换统一 ConfirmDialog（原 window.confirm）
+    const { confirm, confirmDialog } = useConfirm();
     const [detail, setDetail] = useState<AdminUserDetail | null>(null);
     const [loading, setLoading] = useState(false);
     const [acting, setActing] = useState('');
@@ -85,11 +88,17 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
         }
     };
 
-    const handleToggleBan = () => {
+    const handleToggleBan = async () => {
         if (!detail) return;
         const banned = detail.is_active === false;
         const action = banned ? '解封' : '封禁';
-        if (!window.confirm(`确定要${action}用户 ${detail.display_name || detail.username} 吗？`)) return;
+        const ok = await confirm({
+            title: `${action}用户`,
+            message: `确定要${action}用户「${detail.display_name || detail.username}」吗？`,
+            confirmText: action,
+            danger: !banned,
+        });
+        if (!ok) return;
         run('ban', () => (banned ? unbanUser(detail.id) : banUser(detail.id)), () => {
             showToast(`${action}成功`, 'success');
             getDetail(detail.id).then(setDetail);
@@ -97,18 +106,29 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
         });
     };
 
-    const handleResetPassword = () => {
+    const handleResetPassword = async () => {
         if (!detail) return;
-        if (!window.confirm(`确定重置 ${detail.display_name || detail.username} 的密码吗？其所有登录会话将立即失效。`)) return;
+        const ok = await confirm({
+            title: '重置密码',
+            message: `确定重置「${detail.display_name || detail.username}」的密码吗？其所有登录会话将立即失效。`,
+            confirmText: '重置',
+            danger: true,
+        });
+        if (!ok) return;
         run('resetpwd', async () => {
             const res = await resetUserPassword(detail.id);
             setTempPassword(res.temp_password);
         }, () => onChanged());
     };
 
-    const handleRole = (role: 'user' | 'admin') => {
+    const handleRole = async (role: 'user' | 'admin') => {
         if (!detail) return;
-        if (!window.confirm(`确定把 ${detail.display_name || detail.username} 的角色改为「${role === 'admin' ? '管理员' : '普通用户'}」吗？`)) return;
+        const ok = await confirm({
+            title: '修改角色',
+            message: `确定把「${detail.display_name || detail.username}」的角色改为「${role === 'admin' ? '管理员' : '普通用户'}」吗？`,
+            confirmText: '修改',
+        });
+        if (!ok) return;
         run('role', () => setUserRole(detail.id, role), () => {
             showToast('角色已更新', 'success');
             getDetail(detail.id).then(setDetail);
@@ -373,6 +393,9 @@ export const UserDetailDrawer: React.FC<UserDetailDrawerProps> = ({ userId, onCl
                         )}
                     </div>
                 )}
+
+                {/* 检修补丁：统一确认弹窗 */}
+                {confirmDialog}
             </div>
         </div>
     );

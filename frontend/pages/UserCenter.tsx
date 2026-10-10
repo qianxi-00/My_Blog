@@ -25,6 +25,7 @@ import {
     deleteMyPrompt,
 } from '../api/users';
 import { errorText } from '../utils/errors';
+import { useConfirm } from '../components/ConfirmDialog';
 
 type ArticleTab = 'all' | UserArticleStatus;
 
@@ -292,6 +293,8 @@ const PasswordSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ o
 // ===== 我的文章 =====
 const ArticleSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ onAuthError }) => {
     const navigate = useNavigate();
+    // 检修补丁：删自己的文章走统一 ConfirmDialog（hook 在本子组件内）
+    const { confirm, confirmDialog } = useConfirm();
     const [activeTab, setActiveTab] = useState<ArticleTab>('all');
     const [articles, setArticles] = useState<UserArticle[]>([]);
     const [loading, setLoading] = useState(true);
@@ -345,7 +348,14 @@ const ArticleSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ on
     };
 
     const handleDelete = async (id: number) => {
-        if (!window.confirm('确定要删除这篇文章吗？')) return;
+        // 文章删除（检修补丁：原 window.confirm）
+        const ok = await confirm({
+            title: '删除文章',
+            message: '确定要删除这篇文章吗？删除后不可恢复。',
+            confirmText: '删除',
+            danger: true,
+        });
+        if (!ok) return;
         setActingId(id);
         try {
             await deleteMyArticle(id);
@@ -482,6 +492,9 @@ const ArticleSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ on
                     </button>
                 </div>
             )}
+
+            {/* 检修补丁：统一确认弹窗（删文章） */}
+            {confirmDialog}
         </div>
     );
 };
@@ -626,6 +639,8 @@ const PROMPT_STATUS_BADGES: Record<string, { label: string; className: string }>
 };
 
 const MyPromptsSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ onAuthError }) => {
+    // 检修补丁：删自己的提示词走统一 ConfirmDialog（hook 在本子组件内）
+    const { confirm, confirmDialog } = useConfirm();
     const [prompts, setPrompts] = useState<MyPrompt[]>([]);
     const [loading, setLoading] = useState(true);
     const [actingId, setActingId] = useState<number | null>(null);
@@ -652,7 +667,14 @@ const MyPromptsSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ 
     }, []);
 
     const handleDelete = async (id: number) => {
-        if (!window.confirm('确定删除这条提示词吗？')) return;
+        // 提示词删除（检修补丁：原 window.confirm）
+        const ok = await confirm({
+            title: '删除提示词',
+            message: '确定删除这条提示词吗？删除后不可恢复。',
+            confirmText: '删除',
+            danger: true,
+        });
+        if (!ok) return;
         setActingId(id);
         try {
             await deleteMyPrompt(id);
@@ -805,6 +827,9 @@ const MyPromptsSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ 
                     })}
                 </div>
             )}
+
+            {/* 检修补丁：统一确认弹窗（删提示词） */}
+            {confirmDialog}
         </div>
     );
 };

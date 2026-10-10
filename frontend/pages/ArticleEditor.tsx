@@ -15,11 +15,14 @@ import { remarkDisableIndentedCodeBlock } from '../utils/remark-plugins';
 import { getFileUrl } from '../api/config';
 import CoverCropper from '../components/CoverCropper';
 import { errorText } from '../utils/errors';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const ArticleEditor: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const isEdit = !!id;
+    // 检修补丁：导入 md 与已有内容冲突时换统一 ConfirmDialog（原 window.confirm）
+    const { confirm, confirmDialog } = useConfirm();
 
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -179,7 +182,7 @@ const ArticleEditor: React.FC = () => {
 
         setUploading(true);
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = async (event) => {
             const rawContent = event.target?.result as string;
             if (!rawContent) {
                 setUploading(false);
@@ -206,11 +209,17 @@ const ArticleEditor: React.FC = () => {
                 setTitle(file.name.replace(/\.md$/, ''));
             }
 
-            // 设置内容
+            // 设置内容（检修补丁：confirm 替换 vs 追加）
             if (!content.trim()) {
                 setContent(body);
             } else {
-                if (window.confirm('当前已有内容，是否替换？选择"取消"将追加到末尾。')) {
+                const replace = await confirm({
+                    title: '导入内容冲突',
+                    message: '当前已有内容。点「替换」覆盖现有内容，点「取消」把新内容追加到末尾。',
+                    confirmText: '替换',
+                    danger: true,
+                });
+                if (replace) {
                     setContent(body);
                 } else {
                     setContent(prev => prev + '\n\n---\n\n' + body);
@@ -528,6 +537,9 @@ const ArticleEditor: React.FC = () => {
                     />
                 )
             }
+
+            {/* 检修补丁：统一确认弹窗 */}
+            {confirmDialog}
         </>
     );
 };

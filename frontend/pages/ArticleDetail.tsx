@@ -475,6 +475,8 @@ const ArticleDetail: React.FC = () => {
                   只能错挂到顶级下，对话指代断裂。补上回复按钮，parent id 直连本层。 */}
               <button
                 onClick={() => {
+                  // 检修补丁：切换回复目标时清掉旧框里的半截字（防错发给上一人）
+                  if (replyingTo !== reply.id) setReplyText('');
                   setReplyingTo(replyingTo === reply.id ? null : reply.id);
                   setReplyNickname(nickname);
                 }}
@@ -600,6 +602,8 @@ const ArticleDetail: React.FC = () => {
               </button>
               <button
                 onClick={() => {
+                  // 检修补丁：切换回复目标时清掉旧框里的半截字
+                  if (replyingTo !== comment.id) setReplyText('');
                   setReplyingTo(replyingTo === comment.id ? null : comment.id);
                   setReplyNickname(nickname);
                 }}
