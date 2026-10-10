@@ -83,11 +83,14 @@ export const buildHeadingId = (input: ReactNode | string) => {
 
 // 从 Markdown 原文提取标题，供目录导航复用
 export const extractHeadingsFromMarkdown = (markdown: string): MarkdownHeadingItem[] => {
+  // 十三期补：先剥掉 fenced code block——代码块里的 `# 注释` 会被行首正则
+  // 误收集成"标题"（Sarsa 篇实测 12 条伪目录项，渲染侧不产生对应 DOM 全成死链）。
+  const stripped = markdown.replace(/```[\s\S]*?```/g, '');
   const headingRegex = /^(#{1,6})\s+(.+)$/gm;
   const headings: MarkdownHeadingItem[] = [];
   let match;
 
-  while ((match = headingRegex.exec(markdown)) !== null) {
+  while ((match = headingRegex.exec(stripped)) !== null) {
     const level = match[1].length;
     const rawText = match[2]
       .replace(/\s+#+\s*$/, '')
