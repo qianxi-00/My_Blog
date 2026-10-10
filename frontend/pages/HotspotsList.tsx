@@ -72,7 +72,9 @@ interface HotspotArchiveSidebarProps {
 }
 
 const PAGE_SIZE = 10;
-const HOTSPOT_FETCH_PAGE_SIZE = 20;
+// 十八期：20→100——静态快照退役后页面走 API 全量拉取（558 条），
+// 20/页要串行 28 次请求（3-5 秒），100/页 6 次秒级。
+const HOTSPOT_FETCH_PAGE_SIZE = 100;
 const HOTSPOT_SNAPSHOT_PATH = '/data/hotspots-published.json';
 const MAX_ARCHIVE_MONTHS = 12;
 const ARCHIVE_MIN_MONTH = '2026-03';
