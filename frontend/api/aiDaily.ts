@@ -86,6 +86,27 @@ export interface AiDailyIndex {
   months: AiDailyArchiveMonth[];
 }
 
+/** 十六期：滚动 30 天内按 section.label 聚合的主题索引（fetch_ai_daily.py 每次抓取重建） */
+export interface AiDailyTopicItem {
+  date: string;
+  title: string;
+  summary?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+}
+
+export interface AiDailyTopicGroup {
+  label: string;
+  count: number;
+  items: AiDailyTopicItem[];
+}
+
+export interface AiDailyTopics {
+  updatedAt?: string;
+  total: number;
+  topics: AiDailyTopicGroup[];
+}
+
 export const getAiDaily = async (path = '/data/ai-daily.json'): Promise<AiDailyPayload> => {
   const response = await fetch(path, { cache: 'no-store' });
   if (!response.ok) {
@@ -97,6 +118,17 @@ export const getAiDaily = async (path = '/data/ai-daily.json'): Promise<AiDailyP
 export const getAiDailyIndex = async (): Promise<AiDailyIndex | null> => {
   try {
     const response = await fetch('/data/ai-daily-index.json', { cache: 'no-store' });
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
+};
+
+/** 十六期：主题聚合索引（30 天滚动窗口） */
+export const getAiDailyTopics = async (): Promise<AiDailyTopics | null> => {
+  try {
+    const response = await fetch('/data/ai-daily-topics.json', { cache: 'no-store' });
     if (!response.ok) return null;
     return response.json();
   } catch {

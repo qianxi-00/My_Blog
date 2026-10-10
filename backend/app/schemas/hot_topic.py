@@ -33,6 +33,8 @@ class HotTopicListItem(BaseModel):
     heat_score: Decimal = Decimal("0")
     status: str
     primary_category: Optional[str] = None
+    # 十六期：LLM 归一主题标签（归档页按主题分组用）
+    topic_tag: Optional[str] = None
     published_at: Optional[datetime] = None
     article_id: Optional[int] = None
     comment_count: int = 0
@@ -55,6 +57,7 @@ class HotTopicDetailResponse(BaseModel):
     heat_score: Decimal = Decimal("0")
     status: str
     primary_category: Optional[str] = None
+    topic_tag: Optional[str] = None
     published_at: Optional[datetime] = None
     article_id: Optional[int] = None
     comment_count: int = 0

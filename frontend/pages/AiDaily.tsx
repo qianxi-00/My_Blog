@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icons } from '../components/Icons';
 import { getAiDaily, getAiDailyIndex, getAiSelected, AiDailyPayload, AiDailySection, AiDailyIndex, AiSelectedPayload, AiSelectedItem } from '../api/aiDaily';
 
@@ -228,6 +228,18 @@ const AiDaily: React.FC = () => {
     }
   }, [archiveIndex]);
 
+  // 十六期：归档页深链（?p=历史日期）到达时，加载完直接滚到简报区——
+  // 否则用户落在实时精选头部，看不到自己点的那天简报。
+  const isDeepLinkRef = useRef(initialPath !== '/data/ai-daily.json');
+  useEffect(() => {
+    if (!loading && !error && isDeepLinkRef.current) {
+      isDeepLinkRef.current = false;
+      window.requestAnimationFrame(() => {
+        document.getElementById('daily-brief')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }, [loading, error]);
+
   const goPage = (page: number) => {
     const next = Math.min(Math.max(page, 1), totalPages);
     setCurrentPage(next);
@@ -341,8 +353,20 @@ const AiDaily: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <button type="button" onClick={() => setSelectedPath('/data/ai-daily.json')} className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-300">
-                返回最新日报 <Icons.ArrowRight className="w-4 h-4" />
+              {/* 十六期：「返回最新日报」语义修复——原按钮在已是最新时点击无任何反馈，
+                  看起来像坏的。改为：已在最新时禁用置灰；点击 = 切回最新 + 滚到简报区。 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPath('/data/ai-daily.json');
+                  window.requestAnimationFrame(() => {
+                    document.getElementById('daily-brief')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  });
+                }}
+                disabled={selectedPath === '/data/ai-daily.json'}
+                className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-300 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500 dark:disabled:hover:text-slate-400 transition-colors"
+              >
+                回到今天 <Icons.ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </aside>
@@ -370,7 +394,14 @@ const AiDaily: React.FC = () => {
                         <div className="flex gap-4">
                           <div className="shrink-0 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 flex items-center justify-center text-sm font-bold">{index + 1}</div>
                           <div className="min-w-0 flex-1">
-                            <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-snug group-hover:text-primary-600 dark:group-hover:text-primary-300 transition-colors">{item.title}</h3>
+                            {/* 十六期：标题整条可点直达源文（原来只有"查看来源"能点，标题死文字） */}
+                            {item.sourceUrl ? (
+                              <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="block">
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-snug group-hover:text-primary-600 dark:group-hover:text-primary-300 transition-colors">{item.title}</h3>
+                              </a>
+                            ) : (
+                              <h3 className="text-lg font-bold text-slate-900 dark:text-white leading-snug">{item.title}</h3>
+                            )}
                             {item.summary && <p className="mt-2 text-slate-600 dark:text-slate-300 leading-7">{item.summary}</p>}
                             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-400 dark:text-slate-500">
                               {item.sourceName && <span className="inline-flex items-center gap-1"><Icons.Link className="w-4 h-4" />{item.sourceName}</span>}
@@ -385,14 +416,26 @@ const AiDaily: React.FC = () => {
               );
             })}
 
-            <div className="flex flex-wrap items-center justify-center gap-2 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 shadow-sm">
-              <button type="button" onClick={() => goPage(currentPage - 1)} disabled={currentPage === 1} className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">上一页</button>
-              {Array.from({ length: totalPages }).map((_, index) => {
-                const page = index + 1;
-                return <button key={page} type="button" onClick={() => goPage(page)} className={`w-10 h-10 rounded-xl text-sm font-bold transition-colors ${page === currentPage ? 'bg-primary-500 text-white shadow-sm' : 'bg-slate-50 dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800'}`}>{page}</button>;
-              })}
-              <button type="button" onClick={() => goPage(currentPage + 1)} disabled={currentPage === totalPages} className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">下一页</button>
-            </div>
+            {/* 十六期：AIHOT 当日零内容的日子（如 2026-10-05 成稿 0 节）给出空态，
+                不再渲染孤零零的分页器 */}
+            {pagedSections.length === 0 && (
+              <div className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-12 text-center">
+                <div className="text-3xl mb-3 opacity-40">📭</div>
+                <div className="text-sm font-bold text-slate-600 dark:text-slate-300">这一天的成稿没有内容</div>
+                <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">AIHOT 当日未生成日报内容。可从左侧时间轴挑其他日期，或点上方「回到今天」。</p>
+              </div>
+            )}
+
+            {totalPages > 1 && (
+              <div className="flex flex-wrap items-center justify-center gap-2 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 shadow-sm">
+                <button type="button" onClick={() => goPage(currentPage - 1)} disabled={currentPage === 1} className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">上一页</button>
+                {Array.from({ length: totalPages }).map((_, index) => {
+                  const page = index + 1;
+                  return <button key={page} type="button" onClick={() => goPage(page)} className={`w-10 h-10 rounded-xl text-sm font-bold transition-colors ${page === currentPage ? 'bg-primary-500 text-white shadow-sm' : 'bg-slate-50 dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800'}`}>{page}</button>;
+                })}
+                <button type="button" onClick={() => goPage(currentPage + 1)} disabled={currentPage === totalPages} className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">下一页</button>
+              </div>
+            )}
           </div>
 
           <aside className="lg:sticky lg:top-24 space-y-5 lg:col-span-2 xl:col-span-1">

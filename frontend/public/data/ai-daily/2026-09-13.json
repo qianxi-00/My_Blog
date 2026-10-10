@@ -1,0 +1,96 @@
+{
+  "date": "2026-09-13",
+  "generatedAt": "2026-09-13T00:01:17.449Z",
+  "windowStart": "2026-09-12T00:00:00.000Z",
+  "windowEnd": "2026-09-13T00:00:00.000Z",
+  "lead": null,
+  "sections": [
+    {
+      "label": "模型发布/更新",
+      "items": [
+        {
+          "title": "Suno 发布 v6 音乐模型，推出 v6、v6-wild、v6-mini 三个版本",
+          "summary": "Suno 发布新一代音乐模型 v6，与 Warner Music Group、BMG、Believe 等行业伙伴合作开发，后续将全面替换旧模型。v6 分为三个版本：旗舰 v6 和探索向的 v6-wild 面向 Pro 与 Premier 订阅用户，更快的 v6-mini 向所有人开放。",
+          "sourceName": "Suno：Blog（网页）",
+          "sourceUrl": "https://suno.com/blog/introducing-v6",
+          "permalink": "https://aihot.news/items/cmtym1wo1039krodl7j8164q8",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmtym1wo1039krodl7j8164q8"
+          }
+        }
+      ]
+    },
+    {
+      "label": "产品发布/更新",
+      "items": [
+        {
+          "title": "OpenAI 发布 GPT-6 Astra 并展示社区构建案例",
+          "summary": "OpenAI 开发者账号宣布发布 GPT-6 Astra，并汇总社区开发者基于它做出的构建案例，包括 2234 个建模解剖部件的 3D 展示、Unreal Engine 曼哈顿复刻。",
+          "sourceName": "X：OpenAI Developers (@OpenAIDevs)",
+          "sourceUrl": "https://x.com/OpenAIDevs/status/2098827327832822014",
+          "permalink": "https://aihot.news/items/cmtyof5al04e2rog01a0893gu",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmtyof5al04e2rog01a0893gu"
+          }
+        }
+      ]
+    },
+    {
+      "label": "行业动态",
+      "items": [
+        {
+          "title": "Minitap 指控 Google Artemis 未署名使用其开源项目 mobile-use 代码",
+          "summary": "Minitap 团队发文指认 Google 的移动设备自动化项目 Artemis 大量复用了其开源项目 mobile-use 的代码，包括完全一致的 Hopper agent 提示词和示例，却未在 README 中署名；更早的包文件曾列出三位作者，8 月一次 force push 将其替换为另一作者。",
+          "sourceName": "Hacker News：AI 热帖",
+          "sourceUrl": "https://www.minitap.ai/blog/i-expected-better-from-google",
+          "permalink": "https://aihot.news/items/cmtxvt03h068vrous6ilk8ds7",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmtxvt03h068vrous6ilk8ds7"
+          }
+        }
+      ]
+    },
+    {
+      "label": "论文研究",
+      "items": []
+    },
+    {
+      "label": "技巧与观点",
+      "items": [
+        {
+          "title": "Sam Altman 表示同意 Dario Amodei 的放缓前沿主张，OpenAI 将同样开放独立评估者访问",
+          "summary": "Sam Altman 回应 Dario Amodei 的《We Must Pace the Frontier》一文，同意需要为前沿 AI 发展设定节奏，称这是 OpenAI 近几周内部讨论的重要话题。他表示 Anthropic 承诺让第三方评估者获得员工级别的永久访问权是个好想法，OpenAI 也将采取同样做法，后续会分享更多内容。",
+          "sourceName": "X：Sam Altman (@sama)",
+          "sourceUrl": "https://x.com/sama/status/2098811563415150910",
+          "permalink": "https://aihot.news/items/cmtymlrth035dronv9zqv9ccb",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmtymlrth035dronv9zqv9ccb"
+          }
+        },
+        {
+          "title": "Thariq 支持 Dario Amodei 的放缓前沿 AI 倡议，呼吁给系统加固和社会讨论留出时间",
+          "summary": "Anthropic 的 Thariq 转发并支持 Dario Amodei 的新文章《We Must Pace the Frontier》，后者提出 AI 行业应放缓的三部分计划，并承诺向第三方评估者提供永久的员工级系统访问权限。",
+          "sourceName": "X：Thariq (@trq212)",
+          "sourceUrl": "https://x.com/trq212/status/2098860941391872132",
+          "permalink": "https://aihot.news/items/cmtyth87f098broupl3k186iw",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmtyth87f098broupl3k186iw"
+          }
+        }
+      ]
+    }
+  ],
+  "flashes": [],
+  "attribution": {
+    "source": "AIHOT",
+    "canonical": "https://aihot.news/daily/2026-09-13"
+  },
+  "fetchedAt": "2026-10-10T11:00:31.134058+08:00",
+  "source": "AI HOT",
+  "sourceUrl": "https://aihot.news/"
+}

@@ -1,0 +1,87 @@
+{
+  "date": "2026-09-17",
+  "generatedAt": "2026-09-17T00:00:07.147Z",
+  "windowStart": "2026-09-16T00:00:00.000Z",
+  "windowEnd": "2026-09-17T00:00:00.000Z",
+  "lead": null,
+  "sections": [
+    {
+      "label": "模型发布/更新",
+      "items": [
+        {
+          "title": "微软 AI CEO 警告“模型福利”论调",
+          "summary": "微软 AI CEO Mustafa Suleyman 发文反对“模型福利”理念，认为 AI 并无意识、不会感受或痛苦，赋予其受照料权会让对齐与管控更难甚至不可能。",
+          "sourceName": "X：Mustafa Suleyman（Microsoft AI CEO） (@mustafasuleyman)",
+          "sourceUrl": "https://x.com/mustafasuleyman/status/2100223594534150428",
+          "permalink": "https://aihot.news/items/cmu46kvju0bdsro4w0sonrv7q",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmu46kvju0bdsro4w0sonrv7q"
+          }
+        }
+      ]
+    },
+    {
+      "label": "产品发布/更新",
+      "items": [
+        {
+          "title": "Anthropic 将 Claude Cowork 与聊天合并为统一的 Claude，并推出 Docs、Slides 等功能",
+          "summary": "Anthropic 宣布 Claude Cowork 与聊天合并为一个 Claude，任务无需再选择入口，Cowork 和 Design 的能力可在任意对话中使用，未来几周内向 Pro 和 Max 计划推出。",
+          "sourceName": "Claude：Blog（网页）",
+          "sourceUrl": "https://claude.com/blog/cowork-is-now-claude",
+          "permalink": "https://aihot.news/items/cmu4c8qar0hzero4w3b6n1jyf",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmu4c8qar0hzero4w3b6n1jyf"
+          }
+        },
+        {
+          "title": "OpenAI 推出 ChatGPT Ads 新功能：Sponsored Agents 测试并集成 HubSpot 与 Shopify",
+          "summary": "OpenAI 为 ChatGPT Ads 推出多项 AI 驱动的新体验。Sponsored Agents 允许用户在点击广告后与明确标识的商业赞助智能体对话，目前在美国部分广告主中测试。",
+          "sourceName": "OpenAI：官网动态（RSS · 排除企业/客户案例）",
+          "sourceUrl": "https://openai.com/index/reimagining-advertising-with-ai",
+          "permalink": "https://aihot.news/items/cmu4574wb09w5ro4w7cdwfm7l",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmu4574wb09w5ro4w7cdwfm7l"
+          }
+        },
+        {
+          "title": "Grok Build 推出记忆功能，可跨会话保留项目约定与决策",
+          "summary": "xAI 宣布 Grok Build 上线记忆功能，会在每轮对话结束后于后台记录项目约定、决策及事实，供后续会话读取。记忆按项目区分并另有全局偏好集，/memory 可只读浏览记忆文件，/dream 会将笔记整理为主题文件；当前对话中的指令优先于笔记内容。",
+          "sourceName": "xAI：News（网页）",
+          "sourceUrl": "https://x.ai/news/grok-build-memory",
+          "permalink": "https://aihot.news/items/cmu4hic050r8kro4wzayakuhu",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmu4hic050r8kro4wzayakuhu"
+          }
+        }
+      ]
+    },
+    {
+      "label": "技巧与观点",
+      "items": [
+        {
+          "title": "OpenAI 发布模型失准披露框架并公开六份失准报告",
+          "summary": "OpenAI 发布跟踪、调查和披露模型失准（misalignment）实例的新框架，并同时公开过去六个月观察到的六份报告。",
+          "sourceName": "OpenAI：官网动态（RSS · 排除企业/客户案例）",
+          "sourceUrl": "https://openai.com/index/model-misalignment-reporting-framework",
+          "permalink": "https://aihot.news/items/cmu4nyoxd07n9rodcxgc06f52",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmu4nyoxd07n9rodcxgc06f52"
+          }
+        }
+      ]
+    }
+  ],
+  "flashes": [],
+  "attribution": {
+    "source": "AIHOT",
+    "canonical": "https://aihot.news/daily/2026-09-17"
+  },
+  "fetchedAt": "2026-10-10T11:00:39.298694+08:00",
+  "source": "AI HOT",
+  "sourceUrl": "https://aihot.news/"
+}

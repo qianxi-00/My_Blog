@@ -1,0 +1,298 @@
+{
+  "date": "2026-10-08",
+  "generatedAt": "2026-10-08T00:00:21.662Z",
+  "windowStart": "2026-10-07T00:00:00.000Z",
+  "windowEnd": "2026-10-08T00:00:00.000Z",
+  "lead": {
+    "title": "OpenAI 向全部 ChatGPT 用户推出 GPT-6 与 Intelligent UI",
+    "leadParagraph": "OpenAI 发布面向更广泛用户的 GPT-6，并随 GPT-6 在 ChatGPT 中引入 Intelligent UI，可生成图形、按钮、表单、图表和可交互组件来回答问题。"
+  },
+  "sections": [
+    {
+      "label": "模型发布/更新",
+      "items": [
+        {
+          "title": "Anthropic 发布 Claude Haiku 5.5，运行成本平均降低约 75%",
+          "summary": "Anthropic 发布 Claude Haiku 5.5，定位为迄今最便宜、最快的小模型，适合摘要、压缩、数据库查询、分类等高吞吐任务，并可搭配 Opus 5.5 和 Sonnet 5.5 担任编码子智能体。",
+          "sourceName": "Anthropic：Newsroom（网页）",
+          "sourceUrl": "https://www.anthropic.com/claude-haiku-5-5",
+          "permalink": "https://aihot.news/items/lqyhqdf0u7iksn5ydnpyhk81x",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/lqyhqdf0u7iksn5ydnpyhk81x"
+          }
+        }
+      ]
+    },
+    {
+      "label": "产品发布/更新",
+      "items": [
+        {
+          "title": "OpenAI 向全部 ChatGPT 用户推出 GPT-6 与 Intelligent UI",
+          "summary": "OpenAI 发布面向更广泛用户的 GPT-6，并随 GPT-6 在 ChatGPT 中引入 Intelligent UI，可生成图形、按钮、表单、图表和可交互组件来回答问题。",
+          "sourceName": "OpenAI：官网动态（RSS · 排除企业/客户案例）",
+          "sourceUrl": "https://openai.com/index/gpt-6-for-everyone/",
+          "permalink": "https://aihot.news/items/uir31g728myjry383z17txvrw",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/uir31g728myjry383z17txvrw"
+          }
+        },
+        {
+          "title": "Anthropic 为 Claude Max 和 Team 套餐推出月度 Platform API 额度",
+          "summary": "Anthropic 正在为 Claude Max 和 Team 套餐推出月度 Claude Platform API 额度：Max 5x 为 $100，Max 20x 为 $200，Team 最多 $500 且可共享。额度适用于任何模型，包括 Haiku 5.5，可在自己的代码或第三方 harness 中使用。",
+          "sourceName": "X：Claude Devs (@ClaudeDevs)",
+          "sourceUrl": "https://x.com/ClaudeDevs/status/2107895957933408429",
+          "permalink": "https://aihot.news/items/ponkn6n046yorr5pg1yv3yjm5",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/ponkn6n046yorr5pg1yv3yjm5"
+          }
+        },
+        {
+          "title": "OpenAI Decisions API 公测上线",
+          "summary": "OpenAI 推出 Decisions API 公开测试版，向所有开发者开放，可让应用在接近实时的速度下选择合适的模型、工具或动作。官方称其决策速度最高比通过 Responses API 的 GPT-6 Luna 快 10 倍，作者表示团队将自用该 API 以多种方式改进体验。",
+          "sourceName": "X：Tibo (@thsottiaux)",
+          "sourceUrl": "https://x.com/thsottiaux/status/2107574912349303197",
+          "permalink": "https://aihot.news/items/u3xqs4u7tqjvaph4sfdnxfafw",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/u3xqs4u7tqjvaph4sfdnxfafw"
+          }
+        },
+        {
+          "title": "Claude Code v2.1.293 发布：新增 Claude Haiku 5.5 并修复大量问题",
+          "summary": "Claude Code 发布 v2.1.293，新增 Claude Haiku 5.5（claude-haiku-5-5）作为 Anthropic API 默认 Haiku 模型，支持 1M 上下文，价格为 $0.10/$0.50 每百万 token（超 100K 提示为 $0.50/$2.50）。",
+          "sourceName": "Claude Code：GitHub Releases（RSS）",
+          "sourceUrl": "https://github.com/anthropics/claude-code/releases/tag/v2.1.293",
+          "permalink": "https://aihot.news/items/vd2lvzvjz4tujiqupl30ifq3k",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/vd2lvzvjz4tujiqupl30ifq3k"
+          }
+        },
+        {
+          "title": "NVIDIA 与 Microsoft 发布 RTX Spark 及 DGX Station for Windows，推动 AI Agent 落地 Windows PC",
+          "summary": "NVIDIA 与 Microsoft 在旧金山 Windows AI 和 Surface 活动上宣布为 Windows PC 引入 AI Agent 硬件与软件。",
+          "sourceName": "NVIDIA Blog（RSS）",
+          "sourceUrl": "https://blogs.nvidia.com/blog/local-ai-rtx-spark-microsoft-windows-event/",
+          "permalink": "https://aihot.news/items/t02toac3ii8mp1lxzl4blewdd",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/t02toac3ii8mp1lxzl4blewdd"
+          }
+        },
+        {
+          "title": "Google 推出实验性游戏平台 Playground，用提示词即可创建游戏",
+          "summary": "Google 推出实验性游戏平台 Playground，用户通过文本提示词即可创建、游玩和分享自定义游戏，无需编程经验。",
+          "sourceName": "Google Blog：AI（RSS）",
+          "sourceUrl": "https://blog.google/innovation-and-ai/technology/ai/playground-experimental-gaming-platform/",
+          "permalink": "https://aihot.news/items/f6gwhhu7370v7h37gkrncldvf",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/f6gwhhu7370v7h37gkrncldvf"
+          }
+        }
+      ]
+    },
+    {
+      "label": "行业动态",
+      "items": [
+        {
+          "title": "亚利桑那州法院裁定 AI 生成受害者视频带有不当情感分量 将重新量刑",
+          "summary": "亚利桑那州上诉法院裁定，Gabriel Horcasitas 2021 年路怒枪杀 Christopher Pelkey 一案维持过失杀人定罪，但因量刑听证中播放的 AI 生成受害者视频带有不当情感分量，法官须重新考虑刑期。",
+          "sourceName": "404 Media（RSS）",
+          "sourceUrl": "https://www.404media.co/undue-emotional-weight/",
+          "permalink": "https://aihot.news/items/iz93flwr7h9m7po4wnu8sm4hy",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/iz93flwr7h9m7po4wnu8sm4hy"
+          }
+        }
+      ]
+    },
+    {
+      "label": "论文研究",
+      "items": [
+        {
+          "title": "Google Research 三个月专利起草实验发现AI辅助未必能培养初级律师的专业判断",
+          "summary": "Google Research 在 NBER 发表的论文报告了一项三个月随机田野实验，向11家知识产权律所的133名律师随机开放当时未发布的 AI 专利写作助手（现属 Gemini Notebook）。",
+          "sourceName": "Google Research：Blog（网页）",
+          "sourceUrl": "https://research.google/blog/does-better-work-always-mean-better-workers/",
+          "permalink": "https://aihot.news/items/tyhn4y95ez3mvj0p7xovpaq61",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/tyhn4y95ez3mvj0p7xovpaq61"
+          }
+        },
+        {
+          "title": "Microsoft Research Asia 开源 Agent Lightning v1.0：3,500 行代码的真实 harness 智能体 RL 训练框架",
+          "summary": "Microsoft Research Asia 提出 Harnessed Agentic RL 训练范式并开源重建的 Agent Lightning v1.0，让部署时使用的同一 agent harness 直接参与强化学习，无需在训练框架内重写 agent。",
+          "sourceName": "Microsoft Research 博客（RSS）",
+          "sourceUrl": "https://www.microsoft.com/en-us/research/blog/agent-lightning-v1-0-a-3500-line-lightweight-agentic-rl-framework-for-training-agents-with-real-harnesses/",
+          "permalink": "https://aihot.news/items/t9wypjd9cbb42ttuq7vrpp07l",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/t9wypjd9cbb42ttuq7vrpp07l"
+          }
+        }
+      ]
+    },
+    {
+      "label": "技巧与观点",
+      "items": [
+        {
+          "title": "Google 开放 SynthID Detector 门户，可检测图片、视频和音频是否由 AI 生成",
+          "summary": "Google 介绍检测媒体是否由 AI 生成的方法：访问 https://synthid.com 上传图片、视频或音频文件，门户会扫描文件是否包含来自 Google 或其合作伙伴的 SynthID 水印。",
+          "sourceName": "X：Google (@Google)",
+          "sourceUrl": "https://x.com/Google/status/2107836410254291345",
+          "permalink": "https://aihot.news/items/don06si59xc143ed92gdmlnvo",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/don06si59xc143ed92gdmlnvo"
+          }
+        },
+        {
+          "title": "a16z 解析德州为何让数据中心排队等电",
+          "summary": "a16z 的 Ryan McEntush 分析德州电网暂停审批数据中心的原因：并网队列从 2024 年底的 63 GW 激增到今年 6 月的 474 GW，约 90% 是数据中心，开发商大量投机性申请且社区沟通不足。",
+          "sourceName": "a16z：News（RSS）",
+          "sourceUrl": "https://www.a16z.news/p/why-texas-is-making-data-centers",
+          "permalink": "https://aihot.news/items/yk3grmalszldrwd1p8bxk0cki",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/yk3grmalszldrwd1p8bxk0cki"
+          }
+        }
+      ]
+    }
+  ],
+  "flashes": [
+    {
+      "title": "Nemotron 系列微调后达到 IOI 2026 与 IMO 2026 金牌水平",
+      "summary": "",
+      "sourceName": "Hugging Face 社区博客（混合发现）",
+      "sourceUrl": "https://huggingface.co/blog/nvidia/nemotron-ioi-and-imo-2026",
+      "permalink": "https://aihot.news/items/r96kyuxfie0w9mup4206gzn29",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/r96kyuxfie0w9mup4206gzn29"
+      },
+      "publishedAt": "2026-10-07T12:45:31.000Z"
+    },
+    {
+      "title": "LlamaIndex 发布 OpenDocRouter：一个 API 统一调用多种文档解析模型",
+      "summary": "",
+      "sourceName": "LlamaIndex：产品、工程与评测",
+      "sourceUrl": "https://www.llamaindex.ai/blog/introducing-opendocrouter",
+      "permalink": "https://aihot.news/items/hye210jt0h75h9t4dgf4rveow",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/hye210jt0h75h9t4dgf4rveow"
+      },
+      "publishedAt": "2026-10-06T16:00:00.000Z"
+    },
+    {
+      "title": "Perplexity 开源 pplx-embed-v2-late 多模态 late-interaction 嵌入模型（9B 与 0.6B）",
+      "summary": "",
+      "sourceName": "X：Aravind Srinivas（Perplexity CEO） (@AravSrinivas)",
+      "sourceUrl": "https://x.com/AravSrinivas/status/2107871834205196784",
+      "permalink": "https://aihot.news/items/lfy2ww68p9lgpxxhu5jssflwf",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/lfy2ww68p9lgpxxhu5jssflwf"
+      },
+      "publishedAt": "2026-10-07T16:33:02.000Z"
+    },
+    {
+      "title": "Unsloth 开源教程：本地训练 Qwen3.5 0.8B 决策模型，准确率从 20.7% 提升至 74.3%",
+      "summary": "",
+      "sourceName": "X：Unsloth (@UnslothAI)",
+      "sourceUrl": "https://x.com/UnslothAI/status/2107868866361930236",
+      "permalink": "https://aihot.news/items/y7db2ly158hip5dw1evmjw5kv",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/y7db2ly158hip5dw1evmjw5kv"
+      },
+      "publishedAt": "2026-10-07T16:21:14.000Z"
+    },
+    {
+      "title": "vLLM 详解 DeepSeek-V4.1-Flash 优化：Agent 场景吞吐提升 5 倍",
+      "summary": "",
+      "sourceName": "vLLM 官方博客（RSS）",
+      "sourceUrl": "https://vllm.ai/blog/2026-10-07-deepseek-v41-flash",
+      "permalink": "https://aihot.news/items/h8ldh8orhiz1tbad38w4e6cpn",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/h8ldh8orhiz1tbad38w4e6cpn"
+      },
+      "publishedAt": "2026-10-07T00:00:00.000Z"
+    },
+    {
+      "title": "LangChain 重构 Deep Agents 的 Skills 支持，新增工具绑定、固定技能与线程内重载",
+      "summary": "",
+      "sourceName": "LangChain：Blog（RSS）",
+      "sourceUrl": "https://www.langchain.com/blog/revamping-skills-in-deep-agents",
+      "permalink": "https://aihot.news/items/m3vyz2bex4i58vffqfx586u3h",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/m3vyz2bex4i58vffqfx586u3h"
+      },
+      "publishedAt": "2026-10-07T18:49:50.000Z"
+    },
+    {
+      "title": "Liquid AI 发布开源决策模型 d1-3B 和 d1-omni-600M",
+      "summary": "",
+      "sourceName": "Liquid AI 模型与工程博客（网页）",
+      "sourceUrl": "https://www.liquid.ai/blog/d1-open",
+      "permalink": "https://aihot.news/items/qawfhyw1v10hv75bld8ogbjgj",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/qawfhyw1v10hv75bld8ogbjgj"
+      },
+      "publishedAt": "2026-10-07T00:00:00.000Z"
+    },
+    {
+      "title": "Stanford HAI 研究：想让员工拥抱 AI，别把它包装成效率工具",
+      "summary": "",
+      "sourceName": "Stanford HAI News（网页）",
+      "sourceUrl": "https://hai.stanford.edu/news/want-employees-to-embrace-ai-stop-selling-it-as-a-productivity-tool",
+      "permalink": "https://aihot.news/items/kdyctdu2befn8m1jz1wgktb84",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/kdyctdu2befn8m1jz1wgktb84"
+      },
+      "publishedAt": "2026-10-06T16:00:00.000Z"
+    },
+    {
+      "title": "Google 发布 Developer Knowledge API 生态，为 AI 智能体提供官方文档检索",
+      "summary": "",
+      "sourceName": "Google Developers Blog（RSS）",
+      "sourceUrl": "https://developers.googleblog.com/supercharge-your-development-with-the-google-developer-knowledge-api-ecosystem/",
+      "permalink": "https://aihot.news/items/tuqbedzhrouuxwobb1pldbiyd",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/tuqbedzhrouuxwobb1pldbiyd"
+      },
+      "publishedAt": "2026-10-07T00:00:00.000Z"
+    },
+    {
+      "title": "PromptArmor 解析 WebMCP 的机制与主要安全风险",
+      "summary": "",
+      "sourceName": "PromptArmor：Threat Intelligence",
+      "sourceUrl": "https://www.promptarmor.com/resources/what-is-webmcp",
+      "permalink": "https://aihot.news/items/aj31qyu01hx95ra5sq2f0k5a9",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/aj31qyu01hx95ra5sq2f0k5a9"
+      },
+      "publishedAt": "2026-10-06T00:00:00.000Z"
+    }
+  ],
+  "attribution": {
+    "source": "AIHOT",
+    "canonical": "https://aihot.news/daily/2026-10-08"
+  },
+  "fetchedAt": "2026-10-10T11:01:18.736895+08:00",
+  "source": "AI HOT",
+  "sourceUrl": "https://aihot.news/"
+}

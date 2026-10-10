@@ -33,9 +33,15 @@ OUT = DATA_ROOT / 'ai-daily.json'
 SELECTED_OUT = DATA_ROOT / 'ai-selected.json'
 DAILY_DIR = DATA_ROOT / 'ai-daily'
 INDEX_OUT = DATA_ROOT / 'ai-daily-index.json'
+TOPICS_OUT = DATA_ROOT / 'ai-daily-topics.json'
 ARCHIVE = Path(os.environ.get('AI_DAILY_ARCHIVE_DIR', DAILY_DIR))
 LOG = Path(os.environ.get('AI_DAILY_LOG', REPO_ROOT / 'logs' / 'ai_daily_fetch.log'))
 STATE = LOG.parent / 'ai-daily-state.json'
+
+# 十六期：与 AIHOT 官方归档窗口对齐，本地同样只滚动保留 30 天成稿。
+# （AIHOT 的 /dailies 只开放 30 天历史，更早的源头已不可回填——归档页改按主题组织，
+#  ai-daily-topics.json 由本脚本在每次抓取后聚合重建。）
+KEEP_DAYS = 30
 
 CATEGORIES = [
     ('all', '全部', None),
@@ -256,7 +262,65 @@ def build_index() -> dict:
     return {'updatedAt': now_bj(), 'total': sum(len(days) for days in by_month.values()), 'months': months}
 
 
+def prune_old_dailies(keep_days: int = KEEP_DAYS) -> list[str]:
+    """滚动窗口清理：删除超过 keep_days 的历史日报（与 AIHOT 官方 30 天归档对齐）。
+
+    ISO 日期字符串的字典序 == 时间序，直接字符串比较。
+    cron 每 30 分钟都会跑到这里——即使当天日报是 304 未更新，
+    30 天边界的滚动清理也不能停。
+    """
+    cutoff = (dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date() - dt.timedelta(days=keep_days)).isoformat()
+    removed = []
+    for item in DAILY_DIR.glob('*.json'):
+        if item.stem < cutoff:
+            item.unlink(missing_ok=True)
+            removed.append(item.stem)
+    if ARCHIVE != DAILY_DIR:
+        for item in ARCHIVE.glob('*.json'):
+            if item.stem < cutoff:
+                item.unlink(missing_ok=True)
+    if removed:
+        log(f'prune keepDays={keep_days} removed={sorted(removed)}')
+    return removed
+
+
+def build_topics(limit_per_topic: int = 30) -> dict:
+    """按 section.label（AIHOT 自带的主题分类）聚合滚动窗口内的日报条目。
+
+    归档页的"AI 日报 · 按主题"视图直接消费这个静态文件——30 天窗口内
+    每天最多十几条、每主题截最近 30 条，文件体积可控。
+    """
+    by_topic: dict[str, list[dict]] = {}
+    total = 0
+    for item in sorted(DAILY_DIR.glob('*.json'), reverse=True):
+        try:
+            data = json.loads(item.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        date_value = str(data.get('date') or item.stem)
+        for section in data.get('sections') or []:
+            label = (section.get('label') or '其他').strip() or '其他'
+            for entry in section.get('items') or []:
+                title = entry.get('title')
+                if not title:
+                    continue
+                by_topic.setdefault(label, []).append({
+                    'date': date_value,
+                    'title': title,
+                    'summary': (entry.get('summary') or '')[:160],
+                    'sourceName': entry.get('sourceName'),
+                    'sourceUrl': entry.get('sourceUrl'),
+                })
+                total += 1
+    topics = []
+    for label, items in sorted(by_topic.items(), key=lambda kv: -len(kv[1])):
+        items.sort(key=lambda x: x['date'], reverse=True)
+        topics.append({'label': label, 'count': len(items), 'items': items[:limit_per_topic]})
+    return {'updatedAt': now_bj(), 'total': total, 'topics': topics}
+
+
 def main() -> None:
+    prune_old_dailies()
     daily = fetch()
     selected = fetch_selected_payload()
     daily_skipped = daily is None
@@ -265,16 +329,20 @@ def main() -> None:
         ARCHIVE.mkdir(parents=True, exist_ok=True)
         write_atomic(ARCHIVE / f"{daily['date']}.json", daily)
         write_atomic(DAILY_DIR / f"{daily['date']}.json", daily)
-        index = build_index()
-        write_atomic(INDEX_OUT, index)
+    # 十六期：index 与主题索引无条件重建——prune 可能已删除文件，
+    # 且 304（未更新）时滚动窗口同样要维持
+    index = build_index()
+    write_atomic(INDEX_OUT, index)
+    topics = build_topics()
+    write_atomic(TOPICS_OUT, topics)
     write_atomic(SELECTED_OUT, selected)
     if daily_skipped:
-        log(f"ok not_modified selectedItems={selected.get('total')} selectedCategories={len(selected.get('categories') or [])}")
-        print(json.dumps({'ok': True, 'notModified': True, 'selectedItems': selected.get('total')}, ensure_ascii=False))
+        log(f"ok not_modified selectedItems={selected.get('total')} selectedCategories={len(selected.get('categories') or [])} dailies={index.get('total')} topics={topics.get('total')}")
+        print(json.dumps({'ok': True, 'notModified': True, 'selectedItems': selected.get('total'), 'dailies': index.get('total'), 'topics': topics.get('total')}, ensure_ascii=False))
         return
     items = sum(len(s.get('items') or []) for s in daily.get('sections') or [])
-    log(f"ok date={daily.get('date')} sections={len(daily.get('sections') or [])} items={items} selectedItems={selected.get('total')} selectedCategories={len(selected.get('categories') or [])}")
-    print(json.dumps({'ok': True, 'date': daily.get('date'), 'sections': len(daily.get('sections') or []), 'items': items, 'selectedItems': selected.get('total'), 'selectedCategories': len(selected.get('categories') or []), 'out': str(OUT), 'selectedOut': str(SELECTED_OUT)}, ensure_ascii=False))
+    log(f"ok date={daily.get('date')} sections={len(daily.get('sections') or [])} items={items} selectedItems={selected.get('total')} selectedCategories={len(selected.get('categories') or [])} dailies={index.get('total')} topics={topics.get('total')}")
+    print(json.dumps({'ok': True, 'date': daily.get('date'), 'sections': len(daily.get('sections') or []), 'items': items, 'selectedItems': selected.get('total'), 'selectedCategories': len(selected.get('categories') or []), 'dailies': index.get('total'), 'topics': topics.get('total'), 'out': str(OUT), 'selectedOut': str(SELECTED_OUT)}, ensure_ascii=False))
 
 
 if __name__ == '__main__':

@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-28",
+  "generatedAt": "2026-09-28T00:00:10.939Z",
+  "windowStart": "2026-09-27T00:00:00.000Z",
+  "windowEnd": "2026-09-28T00:00:00.000Z",
+  "lead": null,
+  "sections": [
+    {
+      "label": "行业动态",
+      "items": [
+        {
+          "title": "OpenAI 与 Anthropic CEO 被传唤出席澳大利亚参议院 AI 调查听证会",
+          "summary": "澳大利亚参议院 AI 专项调查已传唤 OpenAI 的 Sam Altman 和 Anthropic 的 Dario Amodei，要求出席堪培拉的公开质询。",
+          "sourceName": "IT之家·人工智能",
+          "sourceUrl": "https://www.ithome.com/1/007/508.htm",
+          "permalink": "https://aihot.news/items/cmujftxjg0exdro9hi64xx2i9",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cmujftxjg0exdro9hi64xx2i9"
+          }
+        }
+      ]
+    }
+  ],
+  "flashes": [],
+  "attribution": {
+    "source": "AIHOT",
+    "canonical": "https://aihot.news/daily/2026-09-28"
+  },
+  "fetchedAt": "2026-10-10T11:00:59.597588+08:00",
+  "source": "AI HOT",
+  "sourceUrl": "https://aihot.news/"
+}

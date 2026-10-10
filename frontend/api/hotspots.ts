@@ -12,6 +12,8 @@ export interface HotTopicListItem {
   heat_score: number;
   status: HotspotStatus;
   primary_category?: string;
+  /** 十六期：LLM 归一主题标签（归档页按主题分组用） */
+  topic_tag?: string | null;
   published_at?: string;
   article_id?: number;
   source_count: number;

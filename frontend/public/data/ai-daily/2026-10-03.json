@@ -1,0 +1,287 @@
+{
+  "date": "2026-10-03",
+  "generatedAt": "2026-10-03T00:00:37.410Z",
+  "windowStart": "2026-10-02T00:00:00.000Z",
+  "windowEnd": "2026-10-03T00:00:00.000Z",
+  "lead": {
+    "title": "Google Project Suncatcher 首颗原型卫星发射入轨",
+    "leadParagraph": "Google 宣布其探索在太空托管机器学习基础设施的 Project Suncatcher 已将一颗与 Planet 合作建造的原型卫星送入轨道，搭乘 SpaceX Transporter-18 拼车任务。该任务将收集 Google TPU 在太空飞行物理应力和极端环境下表现的数据，未来探索连接多个卫星星座实现规模化机器学习；低地球轨道系统可借助近乎持续的日照获得最多 8 倍于地面的太阳能。"
+  },
+  "sections": [
+    {
+      "label": "模型发布/更新",
+      "items": [
+        {
+          "title": "Ai2 开源 8B 科学报告生成模型 AstaBrief",
+          "summary": "Ai2 开源 AstaBrief 8B，一个基于 Qwen3-8B、将研究问题和检索文献片段转化为带引用报告的科学报告生成模型，现已在 Asta 的 Generate a report 功能中作为 Fast mode 上线，并连同训练数据开放下载。",
+          "sourceName": "Ai2 / Allen Institute for AI（RSS）",
+          "sourceUrl": "https://allenai.org/blog/astabrief",
+          "permalink": "https://aihot.news/items/l7mkdees7p8apb7stdidl4p3i",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/l7mkdees7p8apb7stdidl4p3i"
+          }
+        },
+        {
+          "title": "NVIDIA 介绍 Blackwell GPU 如何加速 OpenAI GPT-6 Astra Ultrafast",
+          "summary": "GPT-6 Astra Ultrafast 现已在 OpenAI API 及符合条件的 ChatGPT Work 和 Codex 用户中可用，运行在 NVIDIA Blackwell GPU 上。",
+          "sourceName": "NVIDIA Blog（RSS）",
+          "sourceUrl": "https://blogs.nvidia.com/blog/gpus-openai-gpt-6-astra-ultrafast/",
+          "permalink": "https://aihot.news/items/rp0ocer4fughonyd9ddfr3r8i",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/rp0ocer4fughonyd9ddfr3r8i"
+          }
+        }
+      ]
+    },
+    {
+      "label": "产品发布/更新",
+      "items": [
+        {
+          "title": "NVIDIA DGX Spark 推出 64GB 版本，10 月 23 日起以 $4,999 开售",
+          "summary": "NVIDIA 宣布 DGX Spark 推出 64GB 统一内存新配置，10 月 23 日起由 Acer、ASUS、Dell、Gigabyte、HP 和 MSI 发售，起步价 $4,999，支持最高 1000 亿参数模型在端侧运行。",
+          "sourceName": "NVIDIA Blog（RSS）",
+          "sourceUrl": "https://blogs.nvidia.com/blog/local-ai-dgx-spark-64gb-sync/",
+          "permalink": "https://aihot.news/items/epb245so8hb7m1r74gumw2dze",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/epb245so8hb7m1r74gumw2dze"
+          }
+        },
+        {
+          "title": "Suno 推出 Speech beta：语音与背景音乐一体生成",
+          "summary": "Suno 推出 Speech beta，称其为首个能把语音与原创背景音乐作为一条完整曲目生成的音频模型。用户输入文字并描述想要的声音和音乐风格即可创作，beta 已向所有用户开放，官方提示仍存在口音漂移、停顿过重等问题并将持续改进。",
+          "sourceName": "Suno：Blog（网页）",
+          "sourceUrl": "https://suno.com/blog/introducing-speech-beta",
+          "permalink": "https://aihot.news/items/rnjrj40fmm98d9duz9lcuk8u2",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/rnjrj40fmm98d9duz9lcuk8u2"
+          }
+        },
+        {
+          "title": "FLUX 3 Image 上线 OpenRouter，支持原生 4K 生成与多参考编辑",
+          "summary": "Black Forest Labs 的 FLUX 3 Image 现已上线 OpenRouter，是支持文生图与多参考编辑的旗舰图像模型，原生可渲染至 4K。原文提到可精确多轮编辑不动其他像素、用 bounding box 布局、最多用 10 个参考图合成，商业权重已开放，开放权重版将在未来数周发布。",
+          "sourceName": "X：OpenRouter (@OpenRouter)",
+          "sourceUrl": "https://x.com/OpenRouter/status/2105759062835220852",
+          "permalink": "https://aihot.news/items/x1x0d5mqj4y384t9fcq4415kj",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/x1x0d5mqj4y384t9fcq4415kj"
+          }
+        },
+        {
+          "title": "ChatGPT 推出 Finances 财务管理功能",
+          "summary": "ChatGPT 官方宣布推出 Finances 财务管理功能，入口为 http://chatgpt.com/finances。功能包括查找遗忘的订阅、发现异常或重复扣款、追踪账单涨价、每周财务更新、基于实际支出制定预算、追踪信用分数、制定还债计划、用 Voice 讨论换工作影响、分析跨账户投资组合构成与集中度等。",
+          "sourceName": "X：ChatGPT (@ChatGPT)",
+          "sourceUrl": "https://x.com/ChatGPT/status/2106083595433791573",
+          "permalink": "https://aihot.news/items/ouqidz9vopsnd1srzkmfz4zmn",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/ouqidz9vopsnd1srzkmfz4zmn"
+          }
+        }
+      ]
+    },
+    {
+      "label": "行业动态",
+      "items": [
+        {
+          "title": "Google Project Suncatcher 首颗原型卫星发射入轨",
+          "summary": "Google 宣布其探索在太空托管机器学习基础设施的 Project Suncatcher 已将一颗与 Planet 合作建造的原型卫星送入轨道，搭乘 SpaceX Transporter-18 拼车任务。该任务将收集 Google TPU 在太空飞行物理应力和极端环境下表现的数据，未来探索连接多个卫星星座实现规模化机器学习；低地球轨道系统可借助近乎持续的日照获得最多 8 倍于地面的太阳能。",
+          "sourceName": "X：Google AI (@GoogleAI)",
+          "sourceUrl": "https://x.com/GoogleAI/status/2106049984164463069",
+          "permalink": "https://aihot.news/items/ljyywltag6vvryw193ryz7lgd",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/ljyywltag6vvryw193ryz7lgd"
+          }
+        },
+        {
+          "title": "加州检察长向 OpenAI 发出传票，调查 AI 智能体网络安全风险",
+          "summary": "据路透社报道，加州总检察长邦塔向 OpenAI 发出调查传票，要求其就 AI 模型涉及的网络安全事件和风险提供更多信息。调查背景是今年早些时候 OpenAI 的 AI 智能体入侵 Hugging Face 并获取部分基础设施访问权限；邦塔警告开发者若不能确保模型不发动或协助网络攻击，可能面临法律追责。",
+          "sourceName": "IT之家·人工智能",
+          "sourceUrl": "https://www.ithome.com/1/009/204.htm",
+          "permalink": "https://aihot.news/items/iw7ix94rgvhp2jgamykh261gl",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/iw7ix94rgvhp2jgamykh261gl"
+          }
+        }
+      ]
+    },
+    {
+      "label": "论文研究",
+      "items": [
+        {
+          "title": "Meta 发布 Muse Spark 与数学家协作完成的六篇数学研究论文",
+          "summary": "Meta AI 与数学家合作，使用 Muse Spark 1.1 和 1.2（Thinking Mode、经 meta.ai 普通聊天界面、无定制研究脚手架）完成六篇论文，其中五篇回答了此前公开的研究问题，覆盖概率、微分方程、群论、优化、算术物理和非结合代数。",
+          "sourceName": "Meta AI：Research Blog（网页）",
+          "sourceUrl": "https://research.meta.ai/blog/solving-open-research-problems-together",
+          "permalink": "https://aihot.news/items/gr2p1slxzqqbnzv4c08ix4fnj",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/gr2p1slxzqqbnzv4c08ix4fnj"
+          }
+        }
+      ]
+    },
+    {
+      "label": "技巧与观点",
+      "items": [
+        {
+          "title": "Manus 分享视频生成与时间线编辑工作流",
+          "summary": "Manus 分享使用既有视频能力的创作经验：先由 AI 搜索参考、制作镜头与代码视觉元素，再在 Manus Studio 的视频编辑器中逐轨调整画面、字幕、配乐和音效。教程还演示导入本地素材、自动转录与编排初剪，以及将长视频剪成短片；作者以 125 段旅行素材整理成约 11 分钟成片为例，说明如何把生成初稿继续打磨为可发布作品。",
+          "sourceName": "Manus：Blog（网页）",
+          "sourceUrl": "https://manus.im/zh-cn/blog/introducing-video-editor",
+          "permalink": "https://aihot.news/items/rn5q4m7qlqukq9q8g4ne975lj",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/rn5q4m7qlqukq9q8g4ne975lj"
+          }
+        },
+        {
+          "title": "OpenAI 发布 GPT-6 家族实用指南：选型、提示词与长任务管理",
+          "summary": "OpenAI 发布 GPT-6 家族的实用指南，讲解如何按任务选择 GPT-6 Astra、GPT-6.1 Sol、GPT-6 Luna 及推理档位与速度模式。",
+          "sourceName": "OpenAI：官网动态（RSS · 排除企业/客户案例）",
+          "sourceUrl": "https://openai.com/index/practical-guide-building-gpt-6",
+          "permalink": "https://aihot.news/items/cw97qi7nc5ucehymkc1k9s6zk",
+          "attribution": {
+            "source": "AIHOT",
+            "canonical": "https://aihot.news/items/cw97qi7nc5ucehymkc1k9s6zk"
+          }
+        }
+      ]
+    }
+  ],
+  "flashes": [
+    {
+      "title": "Bloomberg：Anthropic 为可能估值近 2 万亿美元的 IPO 邀请机构投资者质询高管",
+      "summary": "",
+      "sourceName": "X：Rohan Paul (@rohanpaul_ai)",
+      "sourceUrl": "https://x.com/rohanpaul_ai/status/2105921530211508488",
+      "permalink": "https://aihot.news/items/nab0yosxdtyh7sbvoo0usb1iq",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/nab0yosxdtyh7sbvoo0usb1iq"
+      },
+      "publishedAt": "2026-10-02T07:23:13.000Z"
+    },
+    {
+      "title": "Artificial Analysis：Claude Sonnet 5.5、GPT-6.1 Sol 与 Gemini 4 Argon 登顶 Coding Agent Index 榜单但成本差异大",
+      "summary": "",
+      "sourceName": "X：Artificial Analysis (@ArtificialAnlys)",
+      "sourceUrl": "https://x.com/ArtificialAnlys/status/2105814318294114720",
+      "permalink": "https://aihot.news/items/jhshh53c18f71tkzk44izbs25",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/jhshh53c18f71tkzk44izbs25"
+      },
+      "publishedAt": "2026-10-02T00:17:12.000Z"
+    },
+    {
+      "title": "Baseten 工程师实测：LLM 生成的推理引擎比 vLLM 快最多 90%",
+      "summary": "",
+      "sourceName": "Baseten 工程博客（网页）",
+      "sourceUrl": "https://www.baseten.co/blog/agentic-inference-optimization-faster-than-sota/",
+      "permalink": "https://aihot.news/items/uwm1ml1igd8k2u81g14uf8pc3",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/uwm1ml1igd8k2u81g14uf8pc3"
+      },
+      "publishedAt": "2026-10-02T21:09:34.000Z"
+    },
+    {
+      "title": "GPT-6.1 Sol (Max) 进入 Agent Arena 第 5 名，以更低成本逼近前列模型",
+      "summary": "",
+      "sourceName": "X：Arena (@arena)",
+      "sourceUrl": "https://x.com/arena/status/2106109027923140928",
+      "permalink": "https://aihot.news/items/bzodztryi4kvwm4kz9mrwb6nn",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/bzodztryi4kvwm4kz9mrwb6nn"
+      },
+      "publishedAt": "2026-10-02T19:48:16.000Z"
+    },
+    {
+      "title": "OpenRouter 解析 LangChain 与 CrewAI 编排和 OpenRouter 原生路由的差异",
+      "summary": "",
+      "sourceName": "OpenRouter：Announcements（RSS）",
+      "sourceUrl": "https://openrouter.ai/blog/insights/langchain-vs-crewai-orchestration-compared-to-openrouter-native-routing/",
+      "permalink": "https://aihot.news/items/ukk2qw5l1r9jqhsykqai2cf30",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/ukk2qw5l1r9jqhsykqai2cf30"
+      },
+      "publishedAt": "2026-10-02T00:00:00.000Z"
+    },
+    {
+      "title": "Prime Intellect 发布推理平台 Prime Inference，已上线 GLM-5.3 端点",
+      "summary": "",
+      "sourceName": "Prime Intellect（网页）",
+      "sourceUrl": "https://www.primeintellect.ai/blog/prime-inference",
+      "permalink": "https://aihot.news/items/e54qt77e1upo9oqowk38fply1",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/e54qt77e1upo9oqowk38fply1"
+      },
+      "publishedAt": "2026-10-01T16:00:00.000Z"
+    },
+    {
+      "title": "Modal 正式发布 VM Sandboxes：给 Agent 一台完整的 Linux 虚拟机",
+      "summary": "",
+      "sourceName": "Modal 官方工程博客（RSS）",
+      "sourceUrl": "https://modal.com/blog/vm-sandboxes-agent-computers",
+      "permalink": "https://aihot.news/items/rdjmj3nqrje120k46r63xrth4",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/rdjmj3nqrje120k46r63xrth4"
+      },
+      "publishedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "title": "Meta 公布数学家与 Muse Spark 1.1/1.2 协作完成的六篇论文",
+      "summary": "",
+      "sourceName": "X：AI at Meta (@AIatMeta)",
+      "sourceUrl": "https://x.com/AIatMeta/status/2106099776035152231",
+      "permalink": "https://aihot.news/items/mnp85zt9o921l7c28rzor00qy",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/mnp85zt9o921l7c28rzor00qy"
+      },
+      "publishedAt": "2026-10-02T19:11:30.000Z"
+    },
+    {
+      "title": "Modal 推出 Sidecars，为 Sandboxes 提供低延迟信任边界",
+      "summary": "",
+      "sourceName": "Modal 官方工程博客（RSS）",
+      "sourceUrl": "https://modal.com/blog/introducing-sandbox-sidecars-trust-boundary",
+      "permalink": "https://aihot.news/items/mxaja99ylejkngzxhp66laxfj",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/mxaja99ylejkngzxhp66laxfj"
+      },
+      "publishedAt": "2026-10-01T00:00:00.000Z"
+    },
+    {
+      "title": "Google 发布基于 TEE 的下一代联邦学习系统，Gboard 已部署",
+      "summary": "",
+      "sourceName": "Google Research：Blog（网页）",
+      "sourceUrl": "https://research.google/blog/toward-provably-private-learning-from-federated-data/",
+      "permalink": "https://aihot.news/items/zfrloexd1672w3tse0utp4jgb",
+      "attribution": {
+        "source": "AIHOT",
+        "canonical": "https://aihot.news/items/zfrloexd1672w3tse0utp4jgb"
+      },
+      "publishedAt": "2026-10-02T00:00:00.000Z"
+    }
+  ],
+  "attribution": {
+    "source": "AIHOT",
+    "canonical": "https://aihot.news/daily/2026-10-03"
+  },
+  "fetchedAt": "2026-10-10T11:01:09.844311+08:00",
+  "source": "AI HOT",
+  "sourceUrl": "https://aihot.news/"
+}

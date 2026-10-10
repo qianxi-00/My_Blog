@@ -48,6 +48,10 @@ class HotTopic(Base):
     )
 
     primary_category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    # 十六期：LLM 归一主题标签（tag_hotspots.py 用系统 grok 链路批量打标）。
+    # primary_category 是来源站的原始分类——中英混杂且同义重复
+    # （"AI基础设施"90 vs "AI-Infrastructure"33），归档页主题分组用它不可用。
+    topic_tag: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     created_by: Mapped[Optional[int]] = mapped_column(

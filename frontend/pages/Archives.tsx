@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { getArticles, getTags, ArticleListItem, Tag } from '../api/articles';
 import { getHotspots, HotTopicListItem } from '../api/hotspots';
-import { getAiDailyIndex, AiDailyIndex } from '../api/aiDaily';
+import { getAiDailyIndex, getAiDailyTopics, AiDailyIndex, AiDailyTopics } from '../api/aiDaily';
 
 // 为每个标签分配一套柔和配色
 const TAG_COLORS: Record<string, { bg: string; border: string; icon: string; badge: string; hoverBg: string }> = {};
@@ -31,11 +31,14 @@ function getTagColor(tagName: string) {
 /** 每个文件夹最多展示的文章数 */
 const MAX_PREVIEW = 4;
 
-/** 十五期：归档三合一 tab（文章沿用原标签文件夹视图；热点/AI日报懒加载） */
+/** 热点每组（主题/月份）默认展示条数，超出折叠——"一个月很多文章"的解 */
+const HOTSPOT_PREVIEW = 8;
+
+/** 十六期：归档三合一 tab；热点按 LLM 主题归档，日报滚动 30 天按主题聚合 */
 const ARCHIVE_TABS = [
   { key: 'articles', label: '文章', hint: '标签知识文件夹' },
-  { key: 'hotspots', label: '热点', hint: 'AIHOT 专题归档' },
-  { key: 'ai-daily', label: 'AI 日报', hint: '日报成稿索引' },
+  { key: 'hotspots', label: '热点', hint: 'LLM 归一主题归档' },
+  { key: 'ai-daily', label: 'AI 日报', hint: '滚动 30 天 · 按主题' },
 ] as const;
 
 type ArchiveTab = typeof ARCHIVE_TABS[number]['key'];
@@ -53,13 +56,31 @@ const Archives: React.FC = () => {
   // 展开状态：展开的标签名 → 显示全部文章
   const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
 
-  // 十五期：三合一归档
+  // 十六期：三合一归档
   const [activeTab, setActiveTab] = useState<ArchiveTab>('articles');
   const [hotspots, setHotspots] = useState<HotTopicListItem[] | null>(null);
   const [hotspotsLoading, setHotspotsLoading] = useState(false);
-  const [dailyIndex, setDailyIndex] = useState<AiDailyIndex | null>(null);
+  const [hotspotView, setHotspotView] = useState<'theme' | 'time'>('theme');
+  const [expandedHotspotGroups, setExpandedHotspotGroups] = useState<Set<string>>(new Set());
+  const [openHotspotMonths, setOpenHotspotMonths] = useState<Record<string, boolean>>({});
+  const [dailyTopics, setDailyTopics] = useState<AiDailyTopics | null>(null);
   const [dailyLoading, setDailyLoading] = useState(false);
-  const [openDailyMonths, setOpenDailyMonths] = useState<Record<string, boolean>>({});
+  const [expandedDailyTopics, setExpandedDailyTopics] = useState<Set<string>>(new Set());
+  // tab 计数即时显示（修复"变成几个点"）：挂载就拉轻量计数，不等到切 tab
+  const [hotspotTotal, setHotspotTotal] = useState<number | null>(null);
+  const [dailyTotal, setDailyTotal] = useState<number | null>(null);
+
+  // 计数探针（挂载即跑）：日报索引一个小 JSON；热点 page_size=1 只取 total
+  useEffect(() => {
+    let mounted = true;
+    getAiDailyIndex().then((index) => {
+      if (mounted && index) setDailyTotal(index.total);
+    }).catch(() => {});
+    getHotspots({ page: 1, page_size: 1, status: 'published' })
+      .then((res) => { if (mounted) setHotspotTotal(res.total); })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   // 热点/日报数据按 tab 懒加载，不拖累文章归档首屏
   useEffect(() => {
@@ -76,7 +97,14 @@ const Archives: React.FC = () => {
           totalPages = res.total_pages;
           page++;
         } while (page <= totalPages);
-        if (mounted) setHotspots(all);
+        if (mounted) {
+          setHotspots(all);
+          if (all.length) {
+            const byMonth: Record<string, boolean> = {};
+            byMonth[monthKeyOf(all[0].topic_date)] = true;
+            setOpenHotspotMonths(byMonth);
+          }
+        }
       } catch (error) {
         console.error('获取热点归档失败:', error);
         if (mounted) setHotspots([]);
@@ -87,27 +115,43 @@ const Archives: React.FC = () => {
     return () => { mounted = false; };
   }, [activeTab, hotspots]);
 
+  // 日报主题索引：切到日报 tab 拉聚合文件（fetch 脚本每次抓取重建）
   useEffect(() => {
-    if (activeTab !== 'ai-daily' || dailyIndex) return;
+    if (activeTab !== 'ai-daily' || dailyTopics) return;
     let mounted = true;
     setDailyLoading(true);
-    getAiDailyIndex()
-      .then((index) => {
+    getAiDailyTopics()
+      .then((topics) => {
         if (!mounted) return;
-        setDailyIndex(index);
-        if (index?.months?.length) {
-          setOpenDailyMonths({ [index.months[0].month]: true });
-        }
+        setDailyTopics(topics);
       })
       .catch((error) => {
-        console.error('获取 AI 日报索引失败:', error);
-        if (mounted) setDailyIndex(null);
+        console.error('获取 AI 日报主题索引失败:', error);
+        if (mounted) setDailyTopics(null);
       })
       .finally(() => mounted && setDailyLoading(false));
     return () => { mounted = false; };
-  }, [activeTab, dailyIndex]);
+  }, [activeTab, dailyTopics]);
 
-  // 热点按月分组（新 → 旧）
+  // 热点按 LLM 主题分组（默认视图；无标签的归"未分类"等打标脚本补齐）
+  const hotspotsByTheme = useMemo(() => {
+    if (!hotspots) return [];
+    const map = new Map<string, HotTopicListItem[]>();
+    hotspots.forEach((h) => {
+      const key = h.topic_tag || '未分类';
+      const list = map.get(key) || [];
+      list.push(h);
+      map.set(key, list);
+    });
+    return Array.from(map.entries())
+      .map(([theme, items]) => ({
+        theme,
+        items: items.sort((a, b) => (b.heat_score || 0) - (a.heat_score || 0) || (b.topic_date || '').localeCompare(a.topic_date || '')),
+      }))
+      .sort((a, b) => (a.theme === '未分类' ? 1 : b.theme === '未分类' ? -1 : b.items.length - a.items.length));
+  }, [hotspots]);
+
+  // 热点按月分组（时间视图）
   const hotspotsByMonth = useMemo(() => {
     if (!hotspots) return [];
     const map = new Map<string, HotTopicListItem[]>();
@@ -124,6 +168,21 @@ const Archives: React.FC = () => {
         items: items.sort((a, b) => (b.topic_date || '').localeCompare(a.topic_date || '')),
       }));
   }, [hotspots]);
+
+  const toggleHotspotGroup = (key: string) => {
+    setExpandedHotspotGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const toggleDailyTopic = (label: string) => {
+    setExpandedDailyTopics((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label); else next.add(label);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -254,97 +313,169 @@ const Archives: React.FC = () => {
                 >
                   {tab.label}
                   <span className={`text-xs ${active ? 'text-amber-500 dark:text-amber-300' : 'text-slate-400'}`}>
-                    {tab.key === 'articles' ? articles.length : tab.key === 'hotspots' ? (hotspots?.length ?? '…') : (dailyIndex?.total ?? '…')}
+                    {tab.key === 'articles' ? articles.length : tab.key === 'hotspots' ? (hotspotTotal ?? '…') : (dailyTotal ?? '…')}
                   </span>
                 </button>
               );
             })}
           </div>
 
-          {/* ===== 热点归档：按月分组 ===== */}
+          {/* ===== 热点归档：主题（LLM 打标）默认 + 时间双视图 ===== */}
           {activeTab === 'hotspots' && (
             <section className="space-y-6">
+              {/* 视图切换 */}
+              <div className="flex items-center gap-2">
+                {([['theme', '按主题'], ['time', '按时间']] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setHotspotView(key)}
+                    className={`rounded-full px-3 py-1 text-xs border transition-all ${hotspotView === key ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-700 font-bold' : 'bg-white/70 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 font-medium hover:border-amber-200'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <span className="text-xs text-slate-400 ml-1">
+                  {hotspotView === 'theme' ? '主题由系统 AIAgent（grok）统一打标' : '按专题日期归月'}
+                </span>
+              </div>
+
               {hotspotsLoading && (
                 <div className="flex flex-col items-center justify-center py-16 space-y-3">
                   <div className="w-8 h-8 border-2 border-slate-200 dark:border-slate-700 border-t-amber-500 rounded-full animate-spin"></div>
                   <p className="text-slate-400 text-sm">正在拉取热点归档...</p>
                 </div>
               )}
-              {!hotspotsLoading && hotspotsByMonth.length === 0 && (
+              {!hotspotsLoading && hotspots && hotspots.length === 0 && (
                 <div className="rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center text-slate-400 text-sm">暂无已发布热点</div>
               )}
-              {!hotspotsLoading && hotspotsByMonth.map(({ month, items }) => (
-                <div key={month} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
-                      <Icons.Folder className="w-4 h-4 text-amber-500" /> {month} 月
-                    </h2>
-                    <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">{items.length} 个专题</span>
-                  </div>
-                  <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                    {items.map((h) => (
-                      <button
-                        key={h.id}
-                        type="button"
-                        onClick={() => navigate(`/hotspots/${h.id}`)}
-                        className="w-full flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group"
-                      >
-                        <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{(h.topic_date || '').slice(5) || '——'}</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{h.title}</div>
-                          {h.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{h.summary}</p>}
-                        </div>
-                        <div className="shrink-0 flex items-center gap-3 text-xs text-slate-400">
-                          {h.primary_category && <span className="hidden sm:inline px-2 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-300">{h.primary_category}</span>}
-                          <span className="inline-flex items-center gap-0.5"><Icons.Eye className="w-3 h-3" /> {h.heat_score}</span>
-                        </div>
+
+              {/* 主题视图：LLM topic_tag 分组，每组默认 8 条 */}
+              {!hotspotsLoading && hotspotView === 'theme' && hotspotsByTheme.map(({ theme, items }) => {
+                const expanded = expandedHotspotGroups.has(theme);
+                const display = expanded ? items : items.slice(0, HOTSPOT_PREVIEW);
+                const hasMore = items.length > HOTSPOT_PREVIEW;
+                return (
+                  <div key={theme} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                        <Icons.Folder className="w-4 h-4 text-amber-500" /> {theme}
+                      </h2>
+                      <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">{items.length} 个专题</span>
+                    </div>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {display.map((h) => (
+                        <button key={h.id} type="button" onClick={() => navigate(`/hotspots/${h.id}`)} className="w-full flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group">
+                          <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{(h.topic_date || '').slice(5) || '——'}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{h.title}</div>
+                            {h.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{h.summary}</p>}
+                          </div>
+                          <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400"><Icons.Eye className="w-3 h-3" /> {h.heat_score}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {hasMore && (
+                      <button type="button" onClick={() => toggleHotspotGroup(theme)} className="mt-3 w-full text-center py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:opacity-80 transition-opacity">
+                        {expanded ? '收起 ↑' : `查看全部 ${items.length} 个 →`}
                       </button>
-                    ))}
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
+
+              {/* 时间视图：月份可折叠，默认展开最新月；月内默认 8 条 */}
+              {!hotspotsLoading && hotspotView === 'time' && hotspotsByMonth.map(({ month, items }) => {
+                const open = !!openHotspotMonths[month];
+                const monthKey = `hs-${month}`;
+                const expanded = expandedHotspotGroups.has(monthKey);
+                const display = expanded ? items : items.slice(0, HOTSPOT_PREVIEW);
+                const hasMore = items.length > HOTSPOT_PREVIEW;
+                return (
+                  <div key={month} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <button type="button" onClick={() => setOpenHotspotMonths((prev) => ({ ...prev, [month]: !prev[month] }))} className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100 hover:text-amber-600 dark:hover:text-amber-300 transition-colors">
+                        <Icons.ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-0' : '-rotate-90'}`} />
+                        {month} 月
+                      </button>
+                      <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">{items.length} 个专题</span>
+                    </div>
+                    {open && (
+                      <>
+                        <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-700">
+                          {display.map((h) => (
+                            <button key={h.id} type="button" onClick={() => navigate(`/hotspots/${h.id}`)} className="w-full flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group">
+                              <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{(h.topic_date || '').slice(5) || '——'}</span>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{h.title}</div>
+                                {h.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{h.summary}</p>}
+                              </div>
+                              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400"><Icons.Eye className="w-3 h-3" /> {h.heat_score}</span>
+                            </button>
+                          ))}
+                        </div>
+                        {hasMore && (
+                          <button type="button" onClick={() => toggleHotspotGroup(monthKey)} className="mt-3 w-full text-center py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:opacity-80 transition-opacity">
+                            {expanded ? '收起 ↑' : `查看本月全部 ${items.length} 个 →`}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </section>
           )}
 
-          {/* ===== AI 日报归档：月/日索引，点某天深链到当日简报 ===== */}
+          {/* ===== AI 日报归档：滚动 30 天，纯主题聚合（点条目直达源文） ===== */}
           {activeTab === 'ai-daily' && (
             <section className="space-y-6">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                AIHOT 源头仅保留 30 天成稿，本站同步滚动；按主题聚合回看，点条目直达原文。
+              </p>
               {dailyLoading && (
                 <div className="flex flex-col items-center justify-center py-16 space-y-3">
                   <div className="w-8 h-8 border-2 border-slate-200 dark:border-slate-700 border-t-amber-500 rounded-full animate-spin"></div>
-                  <p className="text-slate-400 text-sm">正在拉取日报索引...</p>
+                  <p className="text-slate-400 text-sm">正在拉取日报主题索引...</p>
                 </div>
               )}
-              {!dailyLoading && !dailyIndex && (
-                <div className="rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center text-slate-400 text-sm">日报索引暂时不可用</div>
+              {!dailyLoading && !dailyTopics && (
+                <div className="rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-12 text-center text-slate-400 text-sm">日报主题索引暂时不可用</div>
               )}
-              {!dailyLoading && dailyIndex?.months?.map((month) => {
-                const open = !!openDailyMonths[month.month];
+              {!dailyLoading && dailyTopics?.topics?.map((topic) => {
+                const expanded = expandedDailyTopics.has(topic.label);
+                const display = expanded ? topic.items : topic.items.slice(0, HOTSPOT_PREVIEW);
+                const hasMore = topic.items.length > HOTSPOT_PREVIEW;
                 return (
-                  <div key={month.month} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => setOpenDailyMonths((prev) => ({ ...prev, [month.month]: !prev[month.month] }))}
-                      className="w-full flex items-center justify-between gap-3 group"
-                    >
-                      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors">
-                        <Icons.ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-0' : '-rotate-90'}`} />
-                        {month.label}
+                  <div key={topic.label} className="rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-slate-100">
+                        <Icons.Folder className="w-4 h-4 text-amber-500" /> {topic.label}
                       </h2>
-                      <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">{month.count} 期</span>
-                    </button>
-                    {open && (
-                      <div className="mt-4 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-                        {(month.days || []).map((day) => (
-                          <a
-                            key={day.path}
-                            href={`#/ai-daily?p=${encodeURIComponent(day.path)}`}
-                            className="text-center rounded-xl border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-300 hover:border-amber-300 dark:hover:border-amber-700 hover:text-amber-600 dark:hover:text-amber-300 hover:bg-amber-50/50 dark:hover:bg-amber-900/10 transition-colors"
-                          >
-                            {day.label}
-                          </a>
-                        ))}
-                      </div>
+                      <span className="text-xs font-semibold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-900/50">近 30 天 {topic.count} 条</span>
+                    </div>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {display.map((item, idx) => (
+                        <a
+                          key={`${topic.label}-${item.date}-${idx}`}
+                          href={item.sourceUrl || '#'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-start gap-3 py-3 px-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700/40 transition-colors text-left group"
+                        >
+                          <span className="shrink-0 mt-0.5 text-xs font-bold text-slate-400 tabular-nums">{item.date.slice(5)}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{item.title}</div>
+                            {item.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{item.summary}</p>}
+                          </div>
+                          {item.sourceUrl && <Icons.ExternalLink className="shrink-0 w-3.5 h-3.5 mt-1 text-slate-300 group-hover:text-amber-500" />}
+                        </a>
+                      ))}
+                    </div>
+                    {hasMore && (
+                      <button type="button" onClick={() => toggleDailyTopic(topic.label)} className="mt-3 w-full text-center py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:opacity-80 transition-opacity">
+                        {expanded ? '收起 ↑' : `查看该主题全部 ${topic.count} 条 →`}
+                      </button>
                     )}
                   </div>
                 );
