@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `3f68d0c`）。
-当前生产镜像 **`qianxi-blog:ci-13`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `7933824`）。
+当前生产镜像 **`qianxi-blog:ci-14`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,17 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 十三期检修批（2026-10-09，提交 `7933824`，生产镜像 `qianxi-blog:ci-14`）
+
+上线后主动检修扫描抓出的四项：
+
+1. **IME 组合期保护（高危）**：看板娘两处新 textarea 无 `isComposing` 检查——中文输入法按 Enter 选候选词会把半打的字直接发出去。AgentChat 早有同款，十三期新输入框漏抄；两处补齐。生产 bundle 实测 `DesktopPet-*.js` 内已含 isComposing。
+2. **ConfirmDialog 焦点策略**：danger 场景焦点从确认钮移到取消钮——弹窗后误按 Enter 不再直接执行删除类操作。
+3. **window.confirm 清零**：十三期只替换了两个 sub 的认领文件，全站扫描发现 5 文件 11 处残留（DesktopPet 1、UserAdminPanels 4、UserDetailDrawer 3、UserCenter 2、ArticleEditor 1）全部换 useConfirm；不可逆操作 danger:true。实测：UserCenter"我的文章"删除钮只在非 published 态渲染（设计如此非 bug）。
+4. **回复框切换清残留**（ArticleDetail 两处）：A 框半截字不再跟到 B 框错发给上一人。
+
+契约核实：`likeComment` 后端两分支均返回 `{liked, like_count}`，十三期点赞校准读值安全。
+部署后旧 tab 报 "Failed to fetch dynamically imported module" 属 chunk 哈希替换的正常现象——硬刷新即可，勿当 bug 排查。
 ## 十三期：头脑风暴六路落地——4 个生产事故 + 全站质感批次（2026-10-09，提交 `3f68d0c`，生产镜像 `qianxi-blog:ci-13`）
 
 第二轮头脑风暴（五顾问 + 魔鬼代言人，全部实读源码）拍板全做：26 文件 +1211/-843 一批交付。魔鬼预算线全程遵守：零新依赖、短语义类、改动可逐行验收。
