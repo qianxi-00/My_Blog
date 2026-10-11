@@ -246,6 +246,28 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 二十期：每日 3 篇 cron 化 + 审稿分数程序门槛（2026-10-11，提交见本节末，生产走 CI/CD）
+
+千禧拍板"每天 3 篇，确保写作质量"。
+
+### 定时与发布
+- `/etc/cron.d/hotspot-pipeline` 三时间点：`20 9` hot（当日热点）/ `20 19` curriculum-1900（注意力·KV Cache·推理加速线）/ `20 21` curriculum-2000（预训练·数据·scaling law 线），沿袭 openclaw 早追热点晚学体系节奏；`publish=true` 直接发布，三层质量闸（结构程序闸/审稿 85 分线/failed 兜底）不过绝不发布。
+- 触发走 wrapper：`/data/blog/scripts/trigger_hotspot_pipeline.sh <mode> <track_slot> <publish>`，key **现读** `/data/blog/runtime.env` 的 `PIPELINE_CRON_KEY`，绝不落 cron 文件；日志 `hotspot-pipeline-cron.log`。
+- 端点 `POST /api/v1/hotspot-pipeline/cron`：`PIPELINE_CRON_KEY` 鉴权（未配置则全拒），running 冲突 409（cron 下个时间点再来），其余与 `/run` 同逻辑。
+
+### 质量门槛（发布权交给程序，不交给 LLM 自觉）
+- `graph.py`：`MIN_REVIEW_SCORE = 85`——verdict=pass 但 score<85 一律强制转 revise（notes 头插【程序门槛】），回修上限 2 轮、超限 failed 待人工；`review_score` 入 PipelineState。
+- `prompts.py` 审稿提示词同步打分锚定四档（92-100/85-91/70-84/<70）+"放行空泛内容=审稿失职"约束。
+
+### 二十期踩坑（全部实测）
+1. **FastAPI 裸 str 参数按 query 解析**：`x_cron_key: str` 收不到 `x-cron-key` 请求头，实测 422 `"loc":["query","x_cron_key"]`——必须 `Header(...)`（convert_underscores 默认映射 x-cron-key）。初版部署后 wrapper 实测当场暴露。
+2. **cron 环境变量行不剥引号**：`KEY_CMD='curl…'` 单引号成字面量传给 job——初版 cron 写法作废，改为 cron 行只调 wrapper。
+3. **relay 链 force-push**：二十期 commit 在服务器 `/data/blog/repo-tmp`（remote `relay`）做出并强推 origin，覆盖了 9-28 relay 链旧头（`4ecc5bf` docs / `a09d81a` style）。核实两 commit 内容均已含在当前链（表格 `min-w-[920px]` 在 UserAdminPanels.tsx:452），无实质丢失；本地与 origin/master 历史不同源（513 文件大迁移所致），cherry-pick 会满屏 AA，勿再尝试。
+
+### 部署与验证
+- CI/CD `c4f9d25`（21:28 success）已上生产；服务器侧 runtime.env key + wrapper + cron 由接手会话（ZCode）补完（DSH 会话在写完部署脚本后被掐停，`b_fix_cron20.sh` 未及执行）。
+- 实测四步：wrapper 就位 / cron 重写 3 行 / publish=false 真实触发 / 错 key 拒绝。
+
 ## 十九期：热点文章流水线 LangGraph 重建（2026-10-11，提交 `ffaa1d3`，生产镜像 `qianxi-blog:manual-pipe19`）
 
 openclaw cron 的热点写作/推送（7 月随 openclaw 退役停摆）按千禧规格在博客内重建。

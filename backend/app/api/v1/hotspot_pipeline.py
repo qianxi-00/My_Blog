@@ -16,7 +16,7 @@ import asyncio
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from ...core.config import settings
@@ -104,12 +104,13 @@ async def list_runs(admin=Depends(get_super_admin)):
 
 
 @router.post("/cron", response_model=PipelineRunResponse)
-async def cron_trigger(req: PipelineRunRequest, x_cron_key: str):
+async def cron_trigger(req: PipelineRunRequest, x_cron_key: str = Header(...)):
     """宿主 cron 专用触发口（二十期：每天 3 篇）。
 
     admin JWT 24h 过期不适合 cron，走 PIPELINE_CRON_KEY（runtime.env 注入，
-    cron 现读不落 /etc/cron/d 文件）；除鉴权外与 /run 完全同逻辑。
-    FastAPI 参数 x_cron_key 自动映射请求头 x-cron-key。
+    cron 现读不落 /etc/cron.d 文件）；除鉴权外与 /run 完全同逻辑。
+    裸 str 参数 FastAPI 默认按 query 解析，必须显式 Header(...) 才绑定
+    x-cron-key 请求头（convert_underscores 默认把 x_cron_key 映射为 x-cron-key）。
     """
     if not settings.PIPELINE_CRON_KEY or x_cron_key != settings.PIPELINE_CRON_KEY:
         raise HTTPException(401, "cron key 无效")
