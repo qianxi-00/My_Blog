@@ -266,8 +266,9 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 4. **API 层相对导入层级错一个点（致命，POST /run 与 /cron 自十九期起恒废）**：`hotspot_pipeline.py`（app/api/v1/ 下）写 `from ..services.hotspot_pipeline import run_pipeline`——`..` 解析到 `app.api.services`（不存在），ModuleNotFoundError 是 ImportError 子类被 try/except 吞成 `run_pipeline = None`，运行时秒挂 `'NoneType' object is not callable` 且 stdout 零痕迹（_execute 吞异常）。三个连环教训：① `app/api/v1/` 回 app 根要三个点 `...`；② 吞 ImportError 必须把 `_PIPELINE_IMPORT_ERROR` 暴露到端点响应/日志，否则错误被推到第一次调用；③ `_execute` 的 except 必须 `traceback.print_exc()`，asyncio.create_task 的静默失败是运维黑洞。定位路径：手写 HS256 JWT 打 /runs 拿 record detail（多 worker 各持内存 _RUNS，GET 多打几次）→ 容器内 PYTHONPATH=/app 直跑 run_pipeline 全绿排除代码问题 → print_exc 全栈指向 None 的 import。
 
 ### 部署与验证
-- CI/CD `c4f9d25`（21:28 success）已上生产；服务器侧 runtime.env key + wrapper + cron 由接手会话（ZCode）补完（DSH 会话在写完部署脚本后被掐停，`b_fix_cron20.sh` 未及执行）。
-- 实测四步：wrapper 就位 / cron 重写 3 行 / publish=false 真实触发 / 错 key 拒绝。
+- CI/CD `c4f9d25` → `13f94c0`（根因修复）均已 success 上生产；服务器侧 runtime.env key + wrapper + cron 由接手会话（ZCode）补完（DSH 会话在写完部署脚本后被掐停，`b_fix_cron20.sh` 未及执行）。
+- 端到端实测（API 路径，非 dry-run 直跑）：三态 422/401/200 全对；真实触发一轮全链（选题→13 次检索→两稿回修→审稿）验证到**两道质量闸都真实拦截**——85 分线（一稿 pass 88 正常放行入队）与字数闸（另一轮 3 稿 4246/5421/5539 全 <6500，超 3 轮 failed 留待人工，绝不发布）。
+- 已知观察：选题查重只对 published——AIHOT 池当前最热的 ExploitGym 事件会被反复选中（pending/failed 已积 3 篇同题变体），下轮可考虑查重范围含 pending。
 
 ## 十九期：热点文章流水线 LangGraph 重建（2026-10-11，提交 `ffaa1d3`，生产镜像 `qianxi-blog:manual-pipe19`）
 
