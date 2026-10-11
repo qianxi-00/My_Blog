@@ -18,6 +18,7 @@ from .subscribe import router as subscribe_router
 from .agent import router as agent_router
 from .forum import router as forum_router
 from .hotspots import router as hotspots_router
+from .hotspot_pipeline import router as hotspot_pipeline_router
 
 api_router = APIRouter()
 
@@ -36,3 +37,5 @@ api_router.include_router(subscribe_router, tags=["订阅"])
 api_router.include_router(agent_router, prefix="/agent", tags=["AI Agent"])
 api_router.include_router(forum_router, prefix="/forum", tags=["论坛"])
 api_router.include_router(hotspots_router, prefix="/hotspots", tags=["每日热点"])
+# 热点流水线（LangGraph：选题→检索→写作→mermaid校验→审稿→发布）——自带前缀 /hotspot-pipeline
+api_router.include_router(hotspot_pipeline_router)

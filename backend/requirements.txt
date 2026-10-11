@@ -38,6 +38,10 @@ httpx==0.28.1
 langchain==1.4.2
 langchain-openai==1.6.6
 
+# 热点文章流水线（LangGraph StateGraph：选题→检索→写作→mermaid校验→审稿→发布）
+# langgraph 本就是 langchain 1.x 的传递依赖，这里显式钉住（容器 CI 镜像重建时装）
+langgraph>=1.2,<2
+
 # 定时任务
 apscheduler==3.10.4
 redis>=5.0.0

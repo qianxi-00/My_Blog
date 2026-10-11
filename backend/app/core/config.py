@@ -73,6 +73,14 @@ class Settings(BaseSettings):
     # CPA 备用 provider（OpenClaw cpa/grok-4.5）
     CPA_API_KEY: Optional[str] = None
     CPA_API_BASE: str = "http://43.160.202.101:8317/v1"
+
+    # ====================================
+    # 热点文章流水线模型（十期 hotpipeline：独立于 A-RAG 的 grok 链路）
+    # 写作长文用 stepfun step-5-preview（千禧 2026-10-10 提供 step_plan 渠道）
+    # ====================================
+    PIPELINE_API_KEY: Optional[str] = None
+    PIPELINE_API_BASE: str = "https://api.stepfun.com/step_plan/v1"
+    PIPELINE_MODEL: str = "step-5-preview"
     
     # ====================================
     # Agent AI 配置（管理后台 AI 助手）
