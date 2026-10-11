@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `4a9ec1b`）。
-当前生产镜像 **`qianxi-blog:ci-22`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `ffaa1d3`）。
+当前生产镜像 **`qianxi-blog:manual-pipe19`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,39 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 十九期：热点文章流水线 LangGraph 重建（2026-10-11，提交 `ffaa1d3`，生产镜像 `qianxi-blog:manual-pipe19`）
+
+openclaw cron 的热点写作/推送（7 月随 openclaw 退役停摆）按千禧规格在博客内重建。
+
+### 管线（backend/app/services/hotspot_pipeline/，LangGraph StateGraph 9 节点）
+```
+选题(AIHOT当日池+近10篇查重/知识线课程) → 资料检索(工具循环：search_github/
+search_arxiv/fetch_url/search_aihot 多源+空资料三层防线) → 写作(八段结构/
+6500字/mermaid图+表格/官方-社区-推断三层事实分层) → 结构闸(mermaid白名单+
+表格+字数三重程序闸) → 审稿(必须/加分/一票否决清单) → 入队(.md+.meta.json
+原版双文件结构, /data/blog/data/pipeline/hotspot_queue/{pending,failed}/)
+→ 发布(publish=true 时 service 层直建 hot_topics+sources+topic_tag)
+```
+- 端点：`POST /api/v1/hotspot-pipeline/run`（super_admin，单飞锁，asyncio 后台任务）+ `GET /hotspot-pipeline/runs`；body `{"mode":"hot|curriculum","track_slot":"1900","publish":false}`
+- 模型：step-5-preview @ stepfun step_plan 渠道，PIPELINE_* 独立 env（runtime.env 注入，不进 git；不占 A-RAG 的 grok 链路）；_llm() 显式断言拒绝静默 fallback 到 OPENAI_API_KEY（实测 ChatOpenAI api_key=None 会拿 grok key 打 stepfun → 401 误导）
+- 配图：mermaid（千禧拍板替代图床）——前端 MermaidChart 渲染链验证 + 白名单图型校验 + 失败兜底代码框
+- 提示词复原自 OPENCLAW-BLOG-CRON-TASKS.md（含 10-10 二次挖掘的晚间提示词逐字原文/校验脚本源码）
+
+### dry-run 三轮实测教训（已全部修复）
+1. 审稿 LLM 放水（5368 字打 93 分 pass）→ 硬指标全部程序闸判定
+2. 结构闸/审稿共池预算冤杀稿件 → 分池（structure_round 3 轮 + revision_round 2 轮）
+3. 工具满限后总结 LLM 输出空 sources → 二次强约束 + ToolMessage 程序化 URL 兜底
+4. 终态：ExploitGym 逃逸事件复盘 7570 汉字 / 6 份一手资料 / 2 个 mermaid / 审稿 92 分入队
+
+### deploy_backend.sh 根修（runtime.env 增量合并）
+容器 env 是自我延续设计（docker inspect 继承）——往 runtime.env 加新键永远进不去容器
+（PIPELINE_* 三键实测漏掉）。部署时继承容器现值后把 runtime.env 里的缺键补入：
+runtime.env 成为可增键单一来源，已有键以容器为准。本次手动部署补入 3 键。
+
+### 待办
+- cron 触发频率未定（等千禧拍板：openclaw 原版每天 10 写 + 10 发，恢复节奏建议从每天 1-2 篇起步）
+- stepfun key 已进过对话记录，建议控制台轮换
+- pending/ 里有一篇 ExploitGym 复盘稿 + failed/ 里两篇试验稿，人工看过后决定是否发布
 ## 十八期：热点日期均摊 3-10 月 + 静态快照退役（2026-10-10，提交 `4a9ec1b`，生产镜像 `qianxi-blog:ci-22`）
 
 用户拍板：558 个热点挤在 03-07 月（05 月 202、08-10 月全空），均摊到 3-10 月。

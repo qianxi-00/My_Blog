@@ -45,6 +45,25 @@ echo "=== 3/5 切换生产容器 ==="
 ENVF=$(mktemp /tmp/ci_env.XXXXXX); chmod 600 "$ENVF"
 docker inspect "$LIVE" --format '{{range .Config.Env}}{{println .}}{{end}}' > "$ENVF"
 grep -q '^JWT_SECRET_KEY=' "$ENVF" || { echo "!! 从现容器抓 env 失败（缺 JWT_SECRET_KEY）"; rm -f "$ENVF"; exit 1; }
+# 十九期：runtime.env 增量合并。容器 env 是"自我延续"设计（从现容器继承），
+# 往 runtime.env 加新键永远进不去容器（PIPELINE_* 三键实测漏掉）——继承容器
+# 现值后，把 runtime.env 里容器还没有的键补进来：runtime.env 成为可增键的
+# 单一来源；已有键仍以容器现值为准（避免旧值把线上覆盖回滚）。
+if [ -f /data/blog/runtime.env ]; then
+  cut -d= -f1 "$ENVF" | sort -u > /tmp/ci_env_keys.$$
+  added=0
+  while IFS= read -r line; do
+    key="${line%%=*}"
+    case "$key" in ''|\#*) continue;; esac
+    if ! grep -qx "$key" /tmp/ci_env_keys.$$; then
+      printf '%s\n' "$line" >> "$ENVF"
+      added=$((added+1))
+      echo "  补入新键: $key"
+    fi
+  done < /data/blog/runtime.env
+  rm -f /tmp/ci_env_keys.$$
+  echo "  runtime.env 增量合并: $added 个新键"
+fi
 
 docker stop "$LIVE" >/dev/null
 PREV="qianxi-blog-prev-$(date +%s)"
