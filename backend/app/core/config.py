@@ -75,12 +75,15 @@ class Settings(BaseSettings):
     CPA_API_BASE: str = "http://43.160.202.101:8317/v1"
 
     # ====================================
-    # 热点文章流水线模型（十期 hotpipeline：独立于 A-RAG 的 grok 链路）
-    # 写作长文用 stepfun step-5-preview（千禧 2026-10-10 提供 step_plan 渠道）
+    # 热点文章流水线（十九期：写作模型；二十期：cron 触发口）
+    # 写作长文用 stepfun step-5-preview（千禧 2026-10-10 提供 step_plan 渠道），
+    # 独立于 A-RAG 的 grok 链路；cron key 供宿主定时任务鉴权（只落 runtime.env，
+    # admin JWT 24h 过期不适合 cron）
     # ====================================
     PIPELINE_API_KEY: Optional[str] = None
     PIPELINE_API_BASE: str = "https://api.stepfun.com/step_plan/v1"
     PIPELINE_MODEL: str = "step-5-preview"
+    PIPELINE_CRON_KEY: Optional[str] = None
     
     # ====================================
     # Agent AI 配置（管理后台 AI 助手）

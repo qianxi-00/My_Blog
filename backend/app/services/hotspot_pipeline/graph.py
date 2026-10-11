@@ -57,6 +57,9 @@ MAX_REVISION_ROUNDS = 2    # 审稿：内容性修订
 MAX_RESEARCH_TOOL_CALLS = 10
 # openclaw 原版审稿硬指标：中文正文 >= 6500 字（不含 frontmatter/表格/代码块）
 MIN_BODY_CHARS = 6500
+# 二十期质量门槛：审稿 pass 但分数低于此线强制 revise（每天 3 篇自动发布，
+# 千禧要求"确保写作质量"——发布线交给程序判定）
+MIN_REVIEW_SCORE = 85
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +81,7 @@ class PipelineState(TypedDict):
     draft_md: str
     mermaid_errors: list[str]
     review_verdict: str
+    review_score: int  # 审稿分数（0-100）；pass 且 >= MIN_REVIEW_SCORE 才放行发布
     review_notes: str
     topic_tag: str
     revision_round: int  # 审稿回修轮次（内容性，上限 MAX_REVISION_ROUNDS）
@@ -382,14 +386,24 @@ async def review(state: PipelineState) -> dict:
         ).content
     )
     verdict = result.get("verdict", "revise")
-    notes = result.get("notes") or []
-    _log(f"审稿: {verdict} score={result.get('score', '?')} tag={result.get('topic_tag', '?')}")
+    score = int(result.get("score") or 0)
+    notes = list(result.get("notes") or [])
+
+    # 二十期质量加固：分数程序门槛。verdict 是 LLM 主观判定（dry-run 实测
+    # 5368 字的稿子都能拿 pass 93 分），pass 但 score<MIN_REVIEW_SCORE 的
+    # 一律强制转 revise——发布权交给可计算门槛，不交给 LLM 自觉。
+    if verdict == "pass" and score < MIN_REVIEW_SCORE:
+        verdict = "revise"
+        notes.insert(0, f"【程序门槛】审稿分 {score} < 发布线 {MIN_REVIEW_SCORE}——按下列意见润色提质后重交")
+
+    _log(f"审稿: {verdict} score={score} tag={result.get('topic_tag', '?')}")
     return {
         "review_verdict": verdict,
+        "review_score": score,
         "review_notes": "\n".join(f"- {n}" for n in notes),
         "topic_tag": result.get("topic_tag", "其他"),
         "revision_round": state.get("revision_round", 0) + 1,
-        "log": [f"审稿 {verdict}: {'; '.join(notes)[:150]}"],
+        "log": [f"审稿 {verdict} {score}分: {'; '.join(notes)[:150]}"],
     }
 
 
@@ -561,6 +575,7 @@ async def run_pipeline(mode: str = "hot", track_slot: str = "1900", publish: boo
         "draft_md": "",
         "mermaid_errors": [],
         "review_verdict": "",
+        "review_score": 0,
         "review_notes": "",
         "topic_tag": "其他",
         "revision_round": 0,

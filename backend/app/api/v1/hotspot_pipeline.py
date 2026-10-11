@@ -19,6 +19,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ...core.config import settings
 from ...core.deps import get_super_admin
 
 try:
@@ -100,3 +101,35 @@ async def trigger_run(
 @router.get("/runs")
 async def list_runs(admin=Depends(get_super_admin)):
     return [r for r in _RUNS.values() if r.get("run_id")]
+
+
+@router.post("/cron", response_model=PipelineRunResponse)
+async def cron_trigger(req: PipelineRunRequest, x_cron_key: str):
+    """宿主 cron 专用触发口（二十期：每天 3 篇）。
+
+    admin JWT 24h 过期不适合 cron，走 PIPELINE_CRON_KEY（runtime.env 注入，
+    cron 现读不落 /etc/cron/d 文件）；除鉴权外与 /run 完全同逻辑。
+    FastAPI 参数 x_cron_key 自动映射请求头 x-cron-key。
+    """
+    if not settings.PIPELINE_CRON_KEY or x_cron_key != settings.PIPELINE_CRON_KEY:
+        raise HTTPException(401, "cron key 无效")
+    # 与 trigger_run 同逻辑，但跳过 admin 依赖（cron 已用 key 鉴权）
+    running = [r for r in _RUNS.values() if r.get("status") == "running"]
+    if running:
+        raise HTTPException(409, "已有一条流水线在跑，本触发放弃（cron 下个时间点再来）")
+    run_id = uuid.uuid4().hex[:12]
+    _RUNS[run_id] = {
+        "run_id": run_id,
+        "status": "running",
+        "mode": req.mode,
+        "publish": req.publish,
+        "started_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "finished_at": "",
+        "detail": "",
+        "log": [],
+        "hotspot_id": None,
+        "trigger": "cron",
+    }
+    _prune_runs()
+    asyncio.create_task(_execute(run_id, req))
+    return PipelineRunResponse(run_id=run_id, status="running", detail="cron 触发成功（约 3-10 分钟）")
