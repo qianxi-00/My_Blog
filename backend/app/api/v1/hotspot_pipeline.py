@@ -63,6 +63,8 @@ async def _execute(run_id: str, req: PipelineRunRequest) -> None:
             f"已发布 hot_topic#{result.get('hotspot_id')}" if req.publish else "已入队 pending，人工发布"
         )
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         record["status"] = "failed"
         record["detail"] = f"管线异常: {exc}"
     finally:
