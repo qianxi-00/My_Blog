@@ -23,7 +23,7 @@ from ...core.config import settings
 from ...core.deps import get_super_admin
 
 try:
-    from ..services.hotspot_pipeline import run_pipeline
+    from ...services.hotspot_pipeline import run_pipeline
 except ImportError as exc:  # langgraph 未装时（本地开发环境）不炸整个 app
     run_pipeline = None  # type: ignore
     _PIPELINE_IMPORT_ERROR = str(exc)

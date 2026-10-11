@@ -263,6 +263,7 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 1. **FastAPI 裸 str 参数按 query 解析**：`x_cron_key: str` 收不到 `x-cron-key` 请求头，实测 422 `"loc":["query","x_cron_key"]`——必须 `Header(...)`（convert_underscores 默认映射 x-cron-key）。初版部署后 wrapper 实测当场暴露。
 2. **cron 环境变量行不剥引号**：`KEY_CMD='curl…'` 单引号成字面量传给 job——初版 cron 写法作废，改为 cron 行只调 wrapper。
 3. **relay 链 force-push**：二十期 commit 在服务器 `/data/blog/repo-tmp`（remote `relay`）做出并强推 origin，覆盖了 9-28 relay 链旧头（`4ecc5bf` docs / `a09d81a` style）。核实两 commit 内容均已含在当前链（表格 `min-w-[920px]` 在 UserAdminPanels.tsx:452），无实质丢失；本地与 origin/master 历史不同源（513 文件大迁移所致），cherry-pick 会满屏 AA，勿再尝试。
+4. **API 层相对导入层级错一个点（致命，POST /run 与 /cron 自十九期起恒废）**：`hotspot_pipeline.py`（app/api/v1/ 下）写 `from ..services.hotspot_pipeline import run_pipeline`——`..` 解析到 `app.api.services`（不存在），ModuleNotFoundError 是 ImportError 子类被 try/except 吞成 `run_pipeline = None`，运行时秒挂 `'NoneType' object is not callable` 且 stdout 零痕迹（_execute 吞异常）。三个连环教训：① `app/api/v1/` 回 app 根要三个点 `...`；② 吞 ImportError 必须把 `_PIPELINE_IMPORT_ERROR` 暴露到端点响应/日志，否则错误被推到第一次调用；③ `_execute` 的 except 必须 `traceback.print_exc()`，asyncio.create_task 的静默失败是运维黑洞。定位路径：手写 HS256 JWT 打 /runs 拿 record detail（多 worker 各持内存 _RUNS，GET 多打几次）→ 容器内 PYTHONPATH=/app 直跑 run_pipeline 全绿排除代码问题 → print_exc 全栈指向 None 的 import。
 
 ### 部署与验证
 - CI/CD `c4f9d25`（21:28 success）已上生产；服务器侧 runtime.env key + wrapper + cron 由接手会话（ZCode）补完（DSH 会话在写完部署脚本后被掐停，`b_fix_cron20.sh` 未及执行）。
