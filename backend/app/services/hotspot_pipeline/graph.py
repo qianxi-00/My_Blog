@@ -60,6 +60,9 @@ MAX_STRUCTURE_ROUNDS = 4
 MAX_REVISION_ROUNDS = 2    # 审稿：内容性修订
 MAX_RESEARCH_TOOL_CALLS = 10
 MIN_BODY_CHARS = 6000
+# 二十二期：标题长度上限（千禧拍板"标题别搞太长"——41-47 字双段式标题
+# 在详情页视觉压迫过强；程序挡 32+，28-32 灰色区交审稿）
+MAX_TITLE_CHARS = 32
 MAX_RETRY = 1
 # 二十期质量门槛：审稿 pass 但分数低于此线强制 revise（每天 3 篇自动发布，
 # 千禧要求"确保写作质量"——发布线交给程序判定）
@@ -386,8 +389,18 @@ async def check_mermaid(state: PipelineState) -> dict:
             f"需扩写约 {MIN_BODY_CHARS - chars} 字——在保持结构的前提下加深核心拆解与横向对比"
         )
 
+    # 闸 4（二十二期）：标题长度——41-47 字的"主标题：副标题补充"式标题
+    # 在详情页视觉压迫过强（text-5xl 黑体时代尤甚），千禧拍板"标题别搞太长"。
+    # 程序挡 32+；28-32 灰色区交审稿把关。
+    title = str(fm.get("title") or "").strip()
+    if len(title) > MAX_TITLE_CHARS:
+        errors.append(
+            f"标题 {len(title)} 字 > 上限 {MAX_TITLE_CHARS}——删掉'主标题：副标题补充'式冗余，"
+            f"一句话说清技术主题（≤28 字），细节移到 summary/导语"
+        )
+
     status = "通过" if not errors else f"失败 {len(errors)} 处"
-    _log(f"结构校验（mermaid/表格/字数 {chars}）: {status}")
+    _log(f"结构校验（mermaid/表格/字数 {chars}/标题 {len(title)}）: {status}")
     update: dict = {"mermaid_errors": errors, "log": [f"结构校验 {status}（字数 {chars}）"]}
     # 结构闸失败计入 structure_round 独立预算（与审稿 revision_round 分池——
     # 共池时字数扩写吃光预算，审稿 revise 直接超轮冤杀稿件，dry-run 实测教训）

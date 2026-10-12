@@ -420,7 +420,10 @@ const HotspotDetail: React.FC = () => {
                     </div>
 
                     <div className="space-y-4">
-                      <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-tight text-slate-900 dark:text-white">{hotspot.title}</h1>
+                      {/* 二十二期：热点标题自适应——旧 text-5xl font-black 配 40+ 字长标题视觉压迫过强。
+                          短标题（≤22 字）text-3xl/4xl bold 保冲击力；长标题降一档并收紧行高。
+                          纯 Tailwind 档位切换，热点是资讯流内容，不用文章头版级字号。 */}
+                      <h1 className={`font-bold tracking-tight leading-snug break-words text-slate-900 dark:text-white ${hotspot.title.length > 22 ? 'text-2xl md:text-3xl' : 'text-3xl md:text-4xl'}`}>{hotspot.title}</h1>
                       <p className="text-sm md:text-base text-slate-600 dark:text-slate-300 leading-8 max-w-4xl">
                         {hotspot.summary || '暂无摘要'}
                       </p>
