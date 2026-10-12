@@ -175,7 +175,14 @@ def _strip_mermaid(md: str) -> str:
 ASSEMBLY_NOTE = "（图）"
 
 
-def assemble(plan: dict, results: list[dict], sources: list[dict], topic_date: str, generated_at: str) -> str:
+def assemble(
+    plan: dict,
+    results: list[dict],
+    sources: list[dict],
+    topic_date: str,
+    generated_at: str,
+    queue_slot: str = "pipeline",
+) -> str:
     """汇总层：章节 + 配图占位 + frontmatter + 参考资料 → 完整文章 md。
 
     frontmatter 必须是真 YAML（_parse_frontmatter 用 yaml.safe_load 解析，
@@ -204,6 +211,9 @@ def assemble(plan: dict, results: list[dict], sources: list[dict], topic_date: s
         "primary_category": primary_category,
         "tags": tags,
         "sources": src_items,
+        # queue_slot 是审稿的一票否决字段（二十三期实测：缺它即使内容
+        # 90 分也被判 revise "此为当前唯一一票否决项"）
+        "queue_slot": queue_slot,
         "generated_at": generated_at,
     }
     # safe_dump + allow_unicode：中文标题/摘要不能转义成 \uXXXX

@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import re
+from pathlib import Path
 from typing import Any, Literal
 
 import yaml
@@ -132,8 +134,10 @@ async def assemble_node(state: dict) -> dict:
     topic_date = state.get("topic_date") or dt.date.today().isoformat()
     generated_at = dt.datetime.now().isoformat(timespec="seconds")
 
-    sources = _plan_sources(plan)
-    draft = assemble(plan, results, sources, topic_date, generated_at)
+    # 先拼正文（不含参考资料），据此判定哪些辅助论文真被引用，再定 sources
+    body_md = assemble(plan, results, [], topic_date, generated_at, queue_slot=state.get("queue_slot") or "pipeline")
+    sources = _plan_sources(plan, draft=body_md)
+    draft = assemble(plan, results, sources, topic_date, generated_at, queue_slot=state.get("queue_slot") or "pipeline")
 
     # 配图占位替换：把 <!-- FIGURE: xxx --> 换成真实 markdown 图（推图在宿主做，先用 raw URL）
     draft, figure_note = await _inject_figures(draft, plan)
@@ -145,50 +149,122 @@ async def assemble_node(state: dict) -> dict:
     }
 
 
-def _plan_sources(plan: dict) -> list[dict]:
-    """从计划里凑来源（主锚 + 辅助论文的 arXiv 页）。"""
+def _plan_sources(plan: dict, draft: str = "") -> list[dict]:
+    """从计划里凑来源（主锚 + 辅助论文的 arXiv 页）。
+
+    draft 非空时只保留正文真的引用过的论文：二十三期实测审稿连续扣分
+    "sources 里列的辅助论文正文完全未引用"——列了不引用比不列更糟。
+    """
     src = []
     ap = plan.get("anchor_paper") or {}
-    aid = ap.get("arxiv_id")
+    aid = str(ap.get("arxiv_id") or "").strip()
+    body = draft or ""
+
+    def _cited(pid: str) -> bool:
+        # 正文里出现论文号（去点）或标题片段即视为已引用
+        plain = pid.replace(".", "")
+        return pid in body or plain in body
+
     if aid:
+        # 主锚永远列：它定义了本文主题，没引用也必须在来源里（审稿认它）
         src.append({"name": f"主锚论文 {aid}", "url": f"https://arxiv.org/abs/{aid}"})
     for s in (plan.get("support_papers") or [])[:4]:
-        src.append({"name": f"辅助论文 {s}", "url": f"https://arxiv.org/abs/{s}"})
+        sid = str(s or "").strip()
+        if not sid:
+            continue
+        if draft and not _cited(sid):
+            continue  # 未引用就不列，保持来源与正文一致
+        src.append({"name": f"辅助论文 {sid}", "url": f"https://arxiv.org/abs/{sid}"})
     return src
 
 
 async def _inject_figures(draft: str, plan: dict) -> tuple[str, str]:
-    """把规划里的 paper 图占位替换成 markdown 图片（下载暂存，宿主推图后 URL 即生效）。"""
+    """把规划里的 paper 图占位替换成真实 markdown 图片，并触发宿主推图床。
+
+    流程（容器内做不了 git，必须借宿主）：stage_figures 下载到共享卷 →
+    调宿主钩子 /data/blog/scripts/push_figures.sh 推 My_image → raw URL 变 200。
+    钩子不在（老部署）时不阻塞出稿，但记 log 说明图片会 404。
+    """
+    import json as _json
+    import subprocess
+
     from .paper_tools import stage_figures
 
-    paper_figs = []
+    # 按章节顺序建占位符映射：slug 相同，同 caption 出现在多节时按序消耗
+    by_cap: dict[str, list[dict]] = {}
     for s in plan.get("sections") or []:
         f = s.get("figure") or {}
         if f.get("kind") == "paper" and f.get("source_url"):
-            paper_figs.append({"url": f["source_url"], "name": f.get("name") or "fig",
-                               "caption": f.get("caption", "")})
-    if not paper_figs:
+            cap = str(f.get("caption") or "")
+            by_cap.setdefault(cap, []).append(
+                {"url": f["source_url"], "name": f.get("name") or f"fig{len(by_cap)}", "caption": cap}
+            )
+    if not by_cap:
         return draft, ""
 
-    import json as _json
-    manifest = stage_figures(plan.get("slug") or "fig", _json.dumps(paper_figs))
+    items = [it for group in by_cap.values() for it in group]
+    manifest = stage_figures(plan.get("slug") or "fig", _json.dumps(items))
     try:
         data = _json.loads(manifest)
-    except Exception:
+    except Exception as exc:
+        _log(f"配图清单解析失败，跳过论文原图: {exc}")
         return draft, ""
 
     staged = data.get("staged") or []
-    for item in staged:
-        cap = item.get("caption", "")
-        img_md = f"![{cap}]({item['raw_url']})\n\n*{cap}*" if cap else f"![]({item['raw_url']})"
-        draft = draft.replace(f"<!-- FIGURE: {cap} -->", img_md)
-        # 占位 caption 不完全匹配时，兜底插到该章节末尾之前太复杂——先全局兜底替换
-        if f"<!-- FIGURE:" in draft:
-            import re as _re
-            draft = _re.sub(r"<!-- FIGURE:[^>]*-->", img_md, draft, count=1)
+    failed = data.get("failed") or []
+    if not staged:
+        return draft, (f"论文原图全部下载失败（{len(failed)}）" if failed else "")
 
-    # 提醒宿主推图（推完 raw URL 即 200；未推时图片 404，读者看到破图——先记 log）
-    return draft, f"论文原图 {len(staged)} 张已暂存（待宿主推图床）"
+    # 逐张替换占位符：先精确匹配 caption，再用该图所属章节标题定位兜底
+    used: set[int] = set()
+    for item in staged:
+        cap = str(item.get("caption") or "")
+        img_md = f"![{cap}]({item['raw_url']})\n\n*{cap}*" if cap else f"![]({item['raw_url']})"
+        placeholder = f"<!-- FIGURE: {cap} -->" if cap else "<!-- FIGURE: -->"
+        if placeholder in draft:
+            draft = draft.replace(placeholder, img_md, 1)
+            used.add(id(item))
+            continue
+        # 兜底：本图所属章节的正文末尾插入（占位符被 agent 改写/漏写时不丢图）
+        hit = False
+        for s in plan.get("sections") or []:
+            f = s.get("figure") or {}
+            if f.get("kind") != "paper" or f.get("source_url") != item.get("raw_url"):
+                continue
+            head = str(s.get("heading") or "")
+            m = re.search(rf"^## {re.escape(head)}\s*$(.*?)(?=^## |\Z)", draft, re.M | re.S)
+            if m:
+                draft = draft[: m.end(1)] + img_md + "\n\n" + draft[m.end(1) :]
+                hit = True
+            break
+        if not hit:
+            _log(f"配图未找到插入位置（可能被后续回修改掉）：{cap[:40]}")
+
+    # 触发宿主推图床（git 只在宿主有）
+    note = f"论文原图 {len(staged)} 张"
+    hook = Path("/data/blog/scripts/push_figures.sh")
+    if hook.is_file():
+        try:
+            mf = Path("/data/pipeline/figures/_last_manifest.json")
+            mf.parent.mkdir(parents=True, exist_ok=True)
+            mf.write_text(manifest, encoding="utf-8")
+            p = subprocess.run(
+                [str(hook), str(mf)],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            note += f"，推图床 {'成功' if p.returncode == 0 else '失败'}"
+            if p.returncode != 0:
+                _log(f"推图床失败: {(p.stderr or p.stdout)[-200:]}")
+        except Exception as exc:
+            _log(f"推图床钩子异常（图片将 404）: {exc}")
+    else:
+        note += "，未装推图钩子（图片会 404）"
+
+    if failed:
+        _log(f"{len(failed)} 张论文图下载失败")
+    return draft, note
 
 
 # ---------------------------------------------------------------------------

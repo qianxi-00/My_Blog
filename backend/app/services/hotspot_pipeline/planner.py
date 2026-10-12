@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -76,6 +78,8 @@ PLANNER_SYSTEM_PROMPT = """你是《千禧 DevLog》的技术主编，负责在�
 4. 每节最多 1 张图（paper 或 mermaid 二选一）；整篇 mermaid 图 2-3 张为上限
 5. figure.kind=paper 时 source_url 必须来自 fetch_paper 返回的真实候选图（不许编 URL）
 6. 内容要能支撑"原理拆解 + 机制对比 + 工程含义"，纯资讯/发布动态不配做主题
+7. 最后一节必须是独立的「结论」节（heading 用"结论：…"或"总结与展望"）——
+   二十三期实测：三轮审稿全部因"缺少独立结论段落"扣分，必须规划时就定死
 
 # 工作方法
 1. 先看给你的论文全文材料（fetch_paper 输出：章节结构 + 候选配图）
@@ -230,6 +234,12 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
                 errs.append(f"第 {i + 1} 节 kind=paper 但 source_url 无效（不许编 URL）")
     if total < 6000:
         errs.append(f"全篇 target_chars 合计 {total} <6000（字数闸会打回）")
+
+    # 结论节必检：二十三期实测三轮审稿全因"缺少独立结论段落"扣分
+    if isinstance(secs, list) and secs:
+        last_head = str((secs[-1] or {}).get("heading") or "")
+        if not re.search(r"结论|总结|展望", last_head):
+            errs.append(f"最后一节 {last_head[:20]!r} 不是结论节（需「结论/总结/展望」收尾）")
     if mermaid_n > 4:
         errs.append(f"mermaid 图 {mermaid_n} 张 >4（页面太碎）")
 
