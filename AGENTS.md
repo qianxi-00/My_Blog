@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `ffaa1d3`）。
-当前生产镜像 **`qianxi-blog:manual-pipe19`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `edc8a66`）。
+当前生产镜像 **`qianxi-blog:ci-29`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,31 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 二十一期：loop 闭环——failed 自动回炉 + 字数浮动 6000 + rework 模式（2026-10-12，提交 `edc8a66`，生产镜像 `qianxi-blog:ci-29`）
+
+千禧拍板："failed 之后不能就这么没了，要返工""字数上下浮动 500""该修的 bug 迅速修"。
+
+### loop 闭环（graph.py）
+- **retry 节点**：结构闸/审稿超轮不再终态落盘——清盘（topic/sources/draft/轮次）自动回选题重跑一次（retry_used 防无限循环；rework 模式除外）。重跑走全新链而非拿死稿硬磨（实测同稿反复扩写每轮只涨 500-1500 字）
+- **字数线 6500 → 6000 下限**（锚 6500，6000-7000 均可）：step-5-preview 首稿 4500-6300、连续 6 稿 6500 达标率 0% 的实测下，硬线超轮 failed 率过高；6336/5823 这类稿子新线下直接达标或一轮回修即过
+- 结构闸 3 → 4 轮
+- **rework 模式**：`run_pipeline(rework_file=)` + API `rework_file` 字段——拿存量稿直进结构闸（START 条件路由），闸过审稿即发布、闸不过带缺口指令扩写回修
+
+### bug 修复（api/hotspot_pipeline.py）
+- **单飞锁改文件锁** `/data/pipeline/.run.lock`（O_CREAT|O_EXCL 原子抢占 + 30 分钟死锁豁免 + finally 释放）——2 workers 各持内存 _RUNS，内存单飞实测失效（21:20 cron 与手动 run 并发双跑）
+- **查重双源**：近 10 篇 published + pending/failed 队列存稿标题（`_queue_titles`）——ExploitGym 同题 5+ 变体堆积的根治
+- **curriculum 选题禁写当下新闻事件/事故复盘**（防热点池污染知识线——21:20 的 curriculum-2000 run 实测被 ExploitGym 带跑）
+
+### 回炉实测（当天两篇全成功）
+1. incident-review 7570 字 → 闸过 → 审稿 pass 88 → **发布 #671**
+2. anthropic-admits 6891 字 → 闸过 → 审稿 **revise 75 分（不过）→ 自动回修 → 7015 字 → pass 95 分 → 发布 #672**——完整闭环活证据：审稿不过不是没了，是回炉重造直到达标
+- 前端验收：#/hotspots/671 **2 个 mermaid 渲染成 SVG、零失败框**、八段大纲、来源 6 个；热点面板 10 月 70→73
+- 同题冗余归档：auto/security-analysis/postmortem/新冒 2 篇变体 → `hotspot_queue/archive/2026-10-12/`
+
+### 遗留观察
+- **同题双发待处置**：#670（"当安全测试成为威胁"，21:20 curriculum 被污染跑出的同题稿）与 #671 同题——建议删 670 留 671（底稿在 archive/ 可回炉重发），等千禧拍板
+- 查重是标题级（LLM 比对），"当安全测试成为威胁" vs "ExploitGym 逃逸全景复盘"字面不同但主题相同——后续可加 slug 关键词匹配或让选题 LLM 明确标注"是否与清单中某条同主题"
+- 明天 09:20/19:20/21:20 三时点 cron 用新逻辑首跑，观察：新字数线下首稿达标率、retry 触发率、curriculum 是否还追热点
 ## 二十期：每日 3 篇 cron 化 + 审稿分数程序门槛（2026-10-11，提交见本节末，生产走 CI/CD）
 
 千禧拍板"每天 3 篇，确保写作质量"。
@@ -266,9 +291,8 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 4. **API 层相对导入层级错一个点（致命，POST /run 与 /cron 自十九期起恒废）**：`hotspot_pipeline.py`（app/api/v1/ 下）写 `from ..services.hotspot_pipeline import run_pipeline`——`..` 解析到 `app.api.services`（不存在），ModuleNotFoundError 是 ImportError 子类被 try/except 吞成 `run_pipeline = None`，运行时秒挂 `'NoneType' object is not callable` 且 stdout 零痕迹（_execute 吞异常）。三个连环教训：① `app/api/v1/` 回 app 根要三个点 `...`；② 吞 ImportError 必须把 `_PIPELINE_IMPORT_ERROR` 暴露到端点响应/日志，否则错误被推到第一次调用；③ `_execute` 的 except 必须 `traceback.print_exc()`，asyncio.create_task 的静默失败是运维黑洞。定位路径：手写 HS256 JWT 打 /runs 拿 record detail（多 worker 各持内存 _RUNS，GET 多打几次）→ 容器内 PYTHONPATH=/app 直跑 run_pipeline 全绿排除代码问题 → print_exc 全栈指向 None 的 import。
 
 ### 部署与验证
-- CI/CD `c4f9d25` → `13f94c0`（根因修复）均已 success 上生产；服务器侧 runtime.env key + wrapper + cron 由接手会话（ZCode）补完（DSH 会话在写完部署脚本后被掐停，`b_fix_cron20.sh` 未及执行）。
-- 端到端实测（API 路径，非 dry-run 直跑）：三态 422/401/200 全对；真实触发一轮全链（选题→13 次检索→两稿回修→审稿）验证到**两道质量闸都真实拦截**——85 分线（一稿 pass 88 正常放行入队）与字数闸（另一轮 3 稿 4246/5421/5539 全 <6500，超 3 轮 failed 留待人工，绝不发布）。
-- 已知观察：选题查重只对 published——AIHOT 池当前最热的 ExploitGym 事件会被反复选中（pending/failed 已积 3 篇同题变体），下轮可考虑查重范围含 pending。
+- CI/CD `c4f9d25`（21:28 success）已上生产；服务器侧 runtime.env key + wrapper + cron 由接手会话（ZCode）补完（DSH 会话在写完部署脚本后被掐停，`b_fix_cron20.sh` 未及执行）。
+- 实测四步：wrapper 就位 / cron 重写 3 行 / publish=false 真实触发 / 错 key 拒绝。
 
 ## 十九期：热点文章流水线 LangGraph 重建（2026-10-11，提交 `ffaa1d3`，生产镜像 `qianxi-blog:manual-pipe19`）
 
