@@ -17,6 +17,7 @@ revision_round 在 **审稿节点** 递增（每过一次 review 计一轮），
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import operator
@@ -95,6 +96,9 @@ class PipelineState(TypedDict):
     structure_round: int  # 结构闸回修轮次（字数/表格/mermaid，上限 MAX_STRUCTURE_ROUNDS）
     retry_used: bool  # failed 自动重试是否已用（二十一期 loop 闭环：超轮先回炉重跑一次）
     rework_file: str  # 非空 = 回炉模式：拿该文件做底稿，跳过选题/检索直进结构闸
+    # 二十三期 harness 中间态（老图不用这几个字段，TypedDict 允许缺省）
+    plan: dict  # 规划层产物：目标/todolist/章节大纲/配图计划
+    section_results: list[dict]  # 执行层产物：每节 {heading, md, chars}
     hotspot_id: int | None
     failed_reason: str
     log: Annotated[list[str], operator.add]
@@ -129,14 +133,64 @@ def _llm(temperature: float = 0.0, max_tokens: int = GROK_DEFAULT_MAX_TOKENS) ->
 
 
 def _extract_json(text: str) -> dict:
-    """从 LLM 输出里抠第一个 JSON 对象（容忍代码块包裹与前后说明）。"""
+    """从 LLM 输出里抠第一个 JSON 对象（容忍代码块包裹与前后说明）。
+
+    二十三期实测加固：LLM 经常在 JSON 字符串值里写未转义的中文引号
+    （如 reason: "标题太长：改短"），裸 json.loads 直接炸——整轮 run 白费。
+    解析失败时做一轮修复：把值内部的中文引号/弯引号换成安全字符再试。
+    """
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S)
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1:
         raise ValueError(f"LLM 输出无 JSON: {text[:200]}")
-    return json.loads(text[start : end + 1])
+    raw = text[start : end + 1]
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        fixed = _repair_json_quotes(raw)
+        if fixed is None:
+            raise ValueError(f"LLM JSON 解析失败且修复无效: {exc}; 片段={raw[max(0, exc.pos - 60):exc.pos + 60]}") from exc
+        return json.loads(fixed)
+
+
+# JSON 字符串内部会破坏解析的裸引号对：中文引号、弯引号、全角引号
+_JSON_UNSAFE_QUOTES = "‘’‛“”„‟＂＇"
+
+
+def _repair_json_quotes(raw: str) -> str | None:
+    """把 JSON 值内部的中文/弯引号换成 ASCII 安全引号，让 json.loads 能过。
+
+    逐字符扫描并跟踪"是否在字符串内"：在字符串内的中文引号替换为普通单引号
+    （内容语义不变），字符串外的引号保持原样。不修改转义序列。
+    """
+    out: list[str] = []
+    in_str = False
+    escaped = False
+    for ch in raw:
+        if escaped:
+            out.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escaped = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            out.append(ch)
+            continue
+        if in_str and ch in _JSON_UNSAFE_QUOTES:
+            out.append("'")  # 值内部的中文引号 → 单引号，语义不变且 JSON 合法
+            continue
+        out.append(ch)
+    repaired = "".join(out)
+    try:
+        json.loads(repaired)
+        return repaired
+    except json.JSONDecodeError:
+        return None
 
 
 def _now_bj() -> dt.datetime:
@@ -193,7 +247,12 @@ def _queue_titles() -> list[str]:
     return titles
 
 
-async def pick_topic(state: PipelineState) -> dict:
+async def recent_titles_for_dedupe(limit: int = 10) -> str:
+    """查重清单（已发布 DB + 队列存稿 pending/failed）——选题/规划层共用。
+
+    二十一期修的"同题 5 变体堆积"根治点；harness 的规划层也必须拿到它，
+    否则换了入口就丢了查重能力。
+    """
     async with async_session_maker() as db:
         rows = (
             (
@@ -201,19 +260,21 @@ async def pick_topic(state: PipelineState) -> dict:
                     select(HotTopic.title)
                     .where(HotTopic.status == "published")
                     .order_by(HotTopic.id.desc())
-                    .limit(10)
+                    .limit(limit)
                 )
             ).scalars().all()
         )
-    # 查重双源：已发布（DB）+ 队列存稿（pending/failed）——同题绝不二写
     queued = _queue_titles()
-    recent_titles = (
-        "\n".join(f"- {t}" for t in rows + queued) or "（暂无）"
-    )
+    titles = list(rows) + queued
     if queued:
         _log(f"查重清单含 {len(queued)} 篇队列存稿标题")
+    return "\n".join(f"- {t}" for t in titles) or "（暂无）"
 
-    if state["mode"] == "curriculum":
+
+async def pick_topic(state: PipelineState) -> dict:
+    recent_titles = await recent_titles_for_dedupe()
+    mode = state["mode"]
+    if mode == "curriculum":
         track = KNOWLEDGE_TRACKS.get(state.get("track_slot") or "1900", KNOWLEDGE_TRACKS["1900"])
         prompt = TOPIC_PICK_CURRICULUM_PROMPT.format(track_name=track, lesson_history=recent_titles)
     else:
@@ -426,14 +487,40 @@ def _route_after_mermaid(state: PipelineState) -> Literal["write", "review", "re
 
 
 async def review(state: PipelineState) -> dict:
-    result = _extract_json(
-        _llm(temperature=0).invoke(
-            [
-                SystemMessage(content=REVIEWER_SYSTEM_PROMPT),
-                HumanMessage(content=state["draft_md"]),
-            ]
-        ).content
-    )
+    # 审稿调用带退避重试：二十三期实测章节并发写完后立刻审稿会撞渠道并发
+    # 上限（429），审稿一挂整篇白跑——必须自己扛住重试
+    content: str = ""
+    last_exc: Exception | None = None
+    for attempt in range(4):
+        try:
+            resp = await _llm(temperature=0).ainvoke(
+                [
+                    SystemMessage(content=REVIEWER_SYSTEM_PROMPT),
+                    HumanMessage(content=state["draft_md"]),
+                ]
+            )
+            content = resp.content if isinstance(resp.content, str) else str(resp.content)
+            break
+        except Exception as exc:
+            last_exc = exc
+            msg = str(exc)
+            if ("429" in msg or "rate_limit" in msg or "concurrency" in msg.lower()) and attempt < 3:
+                wait = 10 * (attempt + 1)
+                _log(f"审稿限流（{msg[:50]}）——{wait}s 后重试")
+                await asyncio.sleep(wait)
+                continue
+            break
+    if not content:
+        # 审稿彻底失败：不带病发布，也不让整篇作废——转 revise 走内容回修
+        _log(f"审稿调用失败（{last_exc}）——转 revise 回修，不发布")
+        return {
+            "review_verdict": "revise",
+            "review_score": 0,
+            "review_notes": "- 【审稿不可用】审稿服务连续失败，本轮按待复核处理：补足细节层次与事实来源",
+            "revision_round": state.get("revision_round", 0) + 1,
+            "log": ["审稿服务失败，转 revise"],
+        }
+    result = _extract_json(content)
     verdict = result.get("verdict", "revise")
     score = int(result.get("score") or 0)
     notes = list(result.get("notes") or [])
@@ -492,6 +579,9 @@ async def retry(state: PipelineState) -> dict:
         "revision_round": 0,
         "structure_round": 0,
         "retry_used": True,
+        # 二十三期 harness 中间态也要清（否则旧章节/旧规划会污染重跑）
+        "plan": {},
+        "section_results": [],
         "log": ["自动回炉：清盘重新选题"],
     }
 

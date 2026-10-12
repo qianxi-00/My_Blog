@@ -30,6 +30,13 @@ except ImportError as exc:  # langgraph 未装时（本地开发环境）不炸�
     run_pipeline = None  # type: ignore
     _PIPELINE_IMPORT_ERROR = str(exc)
 
+try:
+    # 二十三期：agent harness 入口（规划→章节并发→汇总→回检）
+    from ...services.hotspot_pipeline import run_harness
+except ImportError as exc:
+    run_harness = None  # type: ignore
+    _HARNESS_IMPORT_ERROR = str(exc)
+
 router = APIRouter(prefix="/hotspot-pipeline", tags=["hotspot-pipeline"])
 
 # 运行簿（进程内单例；单实例部署够用，run 过程细节本就走 stdout 日志）
@@ -49,6 +56,10 @@ class PipelineRunRequest(BaseModel):
     rework_file: str = Field(
         default="",
         description="回炉模式：服务器/容器内绝对路径的存量稿件（.md）——跳过选题/检索直进结构闸，过审即发布",
+    )
+    use_harness: bool = Field(
+        default=False,
+        description="true=走二十三期 agent harness（规划层→章节并发写作→汇总→回检）；false=老流水线",
     )
 
 
@@ -101,12 +112,21 @@ def _prune_runs(keep: int = 10) -> None:
 async def _execute(run_id: str, req: PipelineRunRequest) -> None:
     record = _RUNS[run_id]
     try:
-        result = await run_pipeline(
-            mode=req.mode,
-            track_slot=req.track_slot,
-            publish=req.publish,
-            rework_file=req.rework_file,
-        )
+        if req.use_harness:
+            # 二十三期 agent harness：自己管选题/检索（论文为主），查重上下文
+            # 由 harness 内部构造——它直接查 DB 与队列
+            result = await run_harness(
+                mode=req.mode,
+                track_slot=req.track_slot,
+                publish_flag=req.publish,
+            )
+        else:
+            result = await run_pipeline(
+                mode=req.mode,
+                track_slot=req.track_slot,
+                publish=req.publish,
+                rework_file=req.rework_file,
+            )
         record["status"] = "failed" if result.get("failed_reason") else "success"
         record["log"] = result.get("log") or []
         record["hotspot_id"] = result.get("hotspot_id")
@@ -130,6 +150,8 @@ async def trigger_run(
 ):
     if run_pipeline is None:
         raise HTTPException(503, f"流水线模块不可用（依赖未装）: {_PIPELINE_IMPORT_ERROR[:200]}")
+    if req.use_harness and run_harness is None:
+        raise HTTPException(503, f"harness 模块不可用: {_HARNESS_IMPORT_ERROR[:200]}")
 
     # 二十一期：文件锁真单飞（跨 worker 可见）；内存 _RUNS 在 2 workers 下失效
     if not _try_acquire_lock():
@@ -169,6 +191,8 @@ async def cron_trigger(req: PipelineRunRequest, x_cron_key: str = Header(...)):
     """
     if not settings.PIPELINE_CRON_KEY or x_cron_key != settings.PIPELINE_CRON_KEY:
         raise HTTPException(401, "cron key 无效")
+    if req.use_harness and run_harness is None:
+        raise HTTPException(503, f"harness 模块不可用: {_HARNESS_IMPORT_ERROR[:200]}")
     # 与 trigger_run 同逻辑，但跳过 admin 依赖（cron 已用 key 鉴权）；
     # 文件锁单飞（二十一期）：跨 worker 真单飞
     if not _try_acquire_lock():
