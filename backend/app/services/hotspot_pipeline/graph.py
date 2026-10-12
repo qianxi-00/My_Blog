@@ -49,14 +49,18 @@ from .tools import RESEARCH_TOOLS, RESEARCH_TOOLS_BY_NAME, search_aihot, validat
 # 队列根：容器内 /data = 宿主 /data/blog/data（数据卷挂载）——落这里宿主可直接查稿。
 # 宿主实际路径：/data/blog/data/pipeline/hotspot_queue/
 QUEUE_ROOT = Path("/data/pipeline/hotspot_queue")
-# 分池预算（十期 dry-run 实测教训）：结构闸回修（字数/表格/mermaid——机械性
-# 修复，便宜且必要）与审稿回修（内容性）不能共池——第一版共池 2 轮时，
-# 字数扩写吃光预算后审稿 revise 直接超轮 failed，稿件被冤杀。
-MAX_STRUCTURE_ROUNDS = 3   # 结构闸：字数不足/缺表格/mermaid 语法 → 扩写补表修图
+# 二十一期 loop 闭环（千禧拍板"failed 之后要返工，不能就这么没了"）：
+# - 字数线 6500 → 6000 下限（上下浮动 500；prompt 锚 6500，6000-7000 均可）
+#   实测 step-5-preview 首稿 4500-6300 字、每轮回修只涨 500-1500，6500 硬线
+#   超轮 failed 率过高——6336/5823 这类稿子在新线下直接达标或一轮回修即过
+# - 结构闸 3 → 4 轮
+# - failed 自动重试一次（retry_used 防无限循环）：超轮不再落盘等人工，
+#   清空状态自动回选题重跑；重试再失败才落盘
+MAX_STRUCTURE_ROUNDS = 4
 MAX_REVISION_ROUNDS = 2    # 审稿：内容性修订
 MAX_RESEARCH_TOOL_CALLS = 10
-# openclaw 原版审稿硬指标：中文正文 >= 6500 字（不含 frontmatter/表格/代码块）
-MIN_BODY_CHARS = 6500
+MIN_BODY_CHARS = 6000
+MAX_RETRY = 1
 # 二十期质量门槛：审稿 pass 但分数低于此线强制 revise（每天 3 篇自动发布，
 # 千禧要求"确保写作质量"——发布线交给程序判定）
 MIN_REVIEW_SCORE = 85
@@ -86,6 +90,8 @@ class PipelineState(TypedDict):
     topic_tag: str
     revision_round: int  # 审稿回修轮次（内容性，上限 MAX_REVISION_ROUNDS）
     structure_round: int  # 结构闸回修轮次（字数/表格/mermaid，上限 MAX_STRUCTURE_ROUNDS）
+    retry_used: bool  # failed 自动重试是否已用（二十一期 loop 闭环：超轮先回炉重跑一次）
+    rework_file: str  # 非空 = 回炉模式：拿该文件做底稿，跳过选题/检索直进结构闸
     hotspot_id: int | None
     failed_reason: str
     log: Annotated[list[str], operator.add]
@@ -162,6 +168,28 @@ def _chinese_chars(text: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _queue_titles() -> list[str]:
+    """队列里的稿件标题（pending + failed）——查重第二数据源（二十一期）。
+
+    只查 published 不够：ExploitGym 同题 5 变体堆积的教训——已写未发的稿
+    也是"写过了"。从 frontmatter title 行抽（文件量小，直接读）。
+    """
+    titles: list[str] = []
+    for sub in ("pending", "failed"):
+        base = QUEUE_ROOT / sub
+        if not base.exists():
+            continue
+        for md in sorted(base.rglob("*.md"))[:40]:
+            try:
+                head = md.read_text(encoding="utf-8")[:800]
+                m = re.search(r'^title:\s*["\']?(.+?)["\']?\s*$', head, re.M)
+                if m:
+                    titles.append(m.group(1).strip())
+            except OSError:
+                continue
+    return titles
+
+
 async def pick_topic(state: PipelineState) -> dict:
     async with async_session_maker() as db:
         rows = (
@@ -174,7 +202,13 @@ async def pick_topic(state: PipelineState) -> dict:
                 )
             ).scalars().all()
         )
-    recent_titles = "\n".join(f"- {t}" for t in rows) or "（暂无）"
+    # 查重双源：已发布（DB）+ 队列存稿（pending/failed）——同题绝不二写
+    queued = _queue_titles()
+    recent_titles = (
+        "\n".join(f"- {t}" for t in rows + queued) or "（暂无）"
+    )
+    if queued:
+        _log(f"查重清单含 {len(queued)} 篇队列存稿标题")
 
     if state["mode"] == "curriculum":
         track = KNOWLEDGE_TRACKS.get(state.get("track_slot") or "1900", KNOWLEDGE_TRACKS["1900"])
@@ -362,13 +396,15 @@ async def check_mermaid(state: PipelineState) -> dict:
     return update
 
 
-def _route_after_mermaid(state: PipelineState) -> Literal["write", "review", "failed"]:
+def _route_after_mermaid(state: PipelineState) -> Literal["write", "review", "retry", "failed"]:
     errors = state.get("mermaid_errors")
     if not errors:
         return "review"
     if state.get("structure_round", 0) < MAX_STRUCTURE_ROUNDS:
         return "write"
-    return "failed"  # 结构硬指标反复修不齐 = 一票否决，落 failed 不发布
+    if not state.get("retry_used", False) and not state.get("rework_file"):
+        return "retry"  # 二十一期 loop 闭环：超轮先自动回炉重跑一次（rework 模式除外）
+    return "failed"  # 重试已用 / 回炉模式：真终态，落 failed 不发布
 
 
 # ---------------------------------------------------------------------------
@@ -407,17 +443,48 @@ async def review(state: PipelineState) -> dict:
     }
 
 
-def _route_after_review(state: PipelineState) -> Literal["write", "enqueue", "failed"]:
+def _route_after_review(state: PipelineState) -> Literal["write", "enqueue", "retry", "failed"]:
     verdict = state.get("review_verdict", "revise")
     if verdict == "pass":
         return "enqueue"
     if state.get("revision_round", 0) < MAX_REVISION_ROUNDS:
         return "write"
+    if not state.get("retry_used", False) and not state.get("rework_file"):
+        return "retry"  # 二十一期 loop 闭环：审稿超轮先自动回炉重跑一次（rework 模式除外）
     return "failed"
 
 
+async def retry(state: PipelineState) -> dict:
+    """二十一期 loop 闭环：超轮/超预算不清盘——清空本轮产物自动回选题重跑。
+
+    千禧拍板"failed 之后要返工，不能就这么没了"。重跑走全新链
+    （重新选题+查重（含队列存稿）+检索+写作），而非拿死稿硬磨——
+    实测同一稿反复扩写每轮只涨 500-1500 字，换思路比重写更有救。
+    retry_used 防无限循环：只有一次自动重试机会。
+    """
+    _log(
+        f"超轮自动回炉（结构 {state.get('structure_round', 0)}/{MAX_STRUCTURE_ROUNDS}，"
+        f"审稿 {state.get('revision_round', 0)}/{MAX_REVISION_ROUNDS}）——清盘重跑"
+    )
+    return {
+        "topic": "",
+        "direction": "",
+        "primary_category": "其他",
+        "sources": [],
+        "draft_md": "",
+        "mermaid_errors": [],
+        "review_verdict": "",
+        "review_score": 0,
+        "review_notes": "",
+        "revision_round": 0,
+        "structure_round": 0,
+        "retry_used": True,
+        "log": ["自动回炉：清盘重新选题"],
+    }
+
+
 async def failed(state: PipelineState) -> dict:
-    """审稿不过且超轮：落盘 failed 目录，绝不带病发布。"""
+    """重试也救不回来才落盘 failed 目录，绝不带病发布。"""
     fm, _ = _parse_frontmatter(state.get("draft_md", ""))
     slug = str(fm.get("slug") or f"failed-{int(_now_bj().timestamp())}")
     failed_dir = QUEUE_ROOT / "failed" / _now_bj().date().isoformat()
@@ -427,7 +494,8 @@ async def failed(state: PipelineState) -> dict:
         state.get("review_notes", "") + "\n\nmermaid: " + "\n".join(state.get("mermaid_errors") or []),
         encoding="utf-8",
     )
-    reason = f"审稿未通过且超 {MAX_REVISION_ROUNDS} 轮修订，稿件留 {failed_dir / slug}.md 待人工"
+    retried = "（已自动重试一次）" if state.get("retry_used") else ""
+    reason = f"超预算{retried}仍未达标，稿件留 {failed_dir / slug}.md 待人工"
     _log(reason)
     return {"failed_reason": reason, "log": [reason]}
 
@@ -526,6 +594,17 @@ def _route_after_enqueue(state: PipelineState) -> Literal["publish", Literal["__
 # ---------------------------------------------------------------------------
 
 
+def _route_entry(state: PipelineState) -> Literal["pick_topic", "check_mermaid"]:
+    """二十一期 rework 模式：拿存量稿直接进结构闸（闸→审→发短链）。
+
+    闸过 → 审稿 → 发布；闸不过（如字数 5823<6000）→ write 修订分支带
+    缺口指令扩写 → 回闸——存量稿回炉的标准动线。
+    """
+    if state.get("rework_file"):
+        return "check_mermaid"
+    return "pick_topic"
+
+
 def build_graph():
     builder = StateGraph(PipelineState)
     builder.add_node("pick_topic", pick_topic)
@@ -533,16 +612,26 @@ def build_graph():
     builder.add_node("write", write)
     builder.add_node("check_mermaid", check_mermaid)
     builder.add_node("review", review)
+    builder.add_node("retry", retry)
     builder.add_node("failed", failed)
     builder.add_node("enqueue", enqueue)
     builder.add_node("publish", publish)
 
-    builder.add_edge(START, "pick_topic")
+    builder.add_conditional_edges(START, _route_entry, {"pick_topic": "pick_topic", "check_mermaid": "check_mermaid"})
     builder.add_edge("pick_topic", "research")
     builder.add_edge("research", "write")
     builder.add_edge("write", "check_mermaid")
-    builder.add_conditional_edges("check_mermaid", _route_after_mermaid, {"write": "write", "review": "review", "failed": "failed"})
-    builder.add_conditional_edges("review", _route_after_review, {"write": "write", "enqueue": "enqueue", "failed": "failed"})
+    builder.add_conditional_edges(
+        "check_mermaid",
+        _route_after_mermaid,
+        {"write": "write", "review": "review", "retry": "retry", "failed": "failed"},
+    )
+    builder.add_conditional_edges(
+        "review",
+        _route_after_review,
+        {"write": "write", "enqueue": "enqueue", "retry": "retry", "failed": "failed"},
+    )
+    builder.add_edge("retry", "pick_topic")
     builder.add_edge("failed", END)
     builder.add_conditional_edges("enqueue", _route_after_enqueue, {"publish": "publish", "__end__": END})
     builder.add_edge("publish", END)
@@ -560,14 +649,24 @@ def get_graph():
     return _graph
 
 
-async def run_pipeline(mode: str = "hot", track_slot: str = "1900", publish: bool = False) -> dict:
-    """一次完整流水线。返回最终 state（含 log / hotspot_id / failed_reason）。"""
+async def run_pipeline(
+    mode: str = "hot",
+    track_slot: str = "1900",
+    publish: bool = False,
+    rework_file: str = "",
+) -> dict:
+    """一次完整流水线。返回最终 state（含 log / hotspot_id / failed_reason）。
+
+    rework_file 非空 = 回炉模式：拿该文件（服务器/容器内绝对路径）做底稿，
+    跳过选题/检索直进结构闸——闸过审稿即发布；闸不过自动扩写回修。
+    """
     graph = get_graph()
     initial: PipelineState = {
         "mode": mode,
         "track_slot": track_slot,
         "queue_slot": "pipeline",
         "publish": publish,
+        "rework_file": rework_file,
         "topic": "",
         "direction": "",
         "primary_category": "其他",
@@ -580,8 +679,21 @@ async def run_pipeline(mode: str = "hot", track_slot: str = "1900", publish: boo
         "topic_tag": "其他",
         "revision_round": 0,
         "structure_round": 0,
+        "retry_used": False,
         "hotspot_id": None,
         "failed_reason": "",
         "log": [],
     }
+
+    # 回炉模式：读底稿进 state（topic/direction 从 frontmatter 提取）
+    if rework_file:
+        p = Path(rework_file)
+        if not p.is_file():
+            raise FileNotFoundError(f"回炉文件不存在: {rework_file}")
+        initial["draft_md"] = p.read_text(encoding="utf-8")
+        fm, _ = _parse_frontmatter(initial["draft_md"])
+        initial["topic"] = str(fm.get("title") or p.stem)
+        initial["direction"] = str(fm.get("summary") or "")[:300]
+        _log(f"回炉模式: {p.name}（{initial['topic'][:40]}）")
+
     return await graph.ainvoke(initial)

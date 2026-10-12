@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import os
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -33,17 +35,61 @@ router = APIRouter(prefix="/hotspot-pipeline", tags=["hotspot-pipeline"])
 # 运行簿（进程内单例；单实例部署够用，run 过程细节本就走 stdout 日志）
 _RUNS: dict[str, dict] = {}
 
+# 二十一期：文件锁替代内存单飞——uvicorn 2 workers 各持 _RUNS，内存检查
+# 打到错的 worker 就失效（实测 cron 与手动 run 并发双跑）。锁文件落数据卷
+# （/data/pipeline/.run.lock）两 worker 都看得见；30 分钟未释放视为死锁豁免。
+LOCK_PATH = "/data/pipeline/.run.lock"
+LOCK_STALE_SECONDS = 1800
+
 
 class PipelineRunRequest(BaseModel):
     mode: str = Field(default="hot", description="hot=AIHOT 热点选题；curriculum=知识体系课程")
     track_slot: str = Field(default="1900", description="curriculum 模式的知识线（1800/1900/2000/2100/2200）")
     publish: bool = Field(default=False, description="true=审稿通过后直接发布；false=只入队 pending")
+    rework_file: str = Field(
+        default="",
+        description="回炉模式：服务器/容器内绝对路径的存量稿件（.md）——跳过选题/检索直进结构闸，过审即发布",
+    )
 
 
 class PipelineRunResponse(BaseModel):
     run_id: str
     status: str
     detail: str
+
+
+def _try_acquire_lock() -> bool:
+    try:
+        fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, f"{os.getpid()} {dt.datetime.now().isoformat()}".encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            # 死锁豁免：管线一次 3-15 分钟；超 30 分钟的锁必然是残留（容器重启/进程被杀）
+            if time.time() - os.path.getmtime(LOCK_PATH) > LOCK_STALE_SECONDS:
+                os.unlink(LOCK_PATH)
+                return _try_acquire_lock()
+        except FileNotFoundError:
+            return _try_acquire_lock()
+        return False
+    except OSError:
+        # /data/pipeline 目录不存在（冷启动）——建目录重试一次
+        os.makedirs("/data/pipeline", exist_ok=True)
+        try:
+            fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{os.getpid()} {dt.datetime.now().isoformat()}".encode())
+            os.close(fd)
+            return True
+        except OSError:
+            return False
+
+
+def _release_lock() -> None:
+    try:
+        os.unlink(LOCK_PATH)
+    except OSError:
+        pass
 
 
 def _prune_runs(keep: int = 10) -> None:
@@ -55,7 +101,12 @@ def _prune_runs(keep: int = 10) -> None:
 async def _execute(run_id: str, req: PipelineRunRequest) -> None:
     record = _RUNS[run_id]
     try:
-        result = await run_pipeline(mode=req.mode, track_slot=req.track_slot, publish=req.publish)
+        result = await run_pipeline(
+            mode=req.mode,
+            track_slot=req.track_slot,
+            publish=req.publish,
+            rework_file=req.rework_file,
+        )
         record["status"] = "failed" if result.get("failed_reason") else "success"
         record["log"] = result.get("log") or []
         record["hotspot_id"] = result.get("hotspot_id")
@@ -69,6 +120,7 @@ async def _execute(run_id: str, req: PipelineRunRequest) -> None:
         record["detail"] = f"管线异常: {exc}"
     finally:
         record["finished_at"] = dt.datetime.now().isoformat(timespec="seconds")
+        _release_lock()
 
 
 @router.post("/run", response_model=PipelineRunResponse)
@@ -79,9 +131,9 @@ async def trigger_run(
     if run_pipeline is None:
         raise HTTPException(503, f"流水线模块不可用（依赖未装）: {_PIPELINE_IMPORT_ERROR[:200]}")
 
-    running = [r for r in _RUNS.values() if r.get("status") == "running"]
-    if running:
-        raise HTTPException(409, "已有一条流水线在跑，等它结束再触发（单飞）")
+    # 二十一期：文件锁真单飞（跨 worker 可见）；内存 _RUNS 在 2 workers 下失效
+    if not _try_acquire_lock():
+        raise HTTPException(409, "已有一条流水线在跑（文件锁），等它结束再触发")
 
     run_id = uuid.uuid4().hex[:12]
     _RUNS[run_id] = {
@@ -89,6 +141,7 @@ async def trigger_run(
         "status": "running",
         "mode": req.mode,
         "publish": req.publish,
+        "rework_file": req.rework_file,
         "started_at": dt.datetime.now().isoformat(timespec="seconds"),
         "finished_at": "",
         "detail": "",
@@ -116,16 +169,17 @@ async def cron_trigger(req: PipelineRunRequest, x_cron_key: str = Header(...)):
     """
     if not settings.PIPELINE_CRON_KEY or x_cron_key != settings.PIPELINE_CRON_KEY:
         raise HTTPException(401, "cron key 无效")
-    # 与 trigger_run 同逻辑，但跳过 admin 依赖（cron 已用 key 鉴权）
-    running = [r for r in _RUNS.values() if r.get("status") == "running"]
-    if running:
-        raise HTTPException(409, "已有一条流水线在跑，本触发放弃（cron 下个时间点再来）")
+    # 与 trigger_run 同逻辑，但跳过 admin 依赖（cron 已用 key 鉴权）；
+    # 文件锁单飞（二十一期）：跨 worker 真单飞
+    if not _try_acquire_lock():
+        raise HTTPException(409, "已有一条流水线在跑（文件锁），本触发放弃（cron 下个时间点再来）")
     run_id = uuid.uuid4().hex[:12]
     _RUNS[run_id] = {
         "run_id": run_id,
         "status": "running",
         "mode": req.mode,
         "publish": req.publish,
+        "rework_file": req.rework_file,
         "started_at": dt.datetime.now().isoformat(timespec="seconds"),
         "finished_at": "",
         "detail": "",
