@@ -3,8 +3,8 @@
 维护对象：千禧的个人博客 DevLog / My_Blog，域名 `https://blog.qianxi7988.me`。
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
-仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `edc8a66`）。
-当前生产镜像 **`qianxi-blog:ci-29`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `ebb9682`）。
+当前生产镜像 **`qianxi-blog:ci-30`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -246,6 +246,21 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 二十二期：选题学术技术化 + 标题长度治理（2026-10-12，提交 `ebb9682`，生产镜像 `qianxi-blog:ci-30`）
+
+千禧两条拍板："选题要学术/技术，不要 AI 日报那种资讯——不值得浪费 token""标题在详情页太长太大了"。
+
+### 选题学术技术化（TOPIC_PICK_PROMPT 重写）
+- 硬方向：论文成果与机制解读 / 模型架构与训练方法 / 推理优化与部署工程 / 基础设施与工具链 / 有技术拆解价值的开源项目
+- 拒绝：产品发布新闻 / 融资与行业动态 / 榜单 / 纯事件转述
+- 检验标准：能否支撑"原理拆解 + 机制对比 + 工程含义"三段深度——不能就换候选；池里全资讯时挖背后的技术点选题
+- curriculum prompt 顺手修复插入条目后的编号错乱
+
+### 标题长度治理（生成侧 + 程序闸 + 前端三层）
+- 写作 prompt：≤28 字、禁"主标题：副标题补充"双段结构、附 22 字好例与 41 字反例
+- **程序闸 4**：MAX_TITLE_CHARS=32（可计算指标代码判；28-32 灰色区交审稿清单新增第 9 项）
+- 前端 HotspotDetail 标题自适应：≤22 字 `text-3xl md:text-4xl` bold 保冲击力；>22 字降档 `text-2xl md:text-3xl` + leading-snug——旧 text-5xl font-black（48px/900/5 行）是资讯流内容用了文章头版字号
+- 生产实测：65 字符长标题 48px→30px、900→700、5 行→3 行；17 字短标题 36px 不变；mermaid 渲染无恙（svg 2 / 失败框 0）
 ## 二十一期：loop 闭环——failed 自动回炉 + 字数浮动 6000 + rework 模式（2026-10-12，提交 `edc8a66`，生产镜像 `qianxi-blog:ci-29`）
 
 千禧拍板："failed 之后不能就这么没了，要返工""字数上下浮动 500""该修的 bug 迅速修"。
