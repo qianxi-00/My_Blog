@@ -74,8 +74,12 @@ async def plan_node(state: dict) -> dict:
     errs = validate_plan(plan)
     if errs:
         _log(f"规划层校验不通过: {errs[:3]}")
-        # 不硬失败——把问题回灌让规划层修一次（避免因为规划小瑕疵浪费整条管线）
+        # 修一次 + 程序兜底。兜底后仍不合法（只有内容类问题）才继续往下走：
+        # 让结构闸与审稿去判，而不是在这里浪费整条管线
         plan = await _repair_plan(plan, errs)
+        remaining = validate_plan(plan)
+        if remaining:
+            _log(f"修复后仍有问题（交由后续闸/审稿）: {remaining[:3]}")
     materials = plan.get("_paper_material", "")
     return {
         "plan": plan,
@@ -89,11 +93,24 @@ async def plan_node(state: dict) -> dict:
 
 
 async def _repair_plan(plan: dict, errs: list[str]) -> dict:
-    """把校验问题回灌给 LLM 修一次规划（比直接 failed 划算）。"""
+    """把校验问题回灌给 LLM 修一次规划；修不动就用程序兜底裁剪。
+
+    二十三期实测：修复轮 LLM 常把论文材料原文吐回来当"修复结果"（JSON 解析
+    直接炸）。此时不能"保留原计划"带病往下走——超 32 字标题和 9 节都会一路
+    带到审稿扣分。程序裁剪是更可靠的最后一道。
+    """
     try:
         resp = await _llm(temperature=0).ainvoke([
-            SystemMessage(content="你是技术主编。修下面这份写作计划里被程序校验挑出的问题，只输出修好的完整 JSON 计划。"),
-            HumanMessage(content=f"问题清单:\n- " + "\n- ".join(errs) + f"\n\n原计划:\n{yaml.safe_dump(plan, allow_unicode=True)[:4000]}"),
+            SystemMessage(
+                content=(
+                    "你是技术主编。修下面这份写作计划里被程序校验挑出的问题，"
+                    "只输出修好的完整 JSON 计划，不要输出任何论文原文或解释。"
+                )
+            ),
+            HumanMessage(
+                content=f"问题清单:\n- " + "\n- ".join(errs)
+                + f"\n\n原计划（只含 JSON 字段）:\n{yaml.safe_dump(_plan_without_material(plan), allow_unicode=True)[:4000]}"
+            ),
         ])
         text = resp.content if isinstance(resp.content, str) else str(resp.content)
         from .graph import _extract_json
@@ -102,8 +119,55 @@ async def _repair_plan(plan: dict, errs: list[str]) -> dict:
         fixed["_paper_material"] = plan.get("_paper_material", "")
         return fixed
     except Exception as exc:
-        _log(f"规划修复失败，保留原计划: {exc}")
-        return plan
+        _log(f"规划修复失败，程序兜底裁剪: {exc}")
+        return _coerce_plan(plan, errs)
+
+
+def _plan_without_material(plan: dict) -> dict:
+    """去掉论文材料（几万字符，会把 LLM 带偏成"复述论文"）。"""
+    return {k: v for k, v in plan.items() if k != "_paper_material"}
+
+
+def _coerce_plan(plan: dict, errs: list[str]) -> dict:
+    """程序化把计划掰回合规形状（LLM 修不动时的兜底）。
+
+    可程序判定的违规直接改：标题截到 32 字、章节合并到 ≤8、slug 兜底。
+    不可程序判定的（内容质量）保持原样，交给后续闸与审稿。
+    """
+    out = dict(plan)
+    fixed: list[str] = []
+
+    title = str(out.get("title") or "")
+    if len(title) > 32:
+        # 截到第一个冒号前（"主标题：副标题"式双段结构正是被截的对象）
+        head = title.split("：")[0].split(":")[0].strip()
+        out["title"] = head if head and len(head) <= 32 else title[:32]
+        fixed.append(f"标题截到 {len(out['title'])} 字")
+
+    secs = out.get("sections") or []
+    if isinstance(secs, list) and len(secs) > 8:
+        # 超出部分并进最后一节，保持阅读顺序且不丢内容
+        extra = secs[8:]
+        keep = secs[:7]
+        tail = dict(keep[-1])
+        merged_pts = list(tail.get("key_points") or [])
+        for e in extra:
+            merged_pts += list(e.get("key_points") or [])
+            tail["target_chars"] = int(tail.get("target_chars") or 0) + int(e.get("target_chars") or 0)
+        tail["key_points"] = merged_pts[:8]
+        keep.append(tail)
+        out["sections"] = keep
+        fixed.append(f"章节 {len(secs)} → {len(keep)}（尾部并入末节）")
+
+    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", str(out.get("slug") or "")):
+        base = re.sub(r"[^a-z0-9]+", "-", str(out.get("title") or "post").lower()).strip("-")[:40] or "post"
+        out["slug"] = base or "post"
+        fixed.append("slug 兜底")
+
+    out["_paper_material"] = plan.get("_paper_material", "")
+    if fixed:
+        _log("程序兜底: " + "；".join(fixed))
+    return out
 
 
 async def write_sections_node(state: dict) -> dict:
