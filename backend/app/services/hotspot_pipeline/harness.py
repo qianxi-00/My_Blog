@@ -243,14 +243,13 @@ def _plan_sources(plan: dict, draft: str = "") -> list[dict]:
 
 
 async def _inject_figures(draft: str, plan: dict) -> tuple[str, str]:
-    """把规划里的 paper 图占位替换成真实 markdown 图片，并触发宿主推图床。
+    """把规划里的 paper 图占位替换成真实 markdown 图片。
 
-    流程（容器内做不了 git，必须借宿主）：stage_figures 下载到共享卷 →
-    调宿主钩子 /data/blog/scripts/push_figures.sh 推 My_image → raw URL 变 200。
-    钩子不在（老部署）时不阻塞出稿，但记 log 说明图片会 404。
+    流程（容器内做不了 git）：stage_figures 下载到共享卷 → manifest 落
+    _pending/ → 宿主 cron push_figures_watch.sh 推 My_image → raw URL 变 200。
+    推送失败时 raw URL 404，宿主侧 _failed/ 留档可人工重推。
     """
     import json as _json
-    import subprocess
 
     from .paper_tools import stage_figures
 
@@ -304,27 +303,17 @@ async def _inject_figures(draft: str, plan: dict) -> tuple[str, str]:
         if not hit:
             _log(f"配图未找到插入位置（可能被后续回修改掉）：{cap[:40]}")
 
-    # 触发宿主推图床（git 只在宿主有）
-    note = f"论文原图 {len(staged)} 张"
-    hook = Path("/data/blog/scripts/push_figures.sh")
-    if hook.is_file():
-        try:
-            mf = Path("/data/pipeline/figures/_last_manifest.json")
-            mf.parent.mkdir(parents=True, exist_ok=True)
-            mf.write_text(manifest, encoding="utf-8")
-            p = subprocess.run(
-                [str(hook), str(mf)],
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            note += f"，推图床 {'成功' if p.returncode == 0 else '失败'}"
-            if p.returncode != 0:
-                _log(f"推图床失败: {(p.stderr or p.stdout)[-200:]}")
-        except Exception as exc:
-            _log(f"推图床钩子异常（图片将 404）: {exc}")
-    else:
-        note += "，未装推图钩子（图片会 404）"
+    # 排队待宿主推图床：容器里没有 git，宿主脚本也不在容器挂载内
+    # （容器只挂 /data/blog/data → /data），所以容器侧只负责把 manifest
+    # 落进共享卷的 _pending/，宿主 cron（push_figures_watch.sh，每 2 分钟）
+    # 逐个推送并移到 _done/。推送与出稿解耦，不再依赖容器能看到钩子。
+    import time as _time
+
+    pend = Path("/data/pipeline/figures/_pending")
+    pend.mkdir(parents=True, exist_ok=True)
+    mf = pend / f"{plan.get('slug') or 'fig'}-{_time.strftime('%Y%m%d-%H%M%S')}.json"
+    mf.write_text(manifest, encoding="utf-8")
+    note = f"论文原图 {len(staged)} 张已排队待推图床（宿主 cron 2 分钟内处理）"
 
     if failed:
         _log(f"{len(failed)} 张论文图下载失败")

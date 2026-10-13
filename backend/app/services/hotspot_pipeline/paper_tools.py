@@ -119,7 +119,8 @@ def search_papers(
 # 论文深读（规划层输入）
 # ---------------------------------------------------------------------------
 
-_FIG_SRC_RE = re.compile(r'<img[^>]+src="([^"]+)"', re.I)
+# arXiv 新版 HTML 用 <object data="..."> 嵌图，老版用 <img src="...">，两者都要抓
+_FIG_SRC_RE = re.compile(r'<(?:img[^>]+src|object[^>]+data)="([^"]+)"', re.I)
 _SEC_HEAD_RE = re.compile(r'<h([1-3])[^>]*>(.*?)</h\1>', re.S)
 
 
@@ -289,7 +290,13 @@ def push_figures(manifest_json: str) -> str:
             subprocess.run(c, cwd=work, check=True, env=env, capture_output=True)
         added = 0
         for item in staged:
-            src = Path(str(item.get("host_path") or ""))
+            # manifest 是容器写的，host_path 是容器路径（/data/pipeline/…）；
+            # 宿主上共享卷挂在 /data/blog/data → 容器 /data，直接用会 is_file()=False
+            # 全部静默跳过。这里做一次挂载前缀映射（容器 /data/X → 宿主 /data/blog/data/X）。
+            raw = str(item.get("host_path") or "")
+            src = Path(raw)
+            if not src.is_file() and raw.startswith("/data/"):
+                src = Path("/data/blog/data") / raw[len("/data/"):]
             rel = str(item.get("rel") or "")
             if not src.is_file() or not rel:
                 continue
