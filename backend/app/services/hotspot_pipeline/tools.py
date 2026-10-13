@@ -226,5 +226,18 @@ def validate_mermaid_blocks(markdown: str) -> list[str]:
                 m = re.match(r"^([A-Za-z0-9_]+)\s*(-->|---|-.->|-\.->|==>)", s)
                 if m and not re.fullmatch(r"[A-Za-z0-9_]+", m.group(1)):
                     errors.append(f"图{i}: 节点 id `{m.group(1)}` 含非法字符（只能英数下划线），中文请放标签：{s[:50]}")
+                # 3b) 未加引号的 [] 标签里含 {}：mermaid 会把 {…} 当成节点语法解析并报错。
+                # 实测 #674 第 5 图 `A1[量化状态 S_t] --> A2[下一步输入 x_{t+1}]`
+                # 括号是配平的（骗过第 2 条检查）但前端报 Syntax error。
+                # 已加引号的 ["…{…}"] 是安全的，必须放过（正则用 (?<!") 排除）。
+                for label in re.findall(r"\[([^\]\[]+)\]", s):
+                    if label.startswith('"'):
+                        continue
+                    if "{" in label or "}" in label:
+                        errors.append(
+                            f"图{i}: 节点标签里出现未加引号的 {{}}（如 `{label[:30]}`）——"
+                            f"数学下标请写成 A[\"x_(t+1)\"] 或去掉花括号"
+                        )
+                        break
 
     return errors
