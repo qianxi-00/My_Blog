@@ -4,7 +4,7 @@
 本文件写的是 2026-09-24 只读核对 + 当日迁移 + **2026-09-28 用户系统二/三期上线**后的真实状态。每条线上结论都有当次命令输出；没打过的接口不要写成"已验证"。
 
 仓库：`qianxi-00/My_Blog`，默认分支 `master`。本地克隆 `C:\Users\QianXi\.dsh-ops\blog\My_Blog`（HEAD `ebb9682`）。
-当前生产镜像 **`qianxi-blog:ci-30`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-CagUyyCg.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` **均已推 GitHub**，`origin/master` = `93c5fa7`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
+当前生产镜像 **`qianxi-blog:ci-34`**（2026-10-08 八期起由 GitHub Actions CI/CD 自动部署，tag 形如 `ci-<run_number>`；手动回滚仍可用 `/data/blog/rollback.sh <镜像tag>`）。前端产物 `assets/index-BB9CPIwO.js`。**后台 AI 工具 24 → 54 个，看板娘工具 5 → 9 个**。**项目文档站已上线：<https://qianxi-00.github.io/My_Blog/>**（VitePress + Actions + Pages，见七期）。`8f1aac5` / `23e310a` / `86c3ad5` / `469e5a8` / `6d641e5` / `4d0d92b` / `46715bb` / `3a7c27a` / `86d880c` / `c3adca1` / `4164dcb` / `f0f8cd9` / `4e03fdb` / `fd52cae` / `bfca7bd` / `15b6f9c` / `1307fbe` / `c2b0a71` / `196626f` / `bfbcc93` / `2283c0b` / `b918437` / `1d96f14` / `9fb30e9` / `98b68d1` / `6868a46` / `a892737` / `0073f90` / `fb54808` / `2254d18` / `93c5fa7` / `edc8a66` / `ebb9682` / `b75874a` / `ec71d00` / `87697b7` / `6fd6b83` / `0c61c52` **均已推 GitHub**，`origin/master` = `0c61c52`。回滚用 `/data/blog/rollback.sh <镜像tag>`（只换镜像、不碰数据库，见「已知缺口」）。
 
 ⚠️ **传前端包必须校验 md5**：`ssh_runner.py put` 出现过「传了但服务器上还是旧包」的情况（2026-09-30 至少两次，症状是部署脚本报 `DEPLOY_OK` 但线上 chunk hash 没变）。现流程固定为：本地算 md5 → 上传 → 服务器比对 md5 → 不一致直接中止。脚本 `b_deploy_fe_md5.sh`（本地 `C:\Users\QianXi\.dsh-ops\blog\`）。
 
@@ -245,6 +245,28 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
+
+## 二十三期：agent harness——规划→章节并发→汇总→回检（2026-10-13，提交 `0c61c52`，生产镜像 `qianxi-blog:ci-34`）
+
+千禧拍板："做成真正的 agent harness：先确认目标/todolist → 搜资料确认选题 → 确认标题 → 分章节 → 每节派 subagent → 收集组合 → 回检复核；langgraph + deepagent，配 tool/skills，检索以论文为主"。决策：先 LangGraph 原生 fan-out（deepagents 已验证可装 0.7.24，暂缓）；配图上传 GitHub 图床（`qianxi-00/My_image`）+ 论文原图搬运 + mermaid 兜底；选题 arXiv/paper 为主、AIHOT 只做补充。
+
+### 新模块（`backend/app/services/hotspot_pipeline/`）
+- **`paper_tools.py`**：`search_papers`（arXiv API，https-only）/ `fetch_paper`（arXiv HTML 全文 → 章节结构 + 按 caption 关键词打分的候选配图）/ `stage_figures`（≤6 张、拒 <2000B，落地 `/data/pipeline/figures`，rel 形如 `blog/images/<yyyy-mm>/<slug>/`）/ `push_figures`（宿主 git push 图床，容器无 git）
+- **`planner.py`**：`PLANNER_SYSTEM_PROMPT` 产出 JSON 计划（goal/todolist/title/slug/summary/分类/锚点论文/sections[{heading,purpose,target_chars,key_points,figure}]）；`plan_article` 包 `fetch_paper` 为 @tool，≤4 次工具调用 × 2 轮；`validate_plan` 校验标题 ≤32、slug、4-8 节、单节 ≥500、总字数 ≥6000、mermaid ≤4、**末节必须是结论节**
+- **`writer.py`**：章节并发 fan-out，`MAX_CONCURRENT_SECTIONS=2`（stepfun 通道硬限 5，3 会 429）+ 10s×attempt 指数退避 5 次 + 失败章节串行补写
+- **`harness.py`**：LangGraph 节点 `plan→sections→assemble→check→review→enqueue→publish`（+retry/failed）；`_inject_figures` 替换 `<!-- FIGURE: cap -->` 占位符 → 写 manifest → 宿主钩子 `/data/blog/scripts/push_figures.sh` 推图床；`_route_harness_check/_route_harness_review` 适配老路由的 `"write"` 返回值；dedupe 上下文走 `_PLAN_CTX`（LangGraph 不许未知 key）
+- **`graph.py`**：`PipelineState` 加 `plan`/`section_results`；`_extract_json` 兜底 `_repair_json_quotes`（中文弯引号在字符串内 → 崩溃修复）；`review` 429 退避、不可用时降级 `verdict=revise` 不炸 run；`recent_titles_for_dedupe` 抽出复用（老图去重不丢）
+
+### 实测闭环（发布 #674《ReplaySSM 用输入重放替代 SSM 状态缓存》）
+- 论文 arXiv 2610.13778 → 规划 9 条 todolist / 8 节（26 字标题）→ 8/8 章节 → 8490 汉字 → 结构闸通过 → **审稿 95 分 pass** → 入队 → 发布；前端复验 8 个 mermaid 全渲染 0 Syntax error、表格 1 个、结论节+参考资料齐
+- 对比老流水线：一次过 vs 老图 4 稿才达线（4169→5052→5781→6100）
+- 首轮实测揪出并修复的真缺陷：①审稿一票否决缺 `queue_slot` frontmatter → `assemble` 补上；②三轮连续扣"缺独立结论段落" → planner 规则 #7 + `validate_plan` 末节必检；③列了不引用的来源比不列更糟 → `_plan_sources` 只列正文真引用的；④修复轮 LLM 把论文原文吐回来当"修复结果" JSON 炸 → 修复 prompt 剥离 `_paper_material` + `_coerce_plan` 程序兜底（标题截 32/尾节并入/slug 兜底）不再带违规计划下行；⑤第 5 图 `x_{t+1}` 未加引号花括号 → 前端 Syntax error，闸补检查 + #674 就地修复
+- 接线：`/run` 与 `/cron` 都收 `use_harness`（默认 false 老流水线可回退）；cron wrapper 第 4 参 `1` = harness，`/etc/cron.d/hotspot-pipeline` 三条任务已切 harness（cron reload 验证过）
+
+### 关键教训
+- **CI 重建容器会清掉 `docker cp` 的临时代码**——验证完必须提交入库再验，否则镜像里是旧的（本轮 tools.py 踩过一次）
+- 容器无 git、`docker exec` 无 stdin：图床推送走宿主钩子脚本，heredoc 一律先写文件再 `docker cp`
+- 宿主侧直调 `publish` 节点需先 `import app.main` 装配 ORM mapper，否则报 `Article is not defined`
 
 ## 二十二期：选题学术技术化 + 标题长度治理（2026-10-12，提交 `ebb9682`，生产镜像 `qianxi-blog:ci-30`）
 
