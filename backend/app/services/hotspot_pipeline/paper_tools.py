@@ -467,12 +467,29 @@ def push_figures(manifest_json: str) -> str:
             return json.dumps({"ok": False, "error": "没有可推的文件（host_path 不存在？）"}, ensure_ascii=False)
         subprocess.run(["git", "config", "user.email", "pipeline@blog.local"], cwd=work, check=True, env=env)
         subprocess.run(["git", "config", "user.name", "hotspot-pipeline"], cwd=work, check=True, env=env)
-        subprocess.run(["git", "commit", "-qm", f"img: {added} figure(s) for pipeline"], cwd=work, check=True, env=env)
+
+        # 幂等性（二十四期实测 bug）：同一批图重推时，若上一次已 commit 成功
+        # 但 push 失败，这一次 `git add` 后工作区没有变化，`git commit` 会以
+        # 非零退出（"nothing to commit"）——原实现 check=True 直接把它当失败，
+        # 图片永远推不上去。改成：先问 git 有没有暂存差异，没有就跳过 commit
+        # 直接 push（此时要推的正是上一次那个 commit）。
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=work, env=env, capture_output=True)
+        committed = diff.returncode != 0
+        if committed:
+            c = subprocess.run(["git", "commit", "-qm", f"img: {added} figure(s) for pipeline"],
+                               cwd=work, env=env, capture_output=True, text=True)
+            if c.returncode != 0:
+                return json.dumps({"ok": False, "error": f"commit 失败: {(c.stderr or c.stdout)[-200:]}"},
+                                  ensure_ascii=False)
         p = subprocess.run(["git", "push", "origin", f"HEAD:{_IMAGE_BRANCH}"], cwd=work,
                            env=env, capture_output=True, text=True)
         ok = p.returncode == 0
-        return json.dumps({"ok": ok, "pushed": added, "error": (p.stderr or "")[-300:] if not ok else ""},
-                          ensure_ascii=False)
+        return json.dumps({
+            "ok": ok,
+            "pushed": added,
+            "note": "" if committed else "工作区无变化（上一次已提交，本次只补 push）",
+            "error": (p.stderr or "")[-300:] if not ok else "",
+        }, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
     finally:
