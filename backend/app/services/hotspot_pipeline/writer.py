@@ -137,10 +137,13 @@ async def _write_one(plan: dict, section: dict, materials: str, idx: int, fix_hi
             )
             md = _strip_duplicate_heading(md, heading)
             chars = _chinese_chars(_strip_mermaid(md))
-            # 章节级自检：字数不足 60% 或 mermaid 非法 → 带反馈重试
+            # 章节级自检：字数不足 85% 或 mermaid 非法 → 带反馈重试。
+            # 阈值曾是 60%——实测这是"整篇反复踩 6000 线"的元凶：7 节各写
+            # 目标的 60% 就能通过自检，合计恰好 ~5990 字卡在闸下，然后整篇
+            # 回修 3-4 轮（每轮重写全部章节，代价极大）。单节就该写够。
             problems = []
-            if chars < target * 0.6:
-                problems.append(f"字数 {chars} 不足目标 {target} 的 60%——写足技术细节")
+            if chars < target * 0.85:
+                problems.append(f"字数 {chars} 不足目标 {target} 的 85%——写足技术细节")
             mm = validate_mermaid_blocks(md)
             if mm:
                 problems.append("mermaid 校验失败: " + "; ".join(mm[:3]))
