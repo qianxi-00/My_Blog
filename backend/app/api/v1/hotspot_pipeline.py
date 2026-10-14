@@ -114,11 +114,14 @@ async def _execute(run_id: str, req: PipelineRunRequest) -> None:
     try:
         if req.use_harness:
             # 二十三期 agent harness：自己管选题/检索（论文为主），查重上下文
-            # 由 harness 内部构造——它直接查 DB 与队列
+            # 由 harness 内部构造——它直接查 DB 与队列。
+            # rework_file 要透传（二十四期实测：以前漏传，回炉请求被静默
+            # 无视、白跑一遍完整选题流程）
             result = await run_harness(
                 mode=req.mode,
                 track_slot=req.track_slot,
                 publish_flag=req.publish,
+                rework_file=req.rework_file,
             )
         else:
             result = await run_pipeline(
