@@ -23,7 +23,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
 from .graph import _extract_json, _llm, _log
-from .paper_tools import fetch_paper as _fetch_paper_impl, search_papers
+from .paper_tools import fetch_paper as _fetch_paper_impl, search_papers, search_papers_multi
 
 
 @tool
@@ -48,6 +48,7 @@ PLANNER_SYSTEM_PROMPT = """你是《千禧 DevLog》的技术主编，负责在�
   "title": "文章标题",                          // ≤28 字，见下方约束
   "slug": "kebab-case-english-slug",            // 从标题生成，全小写连字符
   "summary": "一段摘要（80-120 字）",
+  "target_chars": 6000,                          // 本篇目标字数（中文），见下方"字数自定"
   "primary_category": "AI基础设施|AI模型|AI产品|AI应用|AI安全|其他",
   "topic_tag": "一个精准的标签（如 推理优化 / 训练技巧 / 安全）",
   "anchor_paper": {
@@ -59,7 +60,7 @@ PLANNER_SYSTEM_PROMPT = """你是《千禧 DevLog》的技术主编，负责在�
     {
       "heading": "章节标题（不含 ## 前缀）",
       "purpose": "这一节要讲清什么（一句话）",
-      "target_chars": 900,                       // 目标字数（中文），全篇加总 ≥ 6000
+      "target_chars": 900,                       // 本节目标字数（中文）
       "key_points": ["要点1", "要点2"],          // 2-5 条
       "figure": {
         "kind": "paper|mermaid|none",            // 搬论文原图 / 自己画 mermaid / 无图
@@ -74,7 +75,13 @@ PLANNER_SYSTEM_PROMPT = """你是《千禧 DevLog》的技术主编，负责在�
 # 硬约束
 1. 标题 ≤28 字，禁止"主标题：副标题补充说明"式双段结构，禁止排比修饰堆砌
 2. slug 全小写 kebab-case，禁 auto/占位符
-3. sections 全篇 target_chars 加总必须 ≥6000（程序会校验，低于会被打回）
+3. **字数自定**：先评估这个选题能支撑多少**实打实**的技术内容，再定
+   `target_chars`（5000-8000）与各节 target_chars（加总 = target_chars）。
+   - 机制/架构/实验数据丰富的论文 → 6500-8000
+   - 偏概念或材料较薄的论文 → 5000-6000
+   - 宁可定准，也不要虚高：定了 8000 却只能写出 6000 会触发整篇回修
+   - **硬底 4500**：无论怎么定，全篇加总不能低于 4500（程序会校验）
+   - 各节 target_chars 加总必须等于全篇 target_chars（程序会核对）
 4. 每节最多 1 张图（paper 或 mermaid 二选一）；整篇 mermaid 图 2-3 张为上限
 5. figure.kind=paper 时 source_url 必须来自 fetch_paper 返回的真实候选图（不许编 URL）
 6. 内容要能支撑"原理拆解 + 机制对比 + 工程含义"，纯资讯/发布动态不配做主题
@@ -103,10 +110,12 @@ async def plan_article(
     topic_hint: hot 模式=AIHOT 候选池提示；curriculum=知识线名
     used_arxiv_ids: 近 5 天已用过的锚点论文 ID（撞题硬约束）
     """
-    # 1) 论文检索（千禧拍板"检索主要要是论文"）：从 hint 抽英文检索词
+    # 1) 论文检索（千禧拍板"检索主要要是论文"）：从 hint 抽英文检索词。
+    #    多源兜底：arXiv 按出口 IP 限流时自动切 HuggingFace/OpenAlex，
+    #    否则整条流水线会因"检索不到论文"空转（二十四期实测）。
     query = _search_query(topic_hint, track_name)
-    _log(f"规划层·论文检索: query={query!r}")
-    papers = search_papers(query, months_back=3, max_results=6)
+    papers, src_name = search_papers_multi(query, months_back=3, max_results=6)
+    _log(f"规划层·论文检索: query={query!r} 源={src_name}")
 
     # 检索结果里剔掉已写过的论文——从源头减少模型撞题的机会
     if used_arxiv_ids:
@@ -269,8 +278,16 @@ def validate_plan(plan: dict[str, Any], used_arxiv_ids: set[str] | None = None) 
         elif kind == "paper":
             if not str(fig.get("source_url") or "").startswith("http"):
                 errs.append(f"第 {i + 1} 节 kind=paper 但 source_url 无效（不许编 URL）")
-    if total < 6000:
-        errs.append(f"全篇 target_chars 合计 {total} <6000（字数闸会打回）")
+    if total < 4500:
+        errs.append(f"全篇 target_chars 合计 {total} <4500（低于硬底会打回）")
+
+    # 全篇目标 vs 各节加总：规划层自己声明的 target_chars 要与章节加总一致，
+    # 否则字数闸按全篇目标判、写作层按章节目标写，两边对不上（二十四期加）
+    declared = int(plan.get("target_chars") or 0)
+    if declared and total and abs(declared - total) > max(600, declared * 0.15):
+        errs.append(
+            f"全篇 target_chars={declared} 与各节加总 {total} 不一致（差 {abs(declared - total)}）——请对齐"
+        )
 
     # 结论节必检：二十三期实测三轮审稿全因"缺少独立结论段落"扣分
     if isinstance(secs, list) and secs:

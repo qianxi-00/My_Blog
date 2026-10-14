@@ -60,7 +60,14 @@ QUEUE_ROOT = Path("/data/pipeline/hotspot_queue")
 MAX_STRUCTURE_ROUNDS = 4
 MAX_REVISION_ROUNDS = 2    # 审稿：内容性修订
 MAX_RESEARCH_TOOL_CALLS = 10
-MIN_BODY_CHARS = 6000
+# 二十四期：字数从"固定 6000 硬线"改成"动态目标 + 4500 硬底"。
+# 千禧拍板："评估一下是不是字数要求太强硬导致一直达不到？加一个根据选题
+# 动态调整长度。但最少不要低于 4500 字，不然太短。"
+# 数据支撑（近 60 篇）：中位数 6260、均值 6349，27 篇 <6000、最短 2592——
+# 固定 6000 让"选题本来就支撑不了 6000 字"的稿子反复回修直到超轮落 failed。
+# 现在：规划层按选题丰度自己定目标（5000-8000），程序只守 4500 底线。
+MIN_BODY_CHARS = 4500      # 硬底：低于此线一律打回（千禧要求的最低长度）
+DEFAULT_TARGET_CHARS = 6000  # 规划层没给目标时的兜底锚点
 # 二十二期：标题长度上限（千禧拍板"标题别搞太长"——41-47 字双段式标题
 # 在详情页视觉压迫过强；程序挡 32+，28-32 灰色区交审稿）
 MAX_TITLE_CHARS = 32
@@ -444,6 +451,7 @@ async def write(state: PipelineState) -> dict:
         topic=state["topic"],
         direction=state["direction"],
         sources_block=sources_block,
+        target_chars=int((state.get("plan") or {}).get("target_chars") or DEFAULT_TARGET_CHARS),
         topic_date=_now_bj().date().isoformat(),
         queue_slot=state.get("queue_slot", "pipeline"),
         generated_at=_now_bj().isoformat(),
@@ -490,13 +498,23 @@ async def check_mermaid(state: PipelineState) -> dict:
         errors.append("未找到 Markdown 表格（需至少 1 个 `| --- |` 分隔的表格）")
 
     # 闸 3：正文字数程序化硬闸（审稿 LLM 实测放水：5368 字打 93 分——
-    # 字数这种可计算指标必须代码判，不依赖 LLM 自觉）
+    # 字数这种可计算指标必须代码判，不依赖 LLM 自觉）。
+    # 二十四期：目标由规划层按选题丰度动态定（plan.target_chars），
+    # 程序只守 4500 硬底——固定 6000 会让"选题本就撑不到 6000"的稿子
+    # 反复回修直到超轮落 failed。
     chars = _chinese_chars(body)
+    plan = state.get("plan") or {}
+    want = int(plan.get("target_chars") or DEFAULT_TARGET_CHARS)
+    want = max(MIN_BODY_CHARS, min(want, 9000))  # 夹在 [4500, 9000]
     if chars < MIN_BODY_CHARS:
         errors.append(
-            f"正文中文字数 {chars} < 硬指标 {MIN_BODY_CHARS}（不含 frontmatter/表格/代码块），"
+            f"正文中文字数 {chars} < 硬底 {MIN_BODY_CHARS}（不含 frontmatter/表格/代码块），"
             f"需扩写约 {MIN_BODY_CHARS - chars} 字——在保持结构的前提下加深核心拆解与横向对比"
         )
+    elif chars < want * 0.9:
+        # 未达动态目标但不低于硬底：提示性偏差，交审稿权衡（不直接判死，
+        # 避免"差 200 字"这种小事又触发一轮整篇重写）
+        _log(f"字数 {chars} 未达动态目标 {want}（高于硬底 {MIN_BODY_CHARS}，交审稿判）")
 
     # 闸 4（二十二期）：标题长度——41-47 字的"主标题：副标题补充"式标题
     # 在详情页视觉压迫过强（text-5xl 黑体时代尤甚），千禧拍板"标题别搞太长"。

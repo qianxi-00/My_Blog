@@ -20,6 +20,7 @@ import datetime as _dt
 import html as html_mod
 import json
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -34,17 +35,37 @@ _IMAGE_PREFIX = "blog/images"
 _IMAGE_KEY = "/root/.ssh/github_my_image_deploy"
 _FIGURE_STAGE = Path("/data/pipeline/figures")
 
+# OpenAlex 的 arXiv 源 ID（实测：限定它可过滤掉 zenodo/期刊预印本噪音）
+_OPENALEX_ARXIV_SOURCE = "S4306400194"
+
 
 def _get(url: str, **kw) -> httpx.Response:
-    """带一次重试的 GET：arXiv 偶发 SSL EOF（本地与容器都出现过），重试一次即可过。"""
+    """带重试的 GET。
+
+    两类失败分开处理（二十四期实测教训）：
+    - 传输层（SSL EOF）：本地与容器都出现过，立即重试一次即可过；
+    - **429 限流**：arXiv 会按出口 IP 限流（实测服务器 IP 101.32.163.17
+      被持续 429 `Rate exceeded.`，等 60s 也不恢复）。429 是正常 HTTP 响应，
+      不抛 TransportError，所以原实现完全没重试就把它当成"检索失败"了——
+      这是"检索不到论文"的直接原因。这里对 429/503 做指数退避。
+    """
     last: Exception | None = None
-    for _ in (0, 1):
+    for attempt in range(3):
         try:
-            return httpx.get(url, headers={"User-Agent": _UA}, timeout=_TIMEOUT,
-                            follow_redirects=True, **kw)
+            r = httpx.get(url, headers={"User-Agent": _UA}, timeout=_TIMEOUT,
+                          follow_redirects=True, **kw)
+            if r.status_code in (429, 503) and attempt < 2:
+                time.sleep(2 ** attempt * 3)  # 3s, 6s
+                continue
+            return r
         except (httpx.TransportError, httpx.HTTPError) as exc:
             last = exc
-    raise last  # type: ignore[misc]
+            if attempt < 2:
+                time.sleep(1)
+                continue
+    if last is not None:
+        raise last
+    return r  # type: ignore[possibly-undefined]
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +134,143 @@ def search_papers(
         return "\n".join(lines) if lines else "结果都超出近月窗口，试试 months_back=0 或更通用的关键词。"
     except Exception as exc:
         return f"arXiv 检索失败: {exc}"
+
+
+def _search_hf_papers(query: str, max_results: int, months_back: int) -> str:
+    """HuggingFace daily_papers 兜底源：返回 arXiv ID + 标题 + 摘要 + 日期。
+
+    为什么用它兜底（二十四期实测）：arXiv API 按出口 IP 限流后，
+    `arxiv.org/html` 全文仍可读、HuggingFace 的每日论文 API 也 200——
+    所以"列表检索"断了不等于"论文读不了"。HF 还自带社区热度（upvotes），
+    比 arXiv 原始时间序列表更有信号。返回格式与 search_papers 对齐。
+    """
+    r = _get("https://huggingface.co/api/daily_papers", params={"limit": max(12, max_results)})
+    if r.status_code != 200:
+        return f"（HuggingFace 兜底源 HTTP {r.status_code}）"
+    try:
+        items = r.json()
+    except Exception as exc:
+        return f"（HuggingFace 兜底源解析失败: {exc}）"
+    cutoff = _dt.date.today() - _dt.timedelta(days=31 * months_back) if months_back > 0 else None
+    lines: list[str] = []
+    for it in items:
+        p = (it or {}).get("paper") or {}
+        aid = str(p.get("id") or "").strip()
+        if not re.fullmatch(r"\d{4}\.\d{4,5}", aid):
+            continue
+        pub = str(p.get("publishedAt") or "")[:10]
+        if cutoff and pub:
+            try:
+                if _dt.date.fromisoformat(pub) < cutoff:
+                    continue
+            except ValueError:
+                pass
+        title = re.sub(r"\s+", " ", str(p.get("title") or "?")).strip()
+        summ = re.sub(r"\s+", " ", str(p.get("summary") or "")).strip()
+        lines.append(
+            f"- {title}\n  [{pub}] HF-daily upvotes={p.get('upvotes', 0)}\n  {summ[:300]}\n  https://arxiv.org/abs/{aid}"
+        )
+        if len(lines) >= max_results:
+            break
+    return "\n".join(lines) if lines else "（HuggingFace 兜底源无近期论文）"
+
+
+def _search_openalex(query: str, max_results: int, months_back: int) -> str:
+    """OpenAlex 兜底源（第一顺位）：**限定 arXiv 源**做真检索。
+
+    实测定序（二十四期）：
+    - 裸 `search=` 会捞进社会学/教育学论文（查 "LLM agent tool use" 返回
+      "Employee Creativity"），噪音太大；
+    - 加 `title_and_abstract.search` 好一些，但仍混入 zenodo/期刊预印本；
+    - **限定 arXiv 源 `locations.source.id:S4306400194` 后结果纯是 arXiv 论文**，
+      且 DOI 形如 `10.48550/arxiv.2610.13708` 能可靠反解出 arXiv ID
+      ——规划层后续要靠这个 ID 调 fetch_paper 读全文，所以这条最关键。
+    """
+    since = (_dt.date.today() - _dt.timedelta(days=31 * months_back)).isoformat() if months_back > 0 else ""
+    filters = [
+        f"title_and_abstract.search:{query}",
+        f"locations.source.id:{_OPENALEX_ARXIV_SOURCE}",  # 只要 arXiv 论文
+    ]
+    if since:
+        filters.append(f"from_publication_date:{since}")
+    r = _get(
+        "https://api.openalex.org/works",
+        params={
+            "filter": ",".join(filters),
+            "per_page": max_results,
+            "sort": "publication_date:desc",
+            "mailto": "pipeline@blog.local",  # OpenAlex 礼貌池
+        },
+    )
+    if r.status_code != 200:
+        return f"（OpenAlex 兜底源 HTTP {r.status_code}）"
+    try:
+        results = (r.json() or {}).get("results") or []
+    except Exception as exc:
+        return f"（OpenAlex 兜底源解析失败: {exc}）"
+    lines: list[str] = []
+    for w in results[:max_results]:
+        title = re.sub(r"\s+", " ", str(w.get("display_name") or "?")).strip()
+        date = str(w.get("publication_date") or "?")
+        # 摘要：OpenAlex 用倒排索引，重建
+        aii = w.get("abstract_inverted_index") or {}
+        pos: dict[int, str] = {}
+        for word, idxs in aii.items():
+            for i in (idxs or [])[:1]:
+                pos[i] = word
+        summ = " ".join(pos[k] for k in sorted(pos))[:300] if pos else ""
+        # arXiv ID：DOI 10.48550/arxiv.<id> 是最可靠的形式（实测），再兜底其它形态
+        blob = " ".join([
+            str(w.get("doi") or ""),
+            json.dumps(w.get("ids") or {}, ensure_ascii=False),
+            json.dumps(w.get("locations") or [], ensure_ascii=False),
+        ])
+        aid = ""
+        for pat in (
+            r"arxiv[./](\d{4}\.\d{4,5})",
+            r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})",
+        ):
+            m = re.search(pat, blob, re.I)
+            if m:
+                aid = m.group(1)
+                break
+        ref = f"https://arxiv.org/abs/{aid}" if aid else str(w.get("doi") or w.get("id") or "")
+        lines.append(f"- {title}\n  [{date}] OpenAlex/arXiv\n  {summ}\n  {ref}")
+    return "\n".join(lines) if lines else "（OpenAlex 兜底源无结果）"
+
+
+def search_papers_multi(
+    topic: str,
+    months_back: int = 3,
+    max_results: int = 6,
+) -> tuple[str, str]:
+    """多源论文检索：arXiv 优先，被限流时自动切 OpenAlex → HuggingFace。
+
+    返回 (清单文本, 实际使用的源名)。二十四期加：实测服务器出口 IP 被
+    arXiv 持续 429/超时，单源会让整条流水线"检索不到论文"而空转。
+
+    兜底顺序有讲究（实测定序）：
+    - **OpenAlex 第一顺位**：支持真正的按词检索，实测查
+      "speculative decoding kv cache" 第一条就命中 Adaptive DHiSparse；
+    - **HuggingFace 第二顺位**：`daily_papers` **不接受查询词**（实测两次
+      不同查询返回完全相同的结果），只能给"当日热门论文"，所以它只配做
+      "arXiv/OpenAlex 都不行时，至少给规划层一批真实存在的新论文"的兜底。
+    """
+    arxiv = search_papers(topic, months_back=months_back, max_results=max_results)
+    if not arxiv.startswith(("arXiv 检索失败", "无结果", "结果都超出近月窗口")):
+        return arxiv, "arxiv"
+    print(f"[hotspot-pipeline] arXiv 不可用（{arxiv[:70]}），切 OpenAlex")
+
+    oa = _search_openalex(topic, max_results, months_back)
+    if not oa.startswith("（"):
+        return oa, "openalex"
+
+    print(f"[hotspot-pipeline] OpenAlex 也不可用（{oa[:60]}），切 HuggingFace 当日论文")
+    hf = _search_hf_papers(topic, max_results, months_back)
+    if not hf.startswith("（"):
+        return hf, "huggingface"
+
+    return f"所有论文源都不可用：arXiv={arxiv[:80]}；OpenAlex={oa[:80]}；HF={hf[:80]}", "none"
 
 
 # ---------------------------------------------------------------------------
