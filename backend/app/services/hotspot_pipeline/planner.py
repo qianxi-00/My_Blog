@@ -165,15 +165,28 @@ async def plan_article(
     # 再留出轮次输出 JSON。二十三期实测：预算给 4 时，模型把 4 轮全花在
     # 读论文上，没有一轮用来吐 JSON → "工具循环超限"，整轮白跑（10-14
     # 09:20 的 hot 任务就是这么死的）。读论文是必要动作，预算必须留出发言轮。
+    # 二十四期末：预算加到 8——写作是慢活，超时多留余量；超时不再立即放弃，
+    # 而是记下来继续尝试（累计 3 次才判定这轮废了）。
+    timed_out = 0
     for _round in range(2):
-        for _ in range(6):
+        for _ in range(8):
             try:
                 resp = await llm.ainvoke(msgs)
             except Exception as exc:
                 msg = str(exc)
-                if "429" in msg or "rate_limit" in msg or "concurrency" in msg.lower():
+                low = msg.lower()
+                if "429" in msg or "rate_limit" in low or "concurrency" in low:
                     _log(f"规划层限流（{msg[:50]}）——15s 后重试")
                     await asyncio.sleep(15)
+                    continue
+                if "timed out" in low or "timeout" in low:
+                    # 超时不立即放弃：写长文/读全文都可能慢，最多容忍 3 次
+                    timed_out += 1
+                    _log(f"规划层超时（{msg[:60]}）——已累积 {timed_out} 次，20s 后重试")
+                    if timed_out >= 3:
+                        last_err = f"连续超时 {timed_out} 次"
+                        break
+                    await asyncio.sleep(20)
                     continue
                 raise
             msgs.append(resp)

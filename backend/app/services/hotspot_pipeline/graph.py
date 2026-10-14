@@ -123,6 +123,12 @@ def _llm(temperature: float = 0.0, max_tokens: int = GROK_DEFAULT_MAX_TOKENS) ->
     显式断言：key 缺失直接炸——ChatOpenAI 在 api_key=None 时会静默 fallback 到
     环境变量 OPENAI_API_KEY（那是 grok 的 key），拿 grok key 打 stepfun 必 401，
     错误信息还非常有误导性。宁可启动即失败，不带病跑。
+
+    超时（二十四期末调）：写作本来就是慢活——规划层要读论文全文（一次
+    fetch_paper 就几十万字符），章节层一次要吐 800-1000 汉字的技术正文，
+    step-5-preview 在 step_plan 渠道实测单次调用 2-5 分钟不罕见。
+    900s 时偶发 'read operation timed out' 把整轮 run 打挂。放宽到 1500s
+    （25 分钟）仍低于 cron 间隔，不会挤掉下一轮。
     """
     if not settings.PIPELINE_API_KEY:
         raise RuntimeError(
@@ -134,7 +140,7 @@ def _llm(temperature: float = 0.0, max_tokens: int = GROK_DEFAULT_MAX_TOKENS) ->
         model=settings.PIPELINE_MODEL,
         temperature=temperature,
         max_tokens=max_tokens,
-        timeout=900,  # 6500+ 汉字长文生成，step-5-preview 预览渠道放宽到 15 分钟
+        timeout=1500,  # 25 分钟：读论文全文/写 800+ 字章节都够（实测 900s 曾超时）
         max_retries=2,
     )
 

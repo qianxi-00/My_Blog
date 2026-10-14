@@ -79,11 +79,14 @@ async def write_sections(plan: dict[str, Any], materials: str, fix_hint: str = "
     return results
 
 
-async def _llm_with_retry(temperature: float, messages: list, attempts: int = 5) -> str:
-    """带退避的 LLM 调用：429/限流时指数退避重试（stepfun 渠道高频触发）。
+async def _llm_with_retry(temperature: float, messages: list, attempts: int = 6) -> str:
+    """带退避的 LLM 调用：429/限流/超时都退避重试（stepfun 渠道高频触发）。
 
-    attempts 默认 5——429 在 3-4 次后才稳（实测 8/16/24s 三次退避才过），
-    章节级失败等于整篇缺一块，不能省。
+    attempts=6、退避 10s×attempt：429 在 3-4 次后才稳（实测 8/16/24s 三次
+    退避才过），章节级失败等于整篇缺一块，不能省。
+    二十四期末补超时分支：单节要吐 800-1000 汉字技术正文，step-5-preview
+    偶发 3 分钟以上；以前超时会走到 break 直接放弃该节，现在按 429 同样
+    退避重试（超时多发生在渠道拥挤时，等一会儿就好）。
     """
     import asyncio as _a
 
@@ -95,9 +98,15 @@ async def _llm_with_retry(temperature: float, messages: list, attempts: int = 5)
         except Exception as exc:
             last_exc = exc
             msg = str(exc)
-            if "429" in msg or "rate_limit" in msg or "concurrency" in msg.lower():
+            low = msg.lower()
+            if "429" in msg or "rate_limit" in low or "concurrency" in low:
                 wait = 10 * (i + 1)
                 _log(f"章节调用限流（{msg[:50]}）——{wait}s 后重试({i + 2}/{attempts})")
+                await _a.sleep(wait)
+                continue
+            if "timed out" in low or "timeout" in low:
+                wait = 10 * (i + 1)
+                _log(f"章节调用超时（{msg[:50]}）——{wait}s 后重试({i + 2}/{attempts})")
                 await _a.sleep(wait)
                 continue
             if i == attempts - 1:
