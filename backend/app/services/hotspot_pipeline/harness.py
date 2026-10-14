@@ -348,10 +348,30 @@ def _route_harness_check(state: dict) -> Literal["sections", "review", "retry", 
     return "sections" if r == "write" else r  # type: ignore[return-value]
 
 
-def _route_harness_review(state: dict) -> Literal["sections", "enqueue", "retry", "failed"]:
-    """审稿 revise 适配：老图返回 "write" → harness 重写章节。"""
+def _route_harness_review(state: dict) -> Literal["sections", "enqueue", "retry", "failed", "rework_fix"]:
+    """审稿 revise 适配：老图返回 "write" → harness 重写章节。
+
+    回炉模式没有 plan（没有章节可分包），只能整篇重写——走老图的 write。
+    """
     r = _route_after_review(state)
-    return "sections" if r == "write" else r  # type: ignore[return-value]
+    if r == "write":
+        if state.get("rework_file"):
+            return "rework_fix"
+        return "sections"
+    return r  # type: ignore[return-value]
+
+
+async def rework_fix_node(state: dict) -> dict:
+    """回炉模式的整篇修：没有规划（无章节可分包），只能拿闸/审稿意见整篇重写。
+
+    直接复用老图的 write 节点——它读 state["draft_md"] + mermaid_errors +
+    review_notes 做修订，不依赖 plan。
+    """
+    from .graph import write as _legacy_write
+
+    _log("回炉修：无规划可分包，按闸/审稿意见整篇修订")
+    out = await _legacy_write(state)  # type: ignore[arg-type]
+    return out
 
 
 def build_harness_graph():
@@ -360,10 +380,31 @@ def build_harness_graph():
 
     from .graph import PipelineState
 
+    def _route_entry(state: dict) -> Literal["check", "plan"]:
+        """回炉模式：已有底稿就跳过规划+写作，直进结构闸（闸→审→发短链）。
+
+        二十四期末补：harness 以前没有这个入口分支，传 rework_file 会被
+        无视、白跑一遍完整选题流程。
+        """
+        if state.get("rework_file") and state.get("draft_md"):
+            return "check"
+        return "plan"
+
+    def _route_check(state: dict) -> Literal["sections", "review", "retry", "failed", "rework_fix"]:
+        """结构闸路由：老图 "write" → harness 重写章节。
+
+        回炉模式（无 plan、无章节可分包）→ rework_fix 整篇修。
+        """
+        r = _route_harness_check(state)
+        if r == "sections" and state.get("rework_file"):
+            return "rework_fix"
+        return r
+
     builder = StateGraph(PipelineState)
     builder.add_node("plan", plan_node)
     builder.add_node("sections", write_sections_node)
     builder.add_node("assemble", assemble_node)
+    builder.add_node("rework_fix", rework_fix_node)   # 回炉整篇修（无规划时用）
     builder.add_node("check", check_mermaid)      # 复用二十二期字数/标题/mermaid 闸
     builder.add_node("review", review)            # 复用二十期审稿（含 85 分门槛）
     builder.add_node("retry", retry)              # 复用二十一期回炉
@@ -371,19 +412,22 @@ def build_harness_graph():
     builder.add_node("enqueue", enqueue)
     builder.add_node("publish", publish)
 
-    builder.add_edge(START, "plan")
+    builder.add_conditional_edges(START, _route_entry, {"check": "check", "plan": "plan"})
     builder.add_edge("plan", "sections")
     builder.add_edge("sections", "assemble")
     builder.add_edge("assemble", "check")
     builder.add_conditional_edges(
-        "check", _route_harness_check,
-        {"sections": "sections", "review": "review", "retry": "retry", "failed": "failed"},
+        "check", _route_check,
+        {"sections": "sections", "review": "review", "retry": "retry", "failed": "failed",
+         "rework_fix": "rework_fix"},
     )
     builder.add_conditional_edges(
         "review", _route_harness_review,
         # 审稿 revise → 回章节重写（不是整篇重写！只重写被判不合格的章节更省）
-        {"sections": "sections", "enqueue": "enqueue", "retry": "retry", "failed": "failed"},
+        {"sections": "sections", "enqueue": "enqueue", "retry": "retry", "failed": "failed",
+         "rework_fix": "rework_fix"},
     )
+    builder.add_edge("rework_fix", "check")   # 修完回闸
     builder.add_edge("retry", "plan")
     builder.add_edge("failed", END)
     builder.add_conditional_edges("enqueue", _route_after_enqueue, {"publish": "publish", "__end__": END})
@@ -398,8 +442,14 @@ async def run_harness(
     publish_flag: bool = False,
     recent_titles: str = "",
     lesson_history: str = "",
+    rework_file: str = "",
 ) -> dict:
-    """跑一次 harness（返回最终 state）。recent_titles/lesson_history 供规划层查重。"""
+    """跑一次 harness（返回最终 state）。recent_titles/lesson_history 供规划层查重。
+
+    rework_file 非空 = 回炉：拿存量稿做底稿，跳过规划层直接进汇总/回检
+    （闸→审→发短链）。二十四期末补：以前这个参数在 state 里占了位但
+    从没被使用，harness 模式传 rework 会被静默忽略、白跑一遍完整流程。
+    """
     graph = build_harness_graph()
     initial: dict[str, Any] = {
         "mode": mode,
@@ -419,7 +469,7 @@ async def run_harness(
         "revision_round": 0,
         "structure_round": 0,
         "retry_used": False,
-        "rework_file": "",
+        "rework_file": rework_file,
         "hotspot_id": None,
         "failed_reason": "",
         "log": [],
@@ -427,6 +477,16 @@ async def run_harness(
         "plan": {},
         "section_results": [],
     }
+    # 回炉：读底稿，从 frontmatter 取 topic/direction（老图 run_pipeline 同款逻辑）
+    if rework_file:
+        p = Path(rework_file)
+        if not p.is_file():
+            raise FileNotFoundError(f"回炉文件不存在: {rework_file}")
+        initial["draft_md"] = p.read_text(encoding="utf-8")
+        fm, _ = _parse_frontmatter(initial["draft_md"])
+        initial["topic"] = str(fm.get("title") or p.stem)
+        initial["direction"] = str(fm.get("summary") or "")[:300]
+        _log(f"回炉模式: {p.name}（{initial['topic'][:40]}）")
     # 查重清单自己查（已发布 DB + 队列存稿），不靠调用方传——二十一期修的
     # "同题 5 变体堆积"能力不能因为换了入口就丢。
     # 注意：这里曾被重复定义的第二份 run_harness 覆盖成"用调用方传入的空字符串"，
