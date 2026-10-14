@@ -246,6 +246,57 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 二十五期：多源论文检索 + 动态字数（硬底 4500）（2026-10-14，提交 `12092d1`，生产镜像 `qianxi-blog:ci-39`）
+
+千禧三问："为什么会检索不到论文？要不加个 MCP？""是不是字数要求太强硬导致一直达不到？加个根据选题动态调整长度，但最少不要低于 4500 字。"
+
+### 检索不到论文：不是缺 MCP，是出口 IP 被 arXiv 限流
+实测（服务器 `101.32.163.17`）：
+- `export.arxiv.org/api/query` 持续 **429 `Rate exceeded.`**，等 60s、换 `arxiv.org/api` 主站都不恢复；
+- 但 **`arxiv.org/html/<id>` 全文仍 200**（770KB）——只有列表 API 被限，读论文不受影响；
+- `_get` 原来只捕 `TransportError`，429 是正常 HTTP 响应不触发重试，被外层吞成"检索失败"。
+
+**修法：多源降级 `search_papers_multi`（实测定序）**
+| 顺位 | 源 | 关键点 |
+|---|---|---|
+| 1 | arXiv API | 有 429/503 指数退避（3s/6s） |
+| 2 | **OpenAlex** | 必须 `locations.source.id:S4306400194`（arXiv 源）+ `title_and_abstract.search`；裸 `search=` 会捞进社会学论文（查 "LLM agent tool use" 返回 "Employee Creativity"）。限定后结果纯是 arXiv 论文，且 DOI `10.48550/arxiv.<id>` 能可靠反解 arXiv ID——规划层要靠它读全文 |
+| 3 | HuggingFace daily_papers | **不接受查询词**（实测两次不同查询返回完全相同结果），只配当"至少给一批真实新论文"的兜底 |
+
+### 动态字数：固定 6000 是"反复回修到 failed"的元凶
+数据（近 60 篇）：中位数 6260、均值 6349、**27 篇 <6000**、最短 2592——说明固定 6000 线让"选题本就撑不到 6000"的稿子反复回修直到超轮。
+- 规划层按选题丰度自定 `target_chars`（5000-8000），程序只守 **4500 硬底**（千禧要求）
+- 校验"声明目标 vs 各节加总"一致（差 >15% 报错），避免两边口径打架
+- 未达动态目标但高于硬底 → 只记 log 交审稿，不再触发整篇重写
+- 配套：章节字数自检 60% → 85%（见二十四期），单节就写够
+
+**实测效果**：#677 一次通过——7/7 章节、**8295 字**（此前固定线时反复卡 5990-6386）、审稿 86 分 pass。
+
+### 推图床幂等（顺带修的真 bug）
+#677 的 3 张论文图推送失败，日志 `nothing to commit, working tree clean`：同一批图重推时，上次若 commit 成功但 push 失败，这次 `git add` 后无变化，`check=True` 的 `git commit` 非零退出被当成失败——**图永远上不去（raw URL 404）**。
+改为先 `git diff --cached --quiet` 判断：有差异才 commit；无差异直接 push（推的正是上次那个 commit）。
+实测：把 `_failed` 里积压的 **12 个 manifest 全部重推成功**，`_done` 21 个、`_failed` 清空；fig1/fig2/fig3 raw URL 全 200。
+
+## 二十四期：治撞题——去重清单落窗 + 锚点论文硬闸 + 规划层循环修复（2026-10-14，提交 `9821a23`，生产镜像 `qianxi-blog:ci-36`）
+
+用户报障："如果是和已经发布的重叠重合重复的，清理删除掉；解决一下撞题冲突的问题，让 AI 在选题的时候先把近 5 天的文章标题给他，让他防止重复选题，优化整个 agent 链路"。
+
+### 撞题的三个叠加根因（都修了）
+1. **`run_harness` 被定义两次**（harness.py 第 395 行与第 445 行），后者覆盖前者——而后者直接用调用方传入的 `recent_titles`，API/cron 从不传参 → **去重清单长期是空字符串**。删掉重复定义，只留带自查的一版。这是"喂了标题也没用"的真根因。
+2. **清单取法错**：原按 `id desc limit 10`；改 `topic_date` 落窗更糟——`topic_date` 是十八期均摊出来的**排期日期**（有 10-31 等未来值），按它过滤取到的全是"排期在未来"的旧文，真正这两天写的反而漏掉。最终定在 **`created_at`**（真实写作时间），窗口 5 天、上限 40 篇。
+3. **只给标题判不动**：`负载自适应的 KV 分层驻留` vs `长上下文推理的 KV 层级` 是同一件事，纯标题看不出。改为**标题 + 摘要**（摘要截 80 字），并新增两道硬闸：
+   - `used_arxiv_ids_for_dedupe()`：从 `hot_topic_sources` 抽近 5 天用过的锚点论文 ID（含队列存稿），`validate_plan(plan, used_ids)` 撞上直接判死；
+   - `plan_article` 检索结果里**预先剔除**已写过的论文（从源头减少模型撞题机会）。
+   - 撞题不走 `_repair_plan`（实测模型只会改标题措辞、锚点还是那篇），而是**重新选题**并明确告知"上次那篇写过了"。
+
+### 今天 09:20 hot 任务失败的根因
+`ValueError: 规划层未产出合法计划（工具循环超限）`——`planner.py` 每轮模型调用预算只有 4 次，而"读主锚 + 辅助论文"本身要消耗轮次，模型把 4 轮全花在读论文上，**没有一轮用来吐 JSON**。改为每轮 6 次，且重试轮不再重读论文：把已读材料注入下一轮 + 明确要求"不要再调工具，直接输出 JSON"。
+
+### 其他
+- cron 文件曾因追加 watcher 时漏换行触发 `Missing newline before EOF, this crontab file will be ignored`，导致 10-13 的 09:20 任务没跑（已修，现 11 行、以换行结尾）。
+- 清理了 pending 里 5 篇与已发布重复的稿（移到 `hotspot_queue/archive/dup-cleanup-20261014/` 留痕，不直接删）；failed 保留 3 篇不重复的失败稿。
+- 实测：去重清单 = 近 5 天已发布 6 篇（带摘要）+ 队列 3 篇；锚点论文 ID 7 个。
+
 ## 二十三期：agent harness——规划→章节并发→汇总→回检（2026-10-13，提交 `0c61c52`，生产镜像 `qianxi-blog:ci-34`）
 
 千禧拍板："做成真正的 agent harness：先确认目标/todolist → 搜资料确认选题 → 确认标题 → 分章节 → 每节派 subagent → 收集组合 → 回检复核；langgraph + deepagent，配 tool/skills，检索以论文为主"。决策：先 LangGraph 原生 fan-out（deepagents 已验证可装 0.7.24，暂缓）；配图上传 GitHub 图床（`qianxi-00/My_image`）+ 论文原图搬运 + mermaid 兜底；选题 arXiv/paper 为主、AIHOT 只做补充。
