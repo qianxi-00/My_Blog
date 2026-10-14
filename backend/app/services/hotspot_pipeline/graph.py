@@ -247,28 +247,76 @@ def _queue_titles() -> list[str]:
     return titles
 
 
-async def recent_titles_for_dedupe(limit: int = 10) -> str:
-    """查重清单（已发布 DB + 队列存稿 pending/failed）——选题/规划层共用。
+async def used_arxiv_ids_for_dedupe(days: int = 5) -> set[str]:
+    """近 N 天已发布的**锚点论文 arXiv ID** 集合——撞题的硬判据。
 
-    二十一期修的"同题 5 变体堆积"根治点；harness 的规划层也必须拿到它，
-    否则换了入口就丢了查重能力。
+    措辞可以千变万化，锚点论文是同一个就是同一篇文章。从 sources 表的
+    arxiv.org/abs/<id> URL 里抽 ID（harness 的 _plan_sources 就是这么写的）。
+    队列存稿也扫一遍（frontmatter 的 sources 段）。
     """
+    since = (_now_bj() - dt.timedelta(days=days)).replace(tzinfo=None)
+    ids: set[str] = set()
     async with async_session_maker() as db:
         rows = (
-            (
-                await db.execute(
-                    select(HotTopic.title)
-                    .where(HotTopic.status == "published")
-                    .order_by(HotTopic.id.desc())
-                    .limit(limit)
-                )
-            ).scalars().all()
-        )
+            await db.execute(
+                select(HotTopicSource.source_url)
+                .join(HotTopic, HotTopic.id == HotTopicSource.topic_id)
+                .where(HotTopic.status == "published", HotTopic.created_at >= since)
+            )
+        ).scalars().all()
+    for u in rows:
+        m = re.search(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})", str(u or ""))
+        if m:
+            ids.add(m.group(1))
+    # 队列存稿：frontmatter sources 段的 arxiv URL
+    for sub in ("pending", "failed"):
+        base = QUEUE_ROOT / sub
+        if not base.exists():
+            continue
+        for md in sorted(base.rglob("*.md"))[:40]:
+            try:
+                head = md.read_text(encoding="utf-8")[:2000]
+            except OSError:
+                continue
+            for m in re.finditer(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})", head):
+                ids.add(m.group(1))
+    return ids
+
+
+async def recent_titles_for_dedupe(days: int = 5, limit: int = 40) -> str:
+    """查重清单：**近 N 天写的**（按 created_at）+ 队列存稿——选题/规划层共用。
+
+    二十三期两次踩坑，最终定在 created_at：
+    1. 原来按 id 取最近 10 篇——但 id 大的未必是最近写的，且清单太短；
+    2. 改按 topic_date 落窗后更糟：topic_date 是**排期日期**（十八期做了
+       3-10 月均摊，有大量未来值），按它过滤取到的全是"排期在 10 月底"
+       的旧文，真正这两天刚写的反而漏掉——撞题依旧。
+    created_at 是文章真实生成时间，才对应"最近写过什么"这个语义。
+    另外带上摘要：只给标题时 LLM 看到"负载自适应的 KV 分层驻留"未必意识到
+    与"长上下文推理的 KV 层级"是同一件事，给摘要它才判得动。
+    """
+    since = (_now_bj() - dt.timedelta(days=days)).replace(tzinfo=None)
+    async with async_session_maker() as db:
+        rows = (
+            await db.execute(
+                select(HotTopic.title, HotTopic.summary, HotTopic.created_at)
+                .where(HotTopic.status == "published", HotTopic.created_at >= since)
+                .order_by(HotTopic.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
+    lines: list[str] = []
+    for title, summary, ctime in rows:
+        s = re.sub(r"\s+", " ", str(summary or "")).strip()[:80]
+        d = ctime.strftime("%m-%d") if hasattr(ctime, "strftime") else str(ctime)[:10]
+        lines.append(f"- [{d}] {title}" + (f"\n  摘要: {s}" if s else ""))
     queued = _queue_titles()
-    titles = list(rows) + queued
+    for t in queued:
+        lines.append(f"- [队列存稿] {t}")
     if queued:
         _log(f"查重清单含 {len(queued)} 篇队列存稿标题")
-    return "\n".join(f"- {t}" for t in titles) or "（暂无）"
+    _log(f"查重清单：近 {days} 天已发布 {len(rows)} 篇 + 队列 {len(queued)} 篇")
+    return "\n".join(lines) or "（暂无）"
 
 
 async def pick_topic(state: PipelineState) -> dict:

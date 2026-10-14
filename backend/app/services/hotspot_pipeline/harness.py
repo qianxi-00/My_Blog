@@ -41,6 +41,7 @@ from .graph import (
     _route_after_mermaid,
     _route_after_review,
     recent_titles_for_dedupe,
+    used_arxiv_ids_for_dedupe,
 )
 from .planner import plan_article, validate_plan
 from .prompts import KNOWLEDGE_TRACKS
@@ -64,22 +65,38 @@ async def plan_node(state: dict) -> dict:
         hist = _PLAN_CTX.get("lesson_history") or "（无）"
         hint = f"知识线: {track_name}。已讲过: {hist[:600]}"
 
+    used_ids = _PLAN_CTX.get("used_arxiv_ids") or set()
     plan = await plan_article(
         topic_hint=hint,
         mode=mode,
         track_name=track_name,
         recent_titles=_PLAN_CTX.get("recent_titles", ""),
         lesson_history=_PLAN_CTX.get("lesson_history", ""),
+        used_arxiv_ids=used_ids,
     )
-    errs = validate_plan(plan)
+    errs = validate_plan(plan, used_ids)
     if errs:
         _log(f"规划层校验不通过: {errs[:3]}")
+        # 撞题（锚点论文重复）不能靠"修一次"糊过去——必须换论文重选。
+        # 实测：把它交给 _repair_plan 时，模型只会改标题措辞，锚点还是那篇。
+        if any("撞题" in e for e in errs):
+            _log("检测到锚点论文撞题——重新选题（换论文）")
+            plan = await plan_article(
+                topic_hint=hint + "\n\n【注意】上次选的锚点论文近 5 天已写过，必须换一篇完全不同的论文。",
+                mode=mode,
+                track_name=track_name,
+                recent_titles=_PLAN_CTX.get("recent_titles", ""),
+                lesson_history=_PLAN_CTX.get("lesson_history", ""),
+                used_arxiv_ids=used_ids,
+            )
+            errs = validate_plan(plan, used_ids)
         # 修一次 + 程序兜底。兜底后仍不合法（只有内容类问题）才继续往下走：
         # 让结构闸与审稿去判，而不是在这里浪费整条管线
-        plan = await _repair_plan(plan, errs)
-        remaining = validate_plan(plan)
-        if remaining:
-            _log(f"修复后仍有问题（交由后续闸/审稿）: {remaining[:3]}")
+        if errs:
+            plan = await _repair_plan(plan, errs)
+            remaining = validate_plan(plan, used_ids)
+            if remaining:
+                _log(f"修复后仍有问题（交由后续闸/审稿）: {remaining[:3]}")
     materials = plan.get("_paper_material", "")
     return {
         "plan": plan,
@@ -411,64 +428,21 @@ async def run_harness(
         "section_results": [],
     }
     # 查重清单自己查（已发布 DB + 队列存稿），不靠调用方传——二十一期修的
-    # "同题 5 变体堆积"能力不能因为换了入口就丢
+    # "同题 5 变体堆积"能力不能因为换了入口就丢。
+    # 注意：这里曾被重复定义的第二份 run_harness 覆盖成"用调用方传入的空字符串"，
+    # 导致去重清单长期为空、撞题频发（10-14 用户报障根因）。只保留这一份。
     global _PLAN_CTX
-    _PLAN_CTX = {"recent_titles": recent_titles or await recent_titles_for_dedupe(),
-                 "lesson_history": lesson_history or await recent_titles_for_dedupe(limit=30)}
-    try:
-        return await graph.ainvoke(initial)
-    finally:
-        _PLAN_CTX = {}
-
-
-# 规划层的查重上下文（见 run_harness 注释）
-_PLAN_CTX: dict[str, str] = {}
-
-
-async def run_harness(
-    mode: str = "hot",
-    track_slot: str = "1900",
-    publish_flag: bool = False,
-    recent_titles: str = "",
-    lesson_history: str = "",
-) -> dict:
-    """跑一次 harness（返回最终 state）。recent_titles/lesson_history 供规划层查重。"""
-    graph = build_harness_graph()
-    initial: dict[str, Any] = {
-        "mode": mode,
-        "track_slot": track_slot,
-        "queue_slot": "pipeline",
-        "publish": publish_flag,
-        "topic": "",
-        "direction": "",
-        "primary_category": "其他",
-        "sources": [],
-        "draft_md": "",
-        "mermaid_errors": [],
-        "review_verdict": "",
-        "review_score": 0,
-        "review_notes": "",
-        "topic_tag": "技术",
-        "revision_round": 0,
-        "structure_round": 0,
-        "retry_used": False,
-        "rework_file": "",
-        "hotspot_id": None,
-        "failed_reason": "",
-        "log": [],
-        # harness 专用中间态
-        "plan": {},
-        "section_results": [],
+    _PLAN_CTX = {
+        "recent_titles": recent_titles or await recent_titles_for_dedupe(),
+        "lesson_history": lesson_history or await recent_titles_for_dedupe(limit=40),
+        "used_arxiv_ids": await used_arxiv_ids_for_dedupe(),
     }
-    # 查重上下文不进 state（TypedDict 没这两个键会报错），走模块级旁路
-    global _PLAN_CTX
-    _PLAN_CTX = {"recent_titles": recent_titles, "lesson_history": lesson_history}
     try:
         return await graph.ainvoke(initial)
     finally:
         _PLAN_CTX = {}
 
 
-# 规划层的查重上下文（模块级旁路：PipelineState 没这两个键，塞进去会触发
+# 规划层的查重上下文（模块级旁路：PipelineState 没这几个键，塞进去会触发
 # LangGraph 的 unknown-key 警告/报错；单飞锁保证并发不会互相污染）
-_PLAN_CTX: dict[str, str] = {}
+_PLAN_CTX: dict[str, Any] = {}

@@ -96,22 +96,40 @@ async def plan_article(
     track_name: str,
     recent_titles: str,
     lesson_history: str = "",
+    used_arxiv_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """规划层：检索论文 → 读全文 → 产出可执行写作计划。
 
     topic_hint: hot 模式=AIHOT 候选池提示；curriculum=知识线名
+    used_arxiv_ids: 近 5 天已用过的锚点论文 ID（撞题硬约束）
     """
     # 1) 论文检索（千禧拍板"检索主要要是论文"）：从 hint 抽英文检索词
     query = _search_query(topic_hint, track_name)
     _log(f"规划层·论文检索: query={query!r}")
     papers = search_papers(query, months_back=3, max_results=6)
 
+    # 检索结果里剔掉已写过的论文——从源头减少模型撞题的机会
+    if used_arxiv_ids:
+        kept, dropped = [], []
+        for line in papers.splitlines():
+            m = re.search(r"(\d{4}\.\d{4,5})", line)
+            if m and re.sub(r"v\d+$", "", m.group(1)) in used_arxiv_ids:
+                dropped.append(m.group(1))
+            else:
+                kept.append(line)
+        if dropped:
+            _log(f"检索结果剔除已写过的论文: {dropped}")
+            papers = "\n".join(kept) or "（本轮检索到的论文近 5 天都写过，请换检索词/等新论文）"
+
     # 2) 选题：让 LLM 从论文清单里锚定主论文 + 出计划（一次调用完成，减少 token）
     _log("规划层：生成写作计划（目标/todolist/章节/配图）…")
     human = f"""模式: {mode}
 主题线索: {topic_hint}
 {'知识线: ' + track_name if track_name else ''}
-已发布主题（严禁重复）: {recent_titles}
+
+# 近 5 天已发布/在写的主题（严禁撞题——这是硬约束，不是参考）
+{recent_titles}
+
 {'已讲过的课（严禁重复）: ' + lesson_history if lesson_history else ''}
 
 论文检索结果:
@@ -120,16 +138,26 @@ async def plan_article(
 请完成：1) 从上面的论文里锚定 1 篇主锚论文；2) 用 fetch_paper 工具读它的全文
 （拿章节结构与候选配图）；3) 输出完整 JSON 计划。
 
-注意 fetch_paper 需要你主动调用工具读全文——不要只凭摘要写计划。"""
+【防撞题】上面的"近 5 天已发布"清单是硬红线：
+- 同一篇论文（同一 arXiv ID）已经写过 → 必须换论文
+- 不同论文但讲的是同一个机制/同一个技术点（如都讲 KV Cache 驻留策略）→ 必须换角度或换论文
+- 标题措辞不同但读者读完会觉得"这不就是前两天那篇吗" → 判定为撞题，换选题
+- 判不准时：宁可选一个明显不同的论文，也不要赌"这次角度不同"
+
+注意 fetch_paper 需要你主动调用工具读全文——不要只凭摘要写计划。
+读完论文后请务必在剩余轮次里输出 JSON 计划，不要一直读论文。"""
 
     llm = _llm(temperature=0).bind_tools([fetch_paper], tool_choice="auto")
     msgs: list = [SystemMessage(content=PLANNER_SYSTEM_PROMPT), HumanMessage(content=human)]
     paper_digest = ""
     plan: dict[str, Any] | None = None
     last_err = ""
-    # 最多 2 轮完整尝试（每轮内最多 4 次工具调用）——JSON 解析失败也给机会重来
+    # 每轮预算 6 次模型调用：读主锚（1 次调用带工具）+ 最多 2 篇辅助论文，
+    # 再留出轮次输出 JSON。二十三期实测：预算给 4 时，模型把 4 轮全花在
+    # 读论文上，没有一轮用来吐 JSON → "工具循环超限"，整轮白跑（10-14
+    # 09:20 的 hot 任务就是这么死的）。读论文是必要动作，预算必须留出发言轮。
     for _round in range(2):
-        for _ in range(4):  # 每轮最多 4 次工具调用（读主锚 + 最多 2 篇辅助）
+        for _ in range(6):
             try:
                 resp = await llm.ainvoke(msgs)
             except Exception as exc:
@@ -162,7 +190,12 @@ async def plan_article(
                 msgs.append(HumanMessage(content=f"[工具结果 {tc['name']}]\n{out[:6000]}"))
         if plan is not None:
             break
-        msgs = msgs[:2]  # 整轮重来，清掉中间消息
+        # 整轮重来，清掉中间消息；但保留已读到的论文材料——重读是纯粹的浪费，
+        # 而且模型很可能又去读同样的论文，再次把预算耗光
+        msgs = msgs[:2]
+        if paper_digest:
+            msgs.append(HumanMessage(content=f"[已读论文材料，无需再读]\n{paper_digest[:8000]}"))
+            msgs.append(HumanMessage(content="请基于以上材料直接输出完整 JSON 计划，不要再调用工具。"))
 
     if plan is None:
         raise ValueError(f"规划层未产出合法计划（{last_err or '工具循环超限'}）")
@@ -195,8 +228,12 @@ def _search_query(topic_hint: str, track_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def validate_plan(plan: dict[str, Any]) -> list[str]:
-    """校验规划产出，返回问题列表（空=可执行）。"""
+def validate_plan(plan: dict[str, Any], used_arxiv_ids: set[str] | None = None) -> list[str]:
+    """校验规划产出，返回问题列表（空=可执行）。
+
+    used_arxiv_ids: 近 5 天已用过的锚点论文 ID——同一篇论文写第二遍是
+    最硬的撞题（措辞再怎么变，读者读的是同一篇论文），程序判得动就必须判。
+    """
     errs: list[str] = []
 
     title = str(plan.get("title") or "").strip()
@@ -243,8 +280,16 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
     if mermaid_n > 4:
         errs.append(f"mermaid 图 {mermaid_n} 张 >4（页面太碎）")
 
-    if not (plan.get("anchor_paper") or {}).get("arxiv_id"):
+    anchor_id = str((plan.get("anchor_paper") or {}).get("arxiv_id") or "").strip()
+    if not anchor_id:
         errs.append("缺 anchor_paper.arxiv_id（必须有主锚论文）")
+    elif used_arxiv_ids:
+        # 归一化：去掉版本号，只比主号
+        norm = re.sub(r"v\d+$", "", anchor_id)
+        if norm in used_arxiv_ids:
+            errs.append(
+                f"撞题：锚点论文 {anchor_id} 近 5 天已写过（同一篇论文不能写两遍，必须换论文）"
+            )
 
     return errs
 
