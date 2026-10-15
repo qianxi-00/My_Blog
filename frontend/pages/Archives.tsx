@@ -4,6 +4,7 @@ import { Icons } from '../components/Icons';
 import { getArticles, getTags, ArticleListItem, Tag } from '../api/articles';
 import { getHotspots, HotTopicListItem } from '../api/hotspots';
 import { getAiDailyIndex, getAiDailyTopics, AiDailyIndex, AiDailyTopics } from '../api/aiDaily';
+import { formatCompactNumber } from '../utils/helpers';
 
 // 为每个标签分配一套柔和配色
 const TAG_COLORS: Record<string, { bg: string; border: string; icon: string; badge: string; hoverBg: string }> = {};
@@ -306,7 +307,8 @@ const Archives: React.FC = () => {
       return [
         { label: '热点', value: list.length, icon: Icons.TrendingUp },
         { label: '主题', value: themes.size, icon: Icons.Tags },
-        { label: '热度', value: heat, icon: Icons.Eye },
+        // 总热度会到几万，压缩成 53.6K 避免撑出卡片（千禧要求：不要小数点、不要溢出）
+        { label: '热度', value: formatCompactNumber(heat), icon: Icons.Eye },
       ];
     }
     if (activeTab === 'ai-daily') {
@@ -351,10 +353,11 @@ const Archives: React.FC = () => {
           </div>
           <div className="grid grid-cols-3 gap-3">
             {headerStats.map(item => (
-              <div key={item.label} className="rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-white dark:border-slate-700 p-4 shadow-sm text-center">
+              <div key={item.label} className="min-w-0 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-white dark:border-slate-700 p-4 shadow-sm text-center">
                 <item.icon className="w-4 h-4 mx-auto mb-2 text-amber-500" />
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{item.value}</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{item.label}</div>
+                {/* tabular-nums + truncate + 响应式字号：数值再长也不会撑出卡片 */}
+                <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tabular-nums truncate" title={String(item.value)}>{item.value}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">{item.label}</div>
               </div>
             ))}
           </div>
@@ -448,7 +451,7 @@ const Archives: React.FC = () => {
                                 <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{h.title}</div>
                                 {h.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{h.summary}</p>}
                               </div>
-                              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400"><Icons.Eye className="w-3 h-3" /> {h.heat_score}</span>
+                              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400 tabular-nums"><Icons.Eye className="w-3 h-3" /> {formatCompactNumber(h.heat_score)}</span>
                             </button>
                           ))}
                         </div>
@@ -489,7 +492,7 @@ const Archives: React.FC = () => {
                                 <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors line-clamp-1">{h.title}</div>
                                 {h.summary && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{h.summary}</p>}
                               </div>
-                              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400"><Icons.Eye className="w-3 h-3" /> {h.heat_score}</span>
+                              <span className="shrink-0 inline-flex items-center gap-0.5 text-xs text-slate-400 tabular-nums"><Icons.Eye className="w-3 h-3" /> {formatCompactNumber(h.heat_score)}</span>
                             </button>
                           ))}
                         </div>

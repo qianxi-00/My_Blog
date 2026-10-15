@@ -31,6 +31,40 @@ export const calculateReadTime = (content?: string): number => {
 };
 
 /**
+ * 把大数字压缩成紧凑形式，避免溢出容器（千禧报障：归档页热度显示
+ * 53632.82 带小数点又太长，撑出卡片外）。
+ *
+ * 规则：
+ *  - < 10000        原样整数（千分位）
+ *  - < 1,000,000    → "1.2K"（万位起用 K）
+ *  - < 1,000,000,000→ "1.2M"
+ *  - 更大           → "1.2B"
+ *  - 保留 1 位小数，整数时不留 ".0"（1K 而不是 1.0K）
+ *
+ * @param value 数值（可能是 number 或字符串形式的数字）
+ * @param fractionDigits 小数位（默认 1；设 0 则完全取整）
+ */
+export const formatCompactNumber = (value?: number | string | null, fractionDigits = 1): string => {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return '0';
+
+    const sign = n < 0 ? '-' : '';
+    const abs = Math.abs(n);
+
+    const trim = (v: number) => {
+        const s = v.toFixed(fractionDigits);
+        // 去掉无意义的尾随 0：1.0K → 1K
+        return s.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+    };
+
+    if (abs >= 1_000_000_000) return `${sign}${trim(abs / 1_000_000_000)}B`;
+    if (abs >= 1_000_000) return `${sign}${trim(abs / 1_000_000)}M`;
+    if (abs >= 10_000) return `${sign}${trim(abs / 1_000)}K`;
+    // 一万以下：整数 + 千分位（热度这类小数直接取整，不再显示 .82）
+    return `${sign}${Math.round(abs).toLocaleString('zh-CN')}`;
+};
+
+/**
  * 复制文本到剪贴板
  * @param text 要复制的文本
  * @returns 是否成功

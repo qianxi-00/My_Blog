@@ -5,6 +5,7 @@ import MarkdownContent from '../components/MarkdownContent';
 import { extractHeadingsFromMarkdown } from '../components/MarkdownRenderer';
 import HotspotFloatingToolbar from '../components/HotspotFloatingToolbar';
 import HotspotComments from '../components/HotspotComments';
+import { formatCompactNumber } from '../utils/helpers';
 import {
   getAdjacentPublishedHotspots,
   getHotspotDetail,
@@ -22,6 +23,7 @@ const formatDateTime = (value?: string) => {
 };
 
 const formatNumber = (value?: number) => Number(value || 0).toLocaleString('zh-CN');
+// 热度会到几万且带小数（53632.82），压成 53.6K 避免溢出（千禧要求）
 
 const stripFrontmatter = (markdown?: string) => {
   if (!markdown) return '';
@@ -415,7 +417,7 @@ const HotspotDetail: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm">
                       <span className="px-3 py-1 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900">AI HOTSPOT</span>
                       <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">{hotspot.primary_category || '未分类'}</span>
-                      <span className="px-3 py-1 rounded-full bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">热度 {formatNumber(hotspot.heat_score)}</span>
+                      <span className="px-3 py-1 rounded-full bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">热度 {formatCompactNumber(hotspot.heat_score)}</span>
                       <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">来源 {formatNumber(hotspot.source_count)}</span>
                     </div>
 
@@ -460,7 +462,7 @@ const HotspotDetail: React.FC = () => {
                     </div>
                     <div>
                       <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">热度</div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">{formatNumber(hotspot.heat_score)}</div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formatCompactNumber(hotspot.heat_score)}</div>
                     </div>
                     <div>
                       <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">来源数</div>
