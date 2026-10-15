@@ -246,6 +246,46 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 二十九期：前端缓存致用户拿到旧版（2026-10-15，nginx 配置修复，无代码提交）
+
+千禧追问："你没发现归档页面那里切换数据又不变了吗？还是存在 bug 啊"——但我在浏览器里实测**切换是生效的**（`23/7/13341` → `572/10/53.6K`）。这个矛盾本身就是线索：**我验证了功能对不对，但没验证用户拿到的版本对不对**。
+
+### 根因：三层叠加的缓存陷阱
+1. `index.html` **没有 `Cache-Control`**（`nginx.conf` 的 `map $uri $blog_static_cache_control` 只匹配 `/assets/*.js|css|...`，刻意排除 index.html，但结果是"啥头都不加"而不是"no-cache"）→ 浏览器**启发式缓存**旧 index.html；
+2. 旧 index.html 引用**带旧 hash 的 chunk 名**，而 Vite 每次构建换文件名、旧文件被删；
+3. 请求旧 chunk 落到 `try_files $uri $uri/ /index.html` → **返回 index.html 的 HTML 且状态码 200**（实测旧 chunk 返回 3968 字节 HTML）→ 浏览器拿 HTML 当 JS 解析直接报错 → **React 组件不挂载/不响应点击**，用户看到的就是"切 tab 数字不变"。
+
+### 修法（`/etc/nginx/sites-available/blog` 的 443 server 块）
+```nginx
+location / {                                   # 注意不是 location = /index.html
+    add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    expires -1;
+    try_files $uri $uri/ /index.html;
+}
+location ^~ /assets/ {                         # 带 hash 的资源仍长缓存
+    try_files $uri =404;                       # 缺失资源明确 404，不再用 HTML 冒充 JS
+    expires 30d;
+    add_header Cache-Control "public, max-age=2592000, immutable" always;
+}
+```
+
+### 两个踩过的坑（都靠实测发现）
+- **`location = /index.html` 对根路径请求不生效**：用户访问的是 `/`，精确匹配只在请求 `/index.html` 时命中。第一次改完 `curl -I https://blog.qianxi7988.me/` 仍无缓存头，就是栽在这里。
+- **插错了 server 块**：脚本用 `location / {` 当锚点，命中的是 80 端口那个只有 301 跳转的块。改用 `listen 443 ssl;.*?root /var/www/blog/dist;` 双特征正则定位才对。
+
+### 验证
+| 项 | 结果 |
+|---|---|
+| `GET /` 响应头 | `Cache-Control: no-cache, no-store, must-revalidate` + `Pragma: no-cache` |
+| 已删除的旧 chunk | **HTTP 404**（此前是 200 + HTML） |
+| 现有 chunk | 200 + `immutable, max-age=2592000`（性能不受影响） |
+| SPA 深链 `/archives` `/hotspots` `/prompts` | 均 200 |
+
+**重要事实（此前未记录）**：前端**不走容器镜像**——CI 把产物部署到 nginx 的 `/var/www/blog/dist`，只有后端打进 `qianxi-blog` 镜像。所以排查前端问题时，容器镜像 tag 不变是正常的，要看 `dist` 目录时间戳。
+
+备份：`/etc/nginx/sites-available/blog.bak{,-,2-,3-}*`（可回滚）。
+
 ## 二十八期：热度数字压缩显示（2026-10-15，提交 `0104d69`，生产镜像 `qianxi-blog:ci-44`）
 
 千禧报障："热点文章归档的热度那里就不要加入小数点了，不要显示得超过框外，做好数字省略，太大的数可以用多少 K、多少 M、多少 B 来表示"。
