@@ -282,6 +282,55 @@ const Archives: React.FC = () => {
     return { totalViews, totalLikes, activeTags, latest, months, maxMonthCount };
   }, [articles, tags, groupedByTag]);
 
+  /**
+   * 顶部三张统计卡：**随当前 tab 变化**（用户报障：以前固定显示文章口径的
+   * 23/7/13341，切到热点/AI 日报也不动，等于给了个错的数）。
+   * 每个 tab 用自己那套数据的真实口径：
+   *  - 文章：篇数 / 有文章的标签数 / 总阅读
+   *  - 热点：已发布热点数 / 打标主题数 / 总热度（没有阅读量概念，用热度）
+   *  - AI 日报：日报条目数 / 主题数 / 覆盖天数（索引里的 days 数）
+   * 数据还没加载出来时显示 "…"，不显示上一 tab 的旧值（避免误导）。
+   */
+  const headerStats = useMemo(() => {
+    if (activeTab === 'hotspots') {
+      const list = hotspots;
+      if (!list) {
+        return [
+          { label: '热点', value: hotspotTotal ?? '…', icon: Icons.TrendingUp },
+          { label: '主题', value: '…', icon: Icons.Tags },
+          { label: '热度', value: '…', icon: Icons.Eye },
+        ];
+      }
+      const themes = new Set(list.map(h => h.topic_tag || '未分类'));
+      const heat = list.reduce((sum, h) => sum + Number(h.heat_score || 0), 0);
+      return [
+        { label: '热点', value: list.length, icon: Icons.TrendingUp },
+        { label: '主题', value: themes.size, icon: Icons.Tags },
+        { label: '热度', value: heat, icon: Icons.Eye },
+      ];
+    }
+    if (activeTab === 'ai-daily') {
+      const topics = dailyTopics;
+      if (!topics) {
+        return [
+          { label: '日报', value: dailyTotal ?? '…', icon: Icons.BookOpen },
+          { label: '主题', value: '…', icon: Icons.Tags },
+          { label: '覆盖月数', value: '…', icon: Icons.Eye },
+        ];
+      }
+      return [
+        { label: '日报', value: topics.total, icon: Icons.BookOpen },
+        { label: '主题', value: topics.topics.length, icon: Icons.Tags },
+        { label: '覆盖月数', value: dailyIndex?.months?.length ?? '…', icon: Icons.Eye },
+      ];
+    }
+    return [
+      { label: '文章', value: articles.length, icon: Icons.FileText },
+      { label: '标签', value: archiveStats.activeTags.length, icon: Icons.Tags },
+      { label: '阅读', value: archiveStats.totalViews, icon: Icons.Eye },
+    ];
+  }, [activeTab, articles, archiveStats, hotspots, hotspotTotal, dailyTopics, dailyTotal, dailyIndex]);
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-16">
       {/* 页面标题 */}
@@ -301,11 +350,7 @@ const Archives: React.FC = () => {
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: '文章', value: articles.length, icon: Icons.FileText },
-              { label: '标签', value: archiveStats.activeTags.length, icon: Icons.Tags },
-              { label: '阅读', value: archiveStats.totalViews, icon: Icons.Eye },
-            ].map(item => (
+            {headerStats.map(item => (
               <div key={item.label} className="rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-white dark:border-slate-700 p-4 shadow-sm text-center">
                 <item.icon className="w-4 h-4 mx-auto mb-2 text-amber-500" />
                 <div className="text-2xl font-black text-slate-900 dark:text-white">{item.value}</div>

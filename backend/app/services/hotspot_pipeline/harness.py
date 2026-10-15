@@ -134,7 +134,13 @@ async def _repair_plan(plan: dict, errs: list[str]) -> dict:
 
         fixed = _extract_json(text)  # 带中文引号修复的健壮解析
         fixed["_paper_material"] = plan.get("_paper_material", "")
-        return fixed
+        # 修复轮也可能返回"残缺 JSON"（实测 10-15 09:20：模型吐出的计划
+        # 缺 title/slug，解析成功所以不走 except 分支，缺字段就带病下行，
+        # 一路到结构闸变成"标题 0 字"反复回修）。所以修复结果也要过一遍
+        # 程序兜底——它专门负责补/裁可程序判定的字段。
+        merged = dict(plan)
+        merged.update({k: v for k, v in fixed.items() if v not in (None, "", [], {})})
+        return _coerce_plan(merged, errs)
     except Exception as exc:
         _log(f"规划修复失败，程序兜底裁剪: {exc}")
         return _coerce_plan(plan, errs)
@@ -148,14 +154,26 @@ def _plan_without_material(plan: dict) -> dict:
 def _coerce_plan(plan: dict, errs: list[str]) -> dict:
     """程序化把计划掰回合规形状（LLM 修不动时的兜底）。
 
-    可程序判定的违规直接改：标题截到 32 字、章节合并到 ≤8、slug 兜底。
-    不可程序判定的（内容质量）保持原样，交给后续闸与审稿。
+    可程序判定的违规直接改：标题截到 32 字、**缺标题时从 goal/首节兜一个**、
+    章节合并到 ≤8、slug 兜底。不可程序判定的（内容质量）保持原样，交后续闸。
     """
     out = dict(plan)
     fixed: list[str] = []
 
-    title = str(out.get("title") or "")
-    if len(title) > 32:
+    title = str(out.get("title") or "").strip()
+    if not title:
+        # 缺标题（实测 10-15 09:20：修复轮返回残缺 JSON，title 丢了，
+        # 一路到结构闸变成"标题 0 字"反复回修）。从 goal 或首节标题兜一个，
+        # 保证不空；措辞不理想交审稿，总好过整轮空转。
+        seed = str(out.get("goal") or "").strip()
+        if not seed:
+            secs0 = out.get("sections") or []
+            seed = str((secs0[0] or {}).get("heading") or "") if secs0 else ""
+        seed = re.sub(r"\s+", " ", seed).strip("。.：: ")
+        title = seed.split("：")[0].split(":")[0].strip()[:28] or "技术深度解读"
+        out["title"] = title
+        fixed.append(f"标题缺失，从 goal/首节兜底为 {title!r}")
+    elif len(title) > 32:
         # 截到第一个冒号前（"主标题：副标题"式双段结构正是被截的对象）
         head = title.split("：")[0].split(":")[0].strip()
         out["title"] = head if head and len(head) <= 32 else title[:32]

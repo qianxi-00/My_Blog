@@ -201,8 +201,24 @@ def assemble(
     手拼字符串一旦格式不对整个 fm 变空 dict——二十三期实测踩过：sources 写成
     markdown 链接导致标题/字数全解析成 0）。这里用 yaml.safe_dump 生成。
     """
-    title = str(plan.get("title") or "")
+    title = str(plan.get("title") or "").strip()
+    if not title:
+        # 汇总层兜底：规划层丢标题时不能写出空 frontmatter（实测 10-15：
+        # 空标题让结构闸反复失败、整轮空转）。从 goal 或首节标题派生一个。
+        seed = str(plan.get("goal") or "").strip()
+        if not seed:
+            secs = plan.get("sections") or []
+            seed = str((secs[0] or {}).get("heading") or "") if secs else ""
+        import re as _re
+
+        title = _re.sub(r"\s+", " ", seed).strip("。.：: ").split("：")[0].split(":")[0].strip()[:28] or "技术深度解读"
+        _log(f"汇总层兜底标题: {title!r}（规划层未给）")
     slug = str(plan.get("slug") or "")
+    if not slug:
+        import re as _re
+
+        slug = _re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "post"
+        _log(f"汇总层兜底 slug: {slug!r}")
     summary = str(plan.get("summary") or "")
     primary_category = str(plan.get("primary_category") or "其他")
     tags = ["AI", str(plan.get("topic_tag") or "技术")]

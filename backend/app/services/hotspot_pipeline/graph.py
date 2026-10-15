@@ -526,7 +526,11 @@ async def check_mermaid(state: PipelineState) -> dict:
     # 在详情页视觉压迫过强（text-5xl 黑体时代尤甚），千禧拍板"标题别搞太长"。
     # 程序挡 32+；28-32 灰色区交审稿把关。
     title = str(fm.get("title") or "").strip()
-    if len(title) > MAX_TITLE_CHARS:
+    if not title:
+        # 空标题必须挡死（实测 10-15：规划层丢了 title，闸只判长度所以
+        # "标题 0 字"被判通过，带着空标题一路到审稿）。这是发布必需字段。
+        errors.append("frontmatter 缺 title（标题是发布必需字段，不能为空）")
+    elif len(title) > MAX_TITLE_CHARS:
         errors.append(
             f"标题 {len(title)} 字 > 上限 {MAX_TITLE_CHARS}——删掉'主标题：副标题补充'式冗余，"
             f"一句话说清技术主题（≤28 字），细节移到 summary/导语"
