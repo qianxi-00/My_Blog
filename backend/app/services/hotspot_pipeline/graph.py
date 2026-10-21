@@ -787,7 +787,15 @@ async def publish(state: PipelineState) -> dict:
                 )
             await db.commit()
             _log(f"已发布 hot_topic id={topic.id}: {topic.title}")
-            _archive_published_queue_files(slug)
+            # 三十一期修：slug 之前在 publish 里没定义（只有 fm 里的值），
+            # 调用时报 NameError 被外层 except 吞成"发布失败（数据库）"——
+            # 文章其实已经入库了，但错误信息是假的，且 pending 没归档。
+            # 从 frontmatter 取 slug（与入库用的是同一个值），并把归档调用
+            # 单独 try 一遍：归档失败绝不能影响发布结果。
+            try:
+                _archive_published_queue_files(str(fm.get("slug") or ""))
+            except Exception as arc_exc:
+                _log(f"归档 pending 存稿异常（不影响发布）: {arc_exc}")
             return {"hotspot_id": topic.id, "log": [f"发布成功 hot_topic#{topic.id}"]}
     except Exception as exc:
         reason = f"发布失败（数据库）: {exc}"
