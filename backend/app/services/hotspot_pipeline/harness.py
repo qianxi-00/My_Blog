@@ -366,10 +366,12 @@ def _route_harness_check(state: dict) -> Literal["sections", "review", "retry", 
     return "sections" if r == "write" else r  # type: ignore[return-value]
 
 
-def _route_harness_review(state: dict) -> Literal["sections", "enqueue", "retry", "failed", "rework_fix"]:
+def _route_harness_review(state: dict) -> Literal["sections", "enqueue", "retry", "failed", "rework_fix", "review"]:
     """审稿 revise 适配：老图返回 "write" → harness 重写章节。
 
     回炉模式没有 plan（没有章节可分包），只能整篇重写——走老图的 write。
+    三十期：老图新增 "review" 自环（审稿服务不可用 → 原地重试），
+    这里原样透传，不映射成 sections——审稿抖动不该触发章节重写。
     """
     r = _route_after_review(state)
     if r == "write":
@@ -442,8 +444,9 @@ def build_harness_graph():
     builder.add_conditional_edges(
         "review", _route_harness_review,
         # 审稿 revise → 回章节重写（不是整篇重写！只重写被判不合格的章节更省）
+        # 三十期：review 自环 = 审稿服务不可用时原地重试，不动稿件
         {"sections": "sections", "enqueue": "enqueue", "retry": "retry", "failed": "failed",
-         "rework_fix": "rework_fix"},
+         "rework_fix": "rework_fix", "review": "review"},
     )
     builder.add_edge("rework_fix", "check")   # 修完回闸
     builder.add_edge("retry", "plan")
@@ -487,6 +490,7 @@ async def run_harness(
         "revision_round": 0,
         "structure_round": 0,
         "retry_used": False,
+        "review_strikes": 0,
         "rework_file": rework_file,
         "hotspot_id": None,
         "failed_reason": "",

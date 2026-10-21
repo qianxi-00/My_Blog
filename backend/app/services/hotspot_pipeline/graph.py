@@ -59,6 +59,9 @@ QUEUE_ROOT = Path("/data/pipeline/hotspot_queue")
 #   清空状态自动回选题重跑；重试再失败才落盘
 MAX_STRUCTURE_ROUNDS = 4
 MAX_REVISION_ROUNDS = 2    # 审稿：内容性修订
+# 三十期：审稿服务不可用时的原地重试预算（不消耗 revision_round，
+# 也不回写作层——审稿抖动不该让已写好的稿子作废）
+MAX_REVIEW_STRIKES = 3
 MAX_RESEARCH_TOOL_CALLS = 10
 # 二十四期：字数从"固定 6000 硬线"改成"动态目标 + 4500 硬底"。
 # 千禧拍板："评估一下是不是字数要求太强硬导致一直达不到？加一个根据选题
@@ -102,6 +105,7 @@ class PipelineState(TypedDict):
     revision_round: int  # 审稿回修轮次（内容性，上限 MAX_REVISION_ROUNDS）
     structure_round: int  # 结构闸回修轮次（字数/表格/mermaid，上限 MAX_STRUCTURE_ROUNDS）
     retry_used: bool  # failed 自动重试是否已用（二十一期 loop 闭环：超轮先回炉重跑一次）
+    review_strikes: int  # 审稿服务不可用的连续次数（三十期：原地重试审稿的预算）
     rework_file: str  # 非空 = 回炉模式：拿该文件做底稿，跳过选题/检索直进结构闸
     # 二十三期 harness 中间态（老图不用这几个字段，TypedDict 允许缺省）
     plan: dict  # 规划层产物：目标/todolist/章节大纲/配图计划
@@ -576,7 +580,15 @@ async def review(state: PipelineState) -> dict:
                 ]
             )
             content = resp.content if isinstance(resp.content, str) else str(resp.content)
-            break
+            if content.strip():
+                break
+            # **空内容也要重试**（三十期实测）：stepfun 偶发返回空 body（不抛异常），
+            # 原实现 break 出循环 → 判定"审稿不可用" → 转 revise → **整篇 8 章节
+            # 重写**（稿子本身已过结构闸 8273 字，白重写一遍）。空返回多半是
+            # 渠道瞬时抖动，重试一次就好。
+            _log(f"审稿返回空内容（第 {attempt + 1}/4 次）——10s 后重试")
+            await asyncio.sleep(10)
+            continue
         except Exception as exc:
             last_exc = exc
             msg = str(exc)
@@ -586,15 +598,21 @@ async def review(state: PipelineState) -> dict:
                 await asyncio.sleep(wait)
                 continue
             break
-    if not content:
-        # 审稿彻底失败：不带病发布，也不让整篇作废——转 revise 走内容回修
-        _log(f"审稿调用失败（{last_exc}）——转 revise 回修，不发布")
+    if not content or not content.strip():
+        # 审稿彻底失败：**不动稿件**，只是这一轮不给结论。
+        # 关键（三十期修）：以前这里置 verdict=revise，路由回 write 会把整篇
+        # 重写一遍——审稿服务抖动不该让已写好的稿子作废。改成保持 verdict=""，
+        # 计数在**本节点**里累加（不在路由函数里改 state——LangGraph 路由里
+        # 的改动不持久化），路由层据此决定原地重试还是落 failed。
+        strikes = int(state.get("review_strikes", 0)) + 1
+        _log(f"审稿调用失败（{last_exc or '空内容'}，第 {strikes} 次）——本轮不给结论，留待重试，不作废稿件")
         return {
-            "review_verdict": "revise",
+            "review_verdict": "",
             "review_score": 0,
-            "review_notes": "- 【审稿不可用】审稿服务连续失败，本轮按待复核处理：补足细节层次与事实来源",
-            "revision_round": state.get("revision_round", 0) + 1,
-            "log": ["审稿服务失败，转 revise"],
+            "review_notes": "",
+            "revision_round": state.get("revision_round", 0),  # 不消耗审稿轮次
+            "review_strikes": strikes,
+            "log": [f"审稿服务不可用（第 {strikes} 次），本轮不给结论"],
         }
     result = _extract_json(content)
     verdict = result.get("verdict", "revise")
@@ -615,14 +633,26 @@ async def review(state: PipelineState) -> dict:
         "review_notes": "\n".join(f"- {n}" for n in notes),
         "topic_tag": result.get("topic_tag", "其他"),
         "revision_round": state.get("revision_round", 0) + 1,
+        "review_strikes": 0,  # 审稿恢复可用，计数清零
         "log": [f"审稿 {verdict} {score}分: {'; '.join(notes)[:150]}"],
     }
 
 
-def _route_after_review(state: PipelineState) -> Literal["write", "enqueue", "retry", "failed"]:
+def _route_after_review(state: PipelineState) -> Literal["write", "enqueue", "retry", "failed", "review"]:
+    """审稿后路由。
+
+    三十期加 "review" 自环：审稿服务不可用（空返回/连续失败）时 verdict=""
+    ——此时**不能**回 write（会把整篇重写），也不能发布（没审过）。
+    正确做法是原地重试审稿；重试用尽（review_strikes 超预算）才落 failed。
+    """
     verdict = state.get("review_verdict", "revise")
     if verdict == "pass":
         return "enqueue"
+    if not verdict:  # 审稿服务不可用：原地重试审稿，不动稿件
+        # 计数在 review 节点里累加并写回 state（路由函数里改 state 不持久化）
+        if int(state.get("review_strikes", 0)) < MAX_REVIEW_STRIKES:
+            return "review"
+        return "failed"
     if state.get("revision_round", 0) < MAX_REVISION_ROUNDS:
         return "write"
     if not state.get("retry_used", False) and not state.get("rework_file"):
@@ -839,7 +869,8 @@ def build_graph():
     builder.add_conditional_edges(
         "review",
         _route_after_review,
-        {"write": "write", "enqueue": "enqueue", "retry": "retry", "failed": "failed"},
+        {"write": "write", "enqueue": "enqueue", "retry": "retry", "failed": "failed",
+         "review": "review"},   # 三十期：审稿服务不可用 → 原地重试审稿
     )
     builder.add_edge("retry", "pick_topic")
     builder.add_edge("failed", END)
@@ -890,6 +921,7 @@ async def run_pipeline(
         "revision_round": 0,
         "structure_round": 0,
         "retry_used": False,
+        "review_strikes": 0,
         "hotspot_id": None,
         "failed_reason": "",
         "log": [],
