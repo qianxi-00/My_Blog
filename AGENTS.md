@@ -246,6 +246,58 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 三十二期：publish 里 slug 未定义（NameError 被报成"发布失败"）（2026-10-21，提交 `14cbe9a`，生产镜像 `qianxi-blog:ci-47`）
+
+三十一期手动触发的实测当场暴露——日志先打"已发布 hot_topic id=691"，紧接着
+```
+发布失败（数据库）: name 'slug' is not defined
+```
+**文章其实已经入库**（id=691、7229 中文字、8 个 mermaid、3 个表格、2 张论文原图、
+9 节含结论节），但错误信息是假的，且 pending 归档没执行。
+
+**根因**：`_archive_published_queue_files(slug)` 的调用点用了 `publish` 作用域里
+不存在的 `slug`（只有 `fm` 里的值），NameError 被 publish 的 `except` 吞成
+"发布失败"。
+
+**修法**：
+- `slug` 改从 frontmatter 取（与入库用的是同一个值）
+- **归档调用单独 try 一遍**：归档是清理动作，不该有能力否决一篇已经入库的
+  文章——归档失败只记 log
+
+**教训**：发布节点里"入库"与"善后"必须隔离。入库成功即算成功，善后失败
+只记日志。（这与三十一期的"审稿不可用不该作废稿件"是同一类错误：
+把无关的故障放大成对已完成工作的否定。）
+
+## 三十一期：审稿服务不可用不再作废稿件（2026-10-21，提交 `d83b681`，生产镜像 `qianxi-blog:ci-46`）
+
+十禧指令："你先手动触发一次，检查一下效果"——手动触发当场暴露出一个新问题。
+
+### 实测经过
+手动跑 hot 任务（publish=true），整条链路本来正常：
+```
+规划层·论文检索: query='attention mechanism kv cache long context inference' 源=arxiv
+执行层：8/8 章节完成
+结构校验（字数 8273/标题 17）: 通过
+审稿调用失败（None）——转 revise 回修，不发布
+执行层：并发写 8 个章节        ← 整篇重写！
+```
+**稿件已过结构闸（8273 字、标题 17 字），只因审稿 LLM 偶发返回空 body，
+整篇 8 章节被重写一遍。** 审稿日志里没有伴随 429/超时，是 stepfun 偶发空返回。
+
+### 三处治本
+1. **空内容也要重试**：`review` 节点原来只在抛异常时重试；空 body（不抛异常）
+   直接 `break` 出循环 → 判定"审稿不可用"。现在空返回也走 10s 退避重试（最多 4 次）。
+2. **审稿彻底失败时 verdict=""**（不再是 "revise"），且**不消耗 revision_round**
+   ——审稿服务抖动不该让已写好的稿子作废。
+3. **路由新增 "review" 自环**：原地重试审稿，最多 `MAX_REVIEW_STRIKES=3` 次，
+   用尽才落 failed。计数在 review 节点里累加（**路由函数里改 state 在 LangGraph
+   中不持久化**，这是实现时踩到的坑）。harness 图同步加自环；审稿成功时计数清零。
+
+### 验证
+路由矩阵 7/7 正确（pass→enqueue / revise→write / revise 超轮→retry /
+审稿不可用→review×2→failed）；两个图的 `review->review` 边各 1 条（边没注册
+会直接报运行时错，所以必须查边而不只是查节点）。
+
 ## 三十期：规划层工具协议 + 换题重试 + pending 归档（2026-10-21，提交 `6fa09ae`，生产镜像 `qianxi-blog:ci-45`）
 
 十禧指令："先修复，暂时不要动手补跑"（指 10-17~10-19 空窗缺口不补）。
@@ -261,8 +313,7 @@ ValueError: 规划层未产出合法计划（工具循环超限）
 ### 1) 工具应答协议错了（真正的元凶）
 ```python
 # 错：工具调用后用 HumanMessage 塞结果
-msgs.append(HumanMessage(content=f"[工具结果 {tc['name']}]
-{out[:6000]}"))
+msgs.append(HumanMessage(content=f"[工具结果 {tc['name']}]\n{out[:6000]}"))
 # 对：
 msgs.append(ToolMessage(content=..., tool_call_id=tc.get("id") or "", name=tc["name"]))
 ```
