@@ -757,11 +757,42 @@ async def publish(state: PipelineState) -> dict:
                 )
             await db.commit()
             _log(f"已发布 hot_topic id={topic.id}: {topic.title}")
+            _archive_published_queue_files(slug)
             return {"hotspot_id": topic.id, "log": [f"发布成功 hot_topic#{topic.id}"]}
     except Exception as exc:
         reason = f"发布失败（数据库）: {exc}"
         _log(reason)
         return {"failed_reason": reason, "log": [reason]}
+
+
+def _archive_published_queue_files(slug: str) -> None:
+    """发布成功后把 pending 里的同 slug 存稿移走——治"pending 越积越多"。
+
+    二十四期实测：enqueue 先写 pending/，publish 之后**没人清**，于是每发一篇
+    就往 pending 留一份（10-21 积到 6 篇 / 12 个文件）。后果有二：
+    1. pending 里的标题会被查重清单当成"写过"，把已发文章也算进撞题防线；
+    2. 人工看 pending 分不清哪些是已发的、哪些是待发的。
+    移走而不是删——留档可追溯，落在 archive/published/。
+    """
+    if not slug:
+        return
+    pending = QUEUE_ROOT / "pending"
+    if not pending.exists():
+        return
+    dest = QUEUE_ROOT / "archive" / "published"
+    moved = 0
+    for ext in (".md", ".meta.json"):
+        src = pending / f"{slug}{ext}"
+        if not src.is_file():
+            continue
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            src.replace(dest / src.name)
+            moved += 1
+        except OSError as exc:
+            _log(f"清理 pending 存稿失败 {src.name}: {exc}")
+    if moved:
+        _log(f"已发布存稿移入 archive/published: {slug}（{moved} 个文件）")
 
 
 def _route_after_enqueue(state: PipelineState) -> Literal["publish", Literal["__end__"]]:

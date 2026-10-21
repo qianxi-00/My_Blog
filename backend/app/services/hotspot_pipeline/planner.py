@@ -19,7 +19,7 @@ import asyncio
 import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
 from .graph import _extract_json, _llm, _log
@@ -109,11 +109,106 @@ async def plan_article(
 
     topic_hint: hot 模式=AIHOT 候选池提示；curriculum=知识线名
     used_arxiv_ids: 近 5 天已用过的锚点论文 ID（撞题硬约束）
+
+    二十四期末：**换题重试**。实测 10-17~10-19 连续 4 天空窗——规划层
+    连续崩在"工具循环超限"，一天 3 次 cron 全废。原因是死磕同一条线索：
+    检索词固定、候选论文固定、模型读同样的论文、同样出不来计划。
+    现在改成：单次规划失败 → **换检索词重新检索**再试（最多 3 条不同线索），
+    而不是把同一个失败重复两遍就放弃。
     """
-    # 1) 论文检索（千禧拍板"检索主要要是论文"）：从 hint 抽英文检索词。
-    #    多源兜底：arXiv 按出口 IP 限流时自动切 HuggingFace/OpenAlex，
-    #    否则整条流水线会因"检索不到论文"空转（二十四期实测）。
-    query = _search_query(topic_hint, track_name)
+    queries = _candidate_queries(topic_hint, track_name)
+    last_exc: Exception | None = None
+    for qi, query in enumerate(queries):
+        try:
+            return await _plan_once(
+                query=query,
+                topic_hint=topic_hint,
+                mode=mode,
+                track_name=track_name,
+                recent_titles=recent_titles,
+                lesson_history=lesson_history,
+                used_arxiv_ids=used_arxiv_ids,
+            )
+        except Exception as exc:
+            last_exc = exc
+            _log(f"规划失败（第 {qi + 1}/{len(queries)} 条线索，query={query!r}）: {exc}")
+            if qi + 1 < len(queries):
+                _log(f"换检索词重试: {queries[qi + 1]!r}")
+                await asyncio.sleep(5)
+    raise ValueError(f"规划层连续 {len(queries)} 条线索都失败: {last_exc}")
+
+
+def _candidate_queries(topic_hint: str, track_name: str) -> list[str]:
+    """产出若干条**不同**的检索词，供规划层失败后换题重试。
+
+    关键：每条必须**真的不同**——同一个词换顺序不算数，死磕同一条线索
+    只会把同样的失败重复一遍（这正是 10-17~10-19 空窗的机制）。
+    """
+    primary = _search_query(topic_hint, track_name)
+    # 知识线：按"机制 / 系统 / 评测"三个切面各给一条（英文检索词，
+    # 中文线索在 arXiv 上几乎搜不到东西）
+    facets = {
+        "注意力 / KV Cache / 推理加速线": [
+            primary,
+            "kv cache eviction policy long context serving",
+            "attention sparsity approximation speculative decoding",
+        ],
+        "强化学习与决策基础线": [
+            primary,
+            "reinforcement learning policy gradient reward shaping",
+            "decision making MDP planning exploration",
+        ],
+        "预训练 / 数据 / scaling law 线": [
+            primary,
+            "data curation pretraining mixture scaling law",
+            "synthetic data language model training efficiency",
+        ],
+        "后训练 / 微调 / 对齐 / preference learning 线": [
+            primary,
+            "preference optimization alignment fine-tuning",
+            "RLHF reward model process supervision",
+        ],
+        "模型结构 / MoE / 系统架构线": [
+            primary,
+            "mixture of experts routing model architecture",
+            "transformer attention architecture efficiency",
+        ],
+    }
+    if track_name and track_name in facets:
+        out = list(facets[track_name])
+    elif track_name:
+        # 未知知识线：给两条，保证至少能换一次
+        out = [primary, f"{primary} architecture"]
+    else:
+        # hot 模式：从 AIHOT 线索里换几个切面
+        en = re.findall(r"[A-Za-z][A-Za-z0-9\-]{3,}", topic_hint)
+        base = " ".join(dict.fromkeys(en[:2]))
+        out = [
+            primary,
+            f"{base} mechanism" if base else primary,
+            f"{base} benchmark evaluation" if base else primary,
+        ]
+    # 去重但保序——**必须真的不同**，重复的线索等于没换题
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for q in out:
+        if q and q not in seen:
+            seen.add(q)
+            uniq.append(q)
+    return uniq
+
+
+async def _plan_once(
+    query: str,
+    topic_hint: str,
+    mode: str,
+    track_name: str,
+    recent_titles: str,
+    lesson_history: str = "",
+    used_arxiv_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """单条线索的完整规划（检索 → 读全文 → 出计划）。失败由上层换题重试。"""
+    # 1) 论文检索（千禧拍板"检索主要要是论文"）：多源兜底
     papers, src_name = search_papers_multi(query, months_back=3, max_results=6)
     _log(f"规划层·论文检索: query={query!r} 源={src_name}")
 
@@ -209,7 +304,18 @@ async def plan_article(
                     paper_digest += out[:6000] + "\n\n"
                 else:
                     out = "（未知工具）"
-                msgs.append(HumanMessage(content=f"[工具结果 {tc['name']}]\n{out[:6000]}"))
+                # **必须用 ToolMessage 回应工具调用**（带 tool_call_id）。
+                # 二十四期实测的"工具循环超限"根因就在这里：之前错用 HumanMessage
+                # 塞工具结果，模型收不到"我的工具调用已被应答"的信号，于是继续
+                # 调工具——8 轮预算全耗在读论文上，一轮 JSON 都没吐过。
+                # 换成 ToolMessage 后模型立刻进入"输出计划"状态。
+                msgs.append(
+                    ToolMessage(
+                        content=f"[工具结果 {tc['name']}]\n{out[:6000]}",
+                        tool_call_id=tc.get("id") or tc.get("tool_call_id") or "",
+                        name=tc["name"],
+                    )
+                )
         if plan is not None:
             break
         # 整轮重来，清掉中间消息；但保留已读到的论文材料——重读是纯粹的浪费，
@@ -227,17 +333,24 @@ async def plan_article(
 
 
 def _search_query(topic_hint: str, track_name: str) -> str:
-    """把中文/混合提示词转成 arXiv 友好的英文检索词（简单规则，不引额外依赖）。"""
-    # 知识线模式有现成英文关键词表；hot 模式先原样试英文词
+    """把中文/混合提示词转成 arXiv 友好的英文检索词（简单规则，不引额外依赖）。
+
+    三十期修：原来的知识线映射表用的名字（"注意力与 KV Cache 机制"等）
+    **和 KNOWLEDGE_TRACKS 里的真实名字对不上**，于是 m.get() 全部落空、
+    直接 `return track_name`——把中文原样丢给 arXiv 检索。日志里
+    `query='注意力 / KV Cache / 推理加速线'` 就是这么来的：中文词在 arXiv
+    上几乎搜不到东西，检索质量因此大降（多源兜底也救不回来）。
+    """
+    # 知识线模式有现成英文关键词表（名字必须与 KNOWLEDGE_TRACKS 一致）
     if track_name:
         m = {
-            "注意力与 KV Cache 机制": "attention mechanism kv cache long context",
-            "大模型推理优化与部署": "llm inference optimization serving deployment",
-            "大模型训练技巧与工程化": "llm training optimization distributed training",
-            "智能体与工具使用": "llm agent tool use planning",
-            "RAG 与知识检索增强": "retrieval augmented generation knowledge",
+            "注意力 / KV Cache / 推理加速线": "attention mechanism kv cache long context inference",
+            "强化学习与决策基础线": "reinforcement learning decision making policy gradient",
+            "预训练 / 数据 / scaling law 线": "pretraining data curation scaling law",
+            "后训练 / 微调 / 对齐 / preference learning 线": "preference optimization alignment fine-tuning RLHF",
+            "模型结构 / MoE / 系统架构线": "mixture of experts transformer architecture model design",
         }
-        return m.get(track_name, track_name)
+        return m.get(track_name, f"large language model {track_name}")
     # hot 模式：抽出可能的英文词（连续拉丁字母 ≥4 的片段），没有就用通用词
     import re as _re
 
