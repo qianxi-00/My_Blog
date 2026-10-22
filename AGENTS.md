@@ -246,6 +246,64 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 三十四期：hot 模式检索词过滤 + latest 排序改 created_at（2026-10-21/22，提交 `fd116bb` + `0301647`，生产镜像 `qianxi-blog:ci-48`）
+
+十禧指令："过了一天了，检查一下" → 先查昨天的 cron（结论见下），再指令"现在修"。
+
+### 一、昨天的 cron 验收：三十期修复真实验收通过
+这是修复后**第一次纯 cron 自然触发**（无手动干预）：
+
+| 指标 | 结果 |
+|---|---|
+| cron 触发 | 4 次全触发 |
+| 产出 | **#694 SolarRenderer**（86 pass）、**#695 Deep Research 错误分层**（回炉一次后 91 pass）|
+| "工具循环超限" | **0 次** ✅（三十期修好了）|
+| arXiv 限流 | **0 次** ✅ |
+| "发布失败"假错误 | **0 次** ✅（三十二期修好了）|
+| pending 归档 | 自动生效 ✅；failed = 0 ✅ |
+
+昨天到今天共 6 篇（#690~#695），每篇 8 mermaid + 9 节结构，主题互不重合。
+
+### 二、两个新问题（本期修）
+**1) hot 模式检索词是机构名**
+```
+规划层·论文检索: query='Google Research' 源=arxiv
+```
+AIHOT 线索是**资讯标题**，混着机构名/产品名/发布词，`_search_query` 照单全收。
+'Google Research' 在 arXiv 上召回极差。三十期只修了 curriculum 模式，hot 漏了。
+修法：停用词表（机构/产品/硬件/发布词/泛词）+ 模型名按**词根**过滤
+（DeepSeek-V3 / Llama-4 / GPT-4o 去掉版本后缀再比）+ 全过滤光时兜底
+`large language model`。
+
+**2) '最新'列表被 23 篇老文章占满**
+前端热点页显示 #665/#663 这些 7 月老文章打头，刚发的 6 篇排第 23~31 位。
+
+**根因**：十八期的 redate 均摊脚本把老文章的 `published_at` 改到**未来日期**
+（10-28 ~ 10-31），'latest' 按 published_at 排 = 按未来日期排。
+
+**修法（后端 + 前端都要改，否则两边不一致）**：
+- 后端 `list_hot_topics` 的 latest 分支 → `created_at`（真实写作时间，
+  不受 redate 影响；583 篇 published 的 created_at 无一为 NULL）
+- 前端 `HotspotsList.tsx` 三处：`filteredItems` 的 latest 分支、
+  `dateScopedItems` 的时间筛选（今天/近7天/近30天）、`featuredItems` 并列次键
+  → 全部改用新增的 `getCreatedDate`
+- **展示日期与月份归档仍用 `getPublishedDate`**——published_at 是十八期
+  刻意 redate 的编辑日期，展示上要保留原样
+
+**踩坑**：只改后端不够——前端 `filteredItems` 自己又排了一次序（用 published_at），
+结果"接口返回新文章、页面显示老文章"。两端必须一起改。
+
+### 三、验证
+- 检索词过滤 8 用例全过；知识线映射（三十期）未被破坏
+- 换 created_at 后新写的 10 篇全部回到列表顶部（#695 → #686）
+- tsc --noEmit 通过（exit 0）
+- 浏览器实测：新 chunk `HotspotsList-BRjCQ2qC.js` 加载后列表为
+  **695 → 694 → 693 → 692 → 691** ✅
+
+**顺带记一笔**：验证时发现浏览器会缓存**旧的 SPA chunk**（切路由不会换 chunk，
+必须刷新文档才拉新 index.html → 新 chunk 名）。二十九期给 index.html 加
+no-cache 正是为这个——但**已经打开的标签页**仍要刷新一次才生效。
+
 ## 三十二期：publish 里 slug 未定义（NameError 被报成"发布失败"）（2026-10-21，提交 `14cbe9a`，生产镜像 `qianxi-blog:ci-47`）
 
 三十一期手动触发的实测当场暴露——日志先打"已发布 hot_topic id=691"，紧接着
