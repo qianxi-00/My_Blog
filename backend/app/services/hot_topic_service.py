@@ -605,10 +605,15 @@ async def list_hot_topics(
             HotTopic.id.desc(),
         )
     else:
+        # "latest" 按 **created_at**（真实写作时间）排，不用 published_at。
+        # 三十四期实测：十八期的 redate 均摊脚本会把老文章的 published_at
+        # 改到**未来日期**（10-28 ~ 10-31），于是"最新"列表被 23 篇老文
+        # 占满，刚写的文章反被挤到第 23~31 位——读者看不到新文章。
+        # created_at 不受 redate 影响，才是"最近写了什么"的正确依据
+        # （未 redate 的文章 published_at 与 created_at 相差固定 8 小时时区差，
+        #  排序结果一致，所以换成 created_at 对正常文章无副作用）。
         ordered_ids_query = base_query.order_by(
-            HotTopic.published_at.desc(),
-            HotTopic.topic_date.desc(),
-            HotTopic.heat_score.desc(),
+            HotTopic.created_at.desc(),
             HotTopic.id.desc(),
         )
 

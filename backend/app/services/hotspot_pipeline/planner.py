@@ -351,12 +351,54 @@ def _search_query(topic_hint: str, track_name: str) -> str:
             "模型结构 / MoE / 系统架构线": "mixture of experts transformer architecture model design",
         }
         return m.get(track_name, f"large language model {track_name}")
-    # hot 模式：抽出可能的英文词（连续拉丁字母 ≥4 的片段），没有就用通用词
+    # hot 模式：AIHOT 线索是**资讯标题**，里面混着机构名/产品名/泛词——
+    # 三十四期实测 `query='Google Research'`（机构名！）召回一堆弱相关论文。
+    # 这里过滤掉机构/产品/泛词，只留"研究主题"性质的词。
     import re as _re
 
     en = _re.findall(r"[A-Za-z][A-Za-z0-9\-]{3,}", topic_hint)
-    return " ".join(dict.fromkeys(en[:4])) if en else "large language model"
+    # 机构名 / 产品名 / 泛词——不是研究主题，arXiv 上按它们检索召回极差
+    stop = {
+        # 机构与实验室
+        "google", "research", "labs", "lab", "microsoft", "openai", "anthropic",
+        "meta", "facebook", "nvidia", "amazon", "aws", "apple", "deepmind",
+        "hugging", "face", "mistral", "cohere", "xai", "ibm", "intel", "amd",
+        "bytedance", "alibaba", "tencent", "baidu", "huawei", "samsung",
+        "sony", "nintendo", "netflix", "uber", "stripe", "shopify",
+        # 产品名与模型名（arXiv 上不是检索主题）
+        "claude", "chatgpt", "gpt", "gemini", "copilot", "cursor", "devin",
+        "llama", "mistral", "qwen", "deepseek", "grok", "kimi", "doubao",
+        "sora", "midjourney", "dall", "stable", "blackwell", "hopper",
+        "tpu", "h100", "a100", "ascend", "cann", "kunlun",
+        # 发布词与泛词
+        "model", "models", "version", "update", "release", "launch", "introduces",
+        "introducing", "announces", "announce", "unveils", "open", "opens",
+        "source", "code", "available", "free", "new", "beta", "api", "sdk",
+        "app", "apps", "platform", "tool", "tools", "product",
+        "ai", "how", "why", "what", "the", "and", "for", "with", "from", "using",
+        "via", "that", "this", "its", "are", "was", "has", "have", "can", "will",
+        "their", "our", "we", "you", "your", "here", "about", "more", "best",
+        "top", "guide", "tips", "2024", "2025", "2026",
+    }
+    # 模型名带版本号的情况（DeepSeek-V3 / Llama-4 / GPT-4o）：按**词根**过滤，
+    # 否则 'DeepSeek-V3' 整串不在 stop 里（stop 存的是 'deepseek'）
+    model_roots = ("deepseek", "llama", "gpt", "qwen", "gemini", "claude",
+                   "grok", "kimi", "mistral", "chatglm", "ernie", "minimax")
+    def _is_stop(w: str) -> bool:
+        low = w.lower()
+        if low in stop:
+            return True
+        # 去掉尾部版本号再比（-v3 / -4 / -4o / -v2-beta）
+        stem = _re.sub(r"[-.]?(v?\d+(\.\d+)?|beta|alpha|preview|instruct|chat|base|pro|max|mini|ultra)+$", "", low)
+        stem = stem.rstrip(".-")
+        return bool(stem) and stem in model_roots
 
+    kept = [w for w in dict.fromkeys(en) if not _is_stop(w)]
+    if kept:
+        return " ".join(kept[:4])
+    # 全被过滤掉（线索只有机构名/产品名）→ 用"通用技术词"兜底，
+    # 比拿 'Google Research' 去检索强得多
+    return "large language model"
 
 # ---------------------------------------------------------------------------
 # 计划校验（程序闸：规划不可信就当场打回，不浪费执行层 token）
