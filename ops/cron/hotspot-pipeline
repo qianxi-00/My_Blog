@@ -1,0 +1,19 @@
+# 热点文章流水线（二十三期：切 agent harness——规划→章节并发→汇总→回检）
+#
+# 三十五期：全部挪进 19:00 ~ 次日 07:00 的夜间窗口（上海时间）。
+# 理由：发布是重活（实测单次 1h02m ~ 2h25m，见 AGENTS.md 三十五期），
+# 白天跑会跟读者访问高峰撞在一起、也占着模型渠道的白天配额。
+#
+# 排期 19:20 / 23:20 / 03:20（间隔 4 小时）：
+#   - 4 小时间隔 > 最长实测耗时 2h25m，留足缓冲，不会自己撞自己
+#   - 03:20 那次约 05:45 前跑完，仍在 07:00 窗口内
+#   - 每次都跑在窗口内，不会拖到早上上班时间
+#
+# 第 4 个参数 1 = 走 harness（0 或缺省 = 老流水线，仍可回退）
+# publish=true：三层质量闸（结构程序闸/审稿 85 分线/failed 兜底）过了才发布
+# key 由 wrapper 现读 runtime.env，绝不落 cron 文件；日志 hotspot-pipeline-cron.log
+20 19 * * * root /data/blog/scripts/trigger_hotspot_pipeline.sh hot hot true 1 >> /data/blog/logs/hotspot-pipeline-cron.log 2>&1
+20 23 * * * root /data/blog/scripts/trigger_hotspot_pipeline.sh curriculum 1900 true 1 >> /data/blog/logs/hotspot-pipeline-cron.log 2>&1
+20 3 * * * root /data/blog/scripts/trigger_hotspot_pipeline.sh curriculum 2000 true 1 >> /data/blog/logs/hotspot-pipeline-cron.log 2>&1
+# 论文原图推图床 watcher（二十三期）：容器落 manifest 到 _pending/，这里每 2 分钟推 My_image
+*/2 * * * * root /data/blog/scripts/push_figures_watch.sh
