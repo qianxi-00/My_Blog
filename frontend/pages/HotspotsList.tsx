@@ -151,6 +151,16 @@ const fetchHotspotsFromApi = async (): Promise<HotTopicListItem[]> => {
 
 const getPublishedDate = (item: HotTopicListItem) => normalizeDate(item.published_at || item.topic_date || item.created_at);
 
+// 三十四期：'最新优先'排序改用 **created_at**（真实写作时间）。
+// 十八期的 redate 均摊脚本把老文章的 published_at 改到**未来日期**
+// （10-28 ~ 10-31），按 published_at 排等于按未来日期排——'最新'列表被
+// 23 篇 7 月的老文章占满，刚写的文章反被挤到第 23~31 位。
+// 后端 list_hot_topics 已同步改 created_at（见 hot_topic_service.py），
+// 前端这里不改就会出现"接口返回新文章、页面显示老文章"的两边不一致。
+// 注意：展示日期与月份归档仍用 getPublishedDate（published_at 是十八期
+// 刻意 redate 的编辑日期，展示上要保留）。
+const getCreatedDate = (item: HotTopicListItem) => normalizeDate(item.created_at || item.published_at || item.topic_date);
+
 const getArchiveKey = (item: HotTopicListItem) => {
   const date = getPublishedDate(item);
   if (!date) return '未知';
@@ -740,7 +750,10 @@ const HotspotsList: React.FC = () => {
 
     const now = new Date();
     return allItems.filter((item) => {
-      const date = getPublishedDate(item);
+      // 三十四期：时间筛选（今天/近7天/近30天）也改用 created_at——
+      // published_at 被 redate 改到未来，'今天' 过滤会把刚写的文章
+      // （published_at 还在未来）排除掉，'近30天' 则把老文章全收进来。
+      const date = getCreatedDate(item);
       if (!date) return false;
 
       if (timeRange === 'today') {
@@ -759,8 +772,9 @@ const HotspotsList: React.FC = () => {
       .sort((a, b) => {
         const heatDiff = getHeatScore(b) - getHeatScore(a);
         if (heatDiff !== 0) return heatDiff;
-        const aTime = getPublishedDate(a)?.getTime() || 0;
-        const bTime = getPublishedDate(b)?.getTime() || 0;
+        // 三十四期：并列时按 created_at（真实写作时间）排
+        const aTime = getCreatedDate(a)?.getTime() || 0;
+        const bTime = getCreatedDate(b)?.getTime() || 0;
         return bTime - aTime;
       })
       .slice(0, 3);
@@ -842,8 +856,8 @@ const HotspotsList: React.FC = () => {
           return getHeatScore(b) - getHeatScore(a);
         }
 
-        const aTime = getPublishedDate(a)?.getTime() || 0;
-        const bTime = getPublishedDate(b)?.getTime() || 0;
+        const aTime = getCreatedDate(a)?.getTime() || 0;
+        const bTime = getCreatedDate(b)?.getTime() || 0;
         return bTime - aTime;
       });
   }, [dateScopedItems, search, selectedCategory, selectedSource, selectedStack, sort]);
