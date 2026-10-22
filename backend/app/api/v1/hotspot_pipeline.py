@@ -46,7 +46,12 @@ _RUNS: dict[str, dict] = {}
 # 打到错的 worker 就失效（实测 cron 与手动 run 并发双跑）。锁文件落数据卷
 # （/data/pipeline/.run.lock）两 worker 都看得见；30 分钟未释放视为死锁豁免。
 LOCK_PATH = "/data/pipeline/.run.lock"
-LOCK_STALE_SECONDS = 1800
+# 三十五期：30 分钟 → 3 小时。
+# 实测单次任务耗时 1h02m ~ 2h25m（10-21 手动 1h52m、10-21 19:20 cron 2h25m、
+# 10-22 09:20 cron 1h02m）——原 30 分钟阈值会在**任务还在跑**时就放行第二个
+# 任务（判成"死锁残留"删掉锁），两个 pipeline 并发跑 → 撞题 + 争抢资源。
+# 现在阈值覆盖最长任务周期，锁能真正起到"单飞"作用。
+LOCK_STALE_SECONDS = 3 * 3600
 
 
 class PipelineRunRequest(BaseModel):
@@ -199,6 +204,14 @@ async def cron_trigger(req: PipelineRunRequest, x_cron_key: str = Header(...)):
     # 与 trigger_run 同逻辑，但跳过 admin 依赖（cron 已用 key 鉴权）；
     # 文件锁单飞（二十一期）：跨 worker 真单飞
     if not _try_acquire_lock():
+        # 三十五期：跳过要说清楚。原先只抛 409，cron 日志里是一条
+        # "Client error 409"，看日志的人分不清是"任务在跑"还是"出故障"——
+        # 而密集排期（19:20/23:20/03:20）下跳过是**正常现象**（上次还没跑完）。
+        print(
+            "[hotspot-pipeline] 已有流水线在跑（文件锁），本次触发放弃"
+            f"（mode={req.mode} track={req.track_slot}）——下次时间点再来",
+            flush=True,
+        )
         raise HTTPException(409, "已有一条流水线在跑（文件锁），本触发放弃（cron 下个时间点再来）")
     run_id = uuid.uuid4().hex[:12]
     _RUNS[run_id] = {
@@ -216,4 +229,10 @@ async def cron_trigger(req: PipelineRunRequest, x_cron_key: str = Header(...)):
     }
     _prune_runs()
     asyncio.create_task(_execute(run_id, req))
-    return PipelineRunResponse(run_id=run_id, status="running", detail="cron 触发成功（约 3-10 分钟）")
+    # 三十五期：耗时提示改成实测值（原先写"约 3-10 分钟"是二十期刚建管线时
+    # 的乐观估计；实测单次 1h02m ~ 2h25m，见 AGENTS.md 三十五期）。
+    return PipelineRunResponse(
+        run_id=run_id,
+        status="running",
+        detail="cron 触发成功（实测约 1-2.5 小时），用 run_id 查 GET /runs",
+    )
