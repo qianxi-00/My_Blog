@@ -13,9 +13,9 @@
 | 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
 | 前端产物 | `assets/index-BsLrrdIV.js`（328,584 B）；详情页 chunk `assets/HotspotDetail-pl8MbZzg.js`（36,977 B，三十七期） |
-| 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **605** 条（**596 published** + 9 draft） |
-| 分类分布 | `AI模型 277 / AI基础设施 159 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
-| 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **48** |
+| 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **606** 条（**597 published** + 9 draft） |
+| 分类分布 | `AI模型 270 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
+| 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **50** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
 | 磁盘 / 内存 | `/dev/vda2` 59G 用 29G（51%）；内存 3724 MB（可用 2179 MB）；`nproc` = 2 |
 
@@ -1545,7 +1545,7 @@ python backend/scripts/selfcheck_skills.py       # 本地（若已装 backend �
 
 | 副本 | 状态 |
 |---|---|
-| `/data/blog/data/blog.db`（**生产库**） | WAL，27,742,028 B，30 张表。**23 篇文章 / 605 条热点（596 published + 9 draft）/ 2 个用户 / 42 条评论**（2026-10-26 实测） |
+| `/data/blog/data/blog.db`（**生产库**） | WAL，27,742,028 B，30 张表。**23 篇文章 / 606 条热点（597 published + 9 draft）/ 2 个用户 / 42 条评论**（2026-10-26 实测） |
 | `/data/blog/data/blog.db.bak-cat-20261026-092952` | 三十六期分类归一前的备份，同尺寸 |
 | `/data/blog-live-20260924.db` | 2026-09-24 从 HF 导出的原件（留档） |
 | `/data/blog.db` | 旧快照（2026-07-09，532 热点），**不要拿来当生产** |
@@ -1592,7 +1592,7 @@ ssh root@101.32.163.17 "curl -fsS http://127.0.0.1:8000/health"
 Invoke-WebRequest 'https://blog.qianxi7988.me/api/v1/chat/prompt-lab' -Method Post -ContentType 'application/json' -Body '{"prompt":"回复OK","max_tokens":16}'
 ```
 
-**2026-10-26 预期值**：`articles.total` = **23**、`hotspots.total` = **596**、health `{"status":"healthy"}`、prompt-lab 返回 200 带 result。
+**2026-10-26 预期值**：`articles.total` = **23**、`hotspots.total` = **597**（2026-10-26 实测；这个数每天在长，别当常量）、health `{"status":"healthy"}`、prompt-lab 返回 200 带 result。
 
 ⚠️ **`page_size` 上限 100**，传 200 会返回 **0 条**（不是报错，是静默空结果），排查时容易误判。
 
