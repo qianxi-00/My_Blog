@@ -246,6 +246,90 @@ Secrets：`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_SSH_KEY`（专用 ed25519，�
 - `agent_sessions` 由 2 变 1：CD 链路无任何 SQL 写、数据库为挂载卷未重建（其余表全部与基线一致），应是用户侧自行删除；留意即可。
 - dist/data 由 14 变 22 个文件：线上内容自然演变，脚本只搬运不删。
 
+## 三十六期：分类归一——writer 白名单校验 + 419 行历史数据归一（2026-10-26，提交 `8ee03ad`）
+
+十禧指令："修吧"——修上一轮报的两个问题之一（#696 分类错标成"其他"）。
+
+### 根因：primary_category 从来没校验过
+`writer.py:223` 原文 `primary_category = str(plan.get("primary_category") or "其他")`
+——**模型给什么就存什么**。`prompts.py:213` 里 `PRIMARY_CATEGORIES` 早就定义了
+6 个规范值，但 writer.py 从没 import 过它。
+
+于是 596 篇攒出 **55 种写法**，同一概念散成一堆变体：
+
+| 概念 | 实际写法（篇数）|
+|---|---|
+| AI基础设施 | `AI基础设施` 90 / `AI-Infrastructure` 33 / `AI 基础设施` 6 / `AI基础` 5 / `AI架构` 2 / `AI-System-Architecture` 2 / `AI-Architecture` 2 |
+| AI模型 | `AI-Research` 109 / `AI-Multimodal` 55 / `AI多模态` 12 / `AI研究` 10 / `AI-Models` 3 … |
+| AI应用 | `Agent工程` 30 / `AI应用落地` 14 / `AI编程` 14 / `AI测试评估` 7 / `AI-Agent` 5 / `具身智能` 5 … |
+| AI产品 | `AI-Products` 27 / `AI行业` 12 / `AI-Industry` 2 … |
+| AI安全 | `AI安全与对齐` 13 / `AI对齐与评测` 4 … |
+
+`models/hot_topic.py:50-53` 的注释其实早就记录了这个判断——"中英混杂且同义
+重复，归档页主题分组用它不可用"——十六期是用 `topic_tag` 绕过去的，**但从没归一**。
+
+### 为什么这不只是"好看不好看"
+前端分类筛选是**按原始值精确比较**（`HotspotsList.tsx:836`
+`.filter((item) => selectedCategory === 'all' || (item.primary_category || '') === selectedCategory)`）。
+55 种写法 = 55 个分类按钮，每个按钮只筛出 1~2 篇。**筛选功能形同虚设。**
+
+### 修法
+**1. `writer._normalize_primary_category()`（新增，`writer.py:191-238`）**
+白名单直通 → 去空格/统一大小写/把 `-` `_` 当分隔符归一后比对 → 关键词猜 →
+兜底 `"其他"`。关键词表**顺序有讲究**（先判更具体的，"基础设施"不能抢走
+"AI安全"）。宁肯落"其他"也不留新变体——新的变体会让归一工作随新文章慢慢白做。
+
+`assemble()` 里改成 `primary_category = _normalize_primary_category(plan.get("primary_category"))`。
+
+**测试**：55 种历史写法逐个喂进函数，**55/55 全通过**，输出全部落在
+`PRIMARY_CATEGORIES` 白名单内。
+
+**2. 历史数据归一（419 行）**
+备份 `/data/blog.db.bak-cat-20261026-092952`。结果：**55 种 → 6 种，非规范行 0**。
+剩 6 篇"其他"再人工核对归类：
+
+| 文章 | 原 | 新 | 依据 |
+|---|---|---|---|
+| #696 Prism Attention 跨层索引共享 | 其他 | AI基础设施 | 稀疏注意力/KV Cache/推理加速 |
+| #679 预训练数据顺序 | 其他 | AI模型 | 预训练/数据线 |
+| #678 长上下文 KV 层级 | 其他 | AI基础设施 | 推理加速 |
+| #548 Foley-Omni 视频生成 | 其他 | AI模型 | 多模态模型 |
+| #680 RL 奖励失效与防御 | 其他 | AI安全 | 对齐/安全 |
+| #672 Anthropic 智能体控制 | 其他 | AI安全 | 安全 |
+| #671 ExploitGym 智能体逃逸 | 其他 | AI安全 | 安全 |
+
+最终分布：**AI模型 269 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25，
+"其他"归零，分类只剩 5 种。**
+
+**3. 前端分组表对齐**
+`HotspotsList.tsx:29` 的 `PRIMARY_CATEGORY_GROUPS` 原表是 `'Agent工程'`、
+`'AI多模态'`、`'具身智能'`、`'前沿论文'` 这些**已不存在的分类值**——每个
+分组都匹配不到成员，`getStackValues()` 全部走 `return [category]` 兜底。
+改成按规范值对齐。
+
+### 验证（API 实测）
+```
+GET /api/v1/hotspots?page=1&page_size=100&status=published
+  → 100 条, 5 种分类: AI模型 45 / AI基础设施 38 / AI产品 7 / AI应用 6 / AI安全 4
+GET /api/v1/hotspots?category=AI基础设施  → total=158
+GET /api/v1/hotspots/696                 → [#696 [AI基础设施] Prism Attention 的跨层索引共享机制]
+```
+（注意：`page_size=200` 超过上限会返回 0 条，上限是 100。）
+
+### 踩坑：本地 clone 落后 5 个提交
+动手时本地 HEAD 停在 `ae1ddba`（三十二期），服务器仓库已到 `354ec55`（三十五期），
+而 GitHub 直连失败（`Failed to connect to github.com port 443`）。**服务器仓库
+`/data/blog/repo-tmp` 才是权威**——逐文件 `get` 回来同步后再改，避免把三十五期
+的改动当成"我的改动"提交，也避免覆盖掉它们。
+
+### 已知遗留（未做，改动较大）
+- **侧边栏"技术栈分类"和"分类"现在重复**：`getStackValues()` 是
+  `PRIMARY_CATEGORY_GROUPS` 的映射，归一后分组名和分类值 1:1，两个筛选器
+  筛的是同一个维度。要么删掉侧边栏那块，要么给技术栈另立维度（如按
+  `topic_tag`）。用户未要求，暂不动。
+- **表格数据来源未标注**：上一轮一并报的另一个问题，需要改 pipeline prompt，
+  改动较大，用户未要求现在做。
+
 ## 三十五期：发布任务挪进夜间窗口 + 锁死锁阈值 30min→3h（2026-10-22，提交 `7ffe9af` + `e05e7dc`，生产镜像 `qianxi-blog:ci-51`）
 
 十禧指令："把所有发布文章的定时任务的执行时间设置为晚上 7 点之后到第二天白天早上 7 点"。
