@@ -19,6 +19,7 @@ import yaml
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from .graph import _chinese_chars, _extract_json, _llm, _log
+from .prompts import PRIMARY_CATEGORIES
 from .tools import validate_mermaid_blocks
 
 SECTION_WRITER_SYSTEM_PROMPT = """你是《千禧 DevLog》的技术作者，负责撰写文章中的**一个章节**。
@@ -187,6 +188,54 @@ def _strip_mermaid(md: str) -> str:
 ASSEMBLY_NOTE = "（图）"
 
 
+def _normalize_primary_category(raw: Any) -> str:
+    """把模型/历史数据里的分类归一成 PRIMARY_CATEGORIES 之一（三十六期）。
+
+    背景：这个字段历史上攒出 55 种写法，同一概念散成多个变体
+    （基础设施：AI基础设施 99 / AI-Infrastructure 33 / AI 基础设施 6 /
+    AI基础 5 / AI架构 2 / AI-System-Architecture 2 / AI-Architecture 2）。
+    前端分类筛选按原始值精确比较，变体各自成一个按钮，筛选形同虚设。
+
+    策略：白名单直通 → 大小写/空格归一后再比 → 关键词猜 → 兜底"其他"。
+    宁可落"其他"也不留新变体——新的变体会让归一工作白做。
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return "其他"
+    if text in PRIMARY_CATEGORIES:
+        return text
+
+    # 归一：去空格、统一大小写、把连字符/下划线当分隔符
+    compact = text.replace(" ", "").replace("　", "").lower().replace("-", "").replace("_", "")
+    for canon in PRIMARY_CATEGORIES:
+        if compact == canon.lower().replace(" ", ""):
+            return canon
+
+    # 关键词猜（顺序有讲究：先判更具体的，避免"基础设施"抢走"AI安全"）
+    keyword_map = (
+        ("安全", "AI安全"), ("对齐", "AI安全"), ("security", "AI安全"),
+        ("alignment", "AI安全"), ("safety", "AI安全"),
+        ("基础设施", "AI基础设施"), ("infrastructure", "AI基础设施"),
+        ("infra", "AI基础设施"), ("架构", "AI基础设施"),
+        ("architecture", "AI基础设施"), ("system", "AI基础设施"),
+        ("基础", "AI基础设施"),
+        ("多模态", "AI模型"), ("multimodal", "AI模型"),
+        ("模型", "AI模型"), ("model", "AI模型"), ("research", "AI模型"),
+        ("研究", "AI模型"), ("训练", "AI模型"), ("posttraining", "AI模型"),
+        ("知识体系", "AI模型"),
+        ("产品", "AI产品"), ("product", "AI产品"), ("tool", "AI产品"),
+        ("行业", "AI产品"), ("industry", "AI产品"), ("商业", "AI产品"),
+        ("产业", "AI产品"),
+        ("应用", "AI应用"), ("application", "AI应用"), ("agent", "AI应用"),
+        ("coding", "AI应用"), ("编程", "AI应用"), ("agent工程", "AI应用"),
+        ("具身", "AI应用"), ("评测", "AI应用"), ("测试", "AI应用"),
+    )
+    for kw, canon in keyword_map:
+        if kw in compact:
+            return canon
+    return "其他"
+
+
 def assemble(
     plan: dict,
     results: list[dict],
@@ -220,7 +269,13 @@ def assemble(
         slug = _re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "post"
         _log(f"汇总层兜底 slug: {slug!r}")
     summary = str(plan.get("summary") or "")
-    primary_category = str(plan.get("primary_category") or "其他")
+    # 三十六期：分类必须落在 PRIMARY_CATEGORIES 白名单内。
+    # 原先直接 str(plan.get("primary_category") or "其他")——模型给什么存什么，
+    # 于是历史数据攒出 55 种写法（"AI基础设施"99 / "AI-Infrastructure"33 /
+    # "AI 基础设施"6 / "AI基础"5 是同一个概念）。前端分类筛选按原始值精确
+    # 比较，同义变体被拆成一堆只有一个按钮，筛选形同虚设。
+    # 这里做归一：命中白名单直接用；否则按关键词猜；都猜不出才落"其他"。
+    primary_category = _normalize_primary_category(plan.get("primary_category"))
     tags = ["AI", str(plan.get("topic_tag") or "技术")]
 
     src_items = []

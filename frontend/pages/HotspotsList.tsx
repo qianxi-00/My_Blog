@@ -22,17 +22,17 @@ type StackOption = {
   count: number;
 };
 
+// 三十六期：分类归一后只剩 5 个规范值（后端 writer._normalize_primary_category
+// 白名单 + 419 行历史数据归一）。这张表原先列的是"技术栈"归组，用的是
+// AI多模态 / Agent工程 / 具身智能 这些**已不存在的分类值**——分组全部落空。
+// 现在按规范值对齐，每组只含自己（保留结构，方便将来再合并同义项）。
 const PRIMARY_CATEGORY_GROUPS: Record<string, string[]> = {
-  'Agent工程': ['Agent工程', '代码Agent', 'LLM工程'],
-  'AI基础设施': ['AI基础设施'],
-  'AI多模态': ['AI多模态'],
-  'AI应用落地': ['AI应用落地'],
-  'AI编程': ['AI编程'],
-  'AI安全与对齐': ['AI安全与对齐'],
-  'AI测试评估': ['AI测试评估', 'AI评测'],
-  '具身智能': ['具身智能'],
   'AI模型': ['AI模型'],
-  '前沿论文': ['前沿论文'],
+  'AI基础设施': ['AI基础设施'],
+  'AI应用': ['AI应用'],
+  'AI产品': ['AI产品'],
+  'AI安全': ['AI安全'],
+  '其他': ['其他'],
 };
 
 type StatItem = {
