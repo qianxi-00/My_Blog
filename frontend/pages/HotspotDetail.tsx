@@ -22,7 +22,14 @@ const formatDateTime = (value?: string) => {
   return date.toLocaleString('zh-CN');
 };
 
-const formatNumber = (value?: number) => Number(value || 0).toLocaleString('zh-CN');
+// 三十七期：详情页头部日期只显示到「日」。这里用字符串截取而不是 new Date()——
+// 后端返回的 ISO 串不带时区后缀，new Date() 会按本地时间解析（见 formatDateTime 的既有偏差）。
+const formatDateOnly = (value?: string) => {
+  if (!value) return '';
+  const datePart = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart.replace(/-/g, '/') : value;
+};
+
 // 热度会到几万且带小数（53632.82），压成 53.6K 避免溢出（千禧要求）
 
 const stripFrontmatter = (markdown?: string) => {
@@ -408,73 +415,71 @@ const HotspotDetail: React.FC = () => {
               </Link>
             </div>
 
-            <article className="relative overflow-hidden rounded-3xl border border-slate-100 dark:border-slate-700 bg-white/98 dark:bg-slate-800/96 shadow-sm">
-              <div className="absolute inset-x-0 top-0 h-48 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.12),transparent_38%),radial-gradient(circle_at_top_left,rgba(99,102,241,0.10),transparent_34%)] pointer-events-none" />
+            {/* 三十七期：热点详情页头部重做。原结构有三个可测量的问题——
+                1) grid 的 260px 第二列只有一个子元素，白占宽度把标题挤到 532px；
+                2) 分类/热度/来源数在胶囊行和信息条里被念了两遍，中间夹 73px 死白；
+                3) AI HOTSPOT 黑胶囊 + ✓已发布 零信息量，却在抢标题的第一眼。
+                改后头部只留：标题、摘要、一行元信息（分类·日期·热度·复制）。
+                渐变顶条复用列表页 HotspotsList.tsx 的站内视觉签名。 */}
+            <article className="relative overflow-hidden rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+              <div className="h-1 bg-gradient-to-r from-indigo-500 via-primary-500 to-cyan-400" />
 
-              <div className="relative px-6 md:px-10 pt-8 md:pt-10 pb-8 border-b border-slate-100 dark:border-slate-700">
-                <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px] gap-6 items-start">
-                  <div className="space-y-5 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm">
-                      <span className="px-3 py-1 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900">AI HOTSPOT</span>
-                      <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">{hotspot.primary_category || '未分类'}</span>
-                      <span className="px-3 py-1 rounded-full bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300">热度 {formatCompactNumber(hotspot.heat_score)}</span>
-                      <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">来源 {formatNumber(hotspot.source_count)}</span>
-                    </div>
+              <div className="px-6 md:px-10 pt-8 md:pt-10 pb-6 md:pb-8 border-b border-slate-100 dark:border-slate-700">
+                {/* 二十二期：热点标题自适应——旧 text-5xl font-black 配 40+ 字长标题视觉压迫过强。
+                    短标题（≤22 字）text-3xl/4xl bold 保冲击力；长标题降一档并收紧行高。
+                    纯 Tailwind 档位切换，热点是资讯流内容，不用文章头版级字号。
+                    三十七期：去掉 tracking-tight（中文负字距会挤字），标题与 ArticleDetail 一致用 font-bold。 */}
+                <h1 className={`font-bold leading-snug break-words text-slate-900 dark:text-white ${hotspot.title.length > 22 ? 'text-2xl md:text-3xl' : 'text-3xl md:text-4xl'}`}>{hotspot.title}</h1>
 
-                    <div className="space-y-4">
-                      {/* 二十二期：热点标题自适应——旧 text-5xl font-black 配 40+ 字长标题视觉压迫过强。
-                          短标题（≤22 字）text-3xl/4xl bold 保冲击力；长标题降一档并收紧行高。
-                          纯 Tailwind 档位切换，热点是资讯流内容，不用文章头版级字号。 */}
-                      <h1 className={`font-bold tracking-tight leading-snug break-words text-slate-900 dark:text-white ${hotspot.title.length > 22 ? 'text-2xl md:text-3xl' : 'text-3xl md:text-4xl'}`}>{hotspot.title}</h1>
-                      <p className="text-sm md:text-base text-slate-600 dark:text-slate-300 leading-8 max-w-4xl">
-                        {hotspot.summary || '暂无摘要'}
-                      </p>
-                    </div>
+                {hotspot.summary && (
+                  <p className="mt-4 text-sm md:text-base text-slate-600 dark:text-slate-300 leading-8 max-w-3xl">
+                    {hotspot.summary}
+                  </p>
+                )}
 
-                    <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/80 dark:bg-slate-900/40 px-3 py-1.5 border border-slate-200 dark:border-slate-700">
-                        <Icons.Calendar className="w-4 h-4" />
-                        {formatDateTime(hotspot.published_at || hotspot.topic_date || hotspot.created_at)}
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/80 dark:bg-slate-900/40 px-3 py-1.5 border border-slate-200 dark:border-slate-700">
-                        <Icons.Check className="w-4 h-4" />
-                        已发布
-                      </span>
-                      <button
-                        type="button"
-                        onClick={copyLink}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-white/80 dark:bg-slate-900/40 px-3 py-1.5 border border-slate-200 dark:border-slate-700 hover:border-cyan-300 dark:hover:border-cyan-700 transition-colors"
+                <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs md:text-sm text-slate-500 dark:text-slate-400">
+                  {hotspot.primary_category && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/hotspots?category=${encodeURIComponent(hotspot.primary_category as string)}`)}
+                      className="inline-flex items-center gap-1.5 max-w-[12rem] rounded-full bg-cyan-50 dark:bg-cyan-500/10 px-2.5 py-1 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
+                    >
+                      <Icons.Folder className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{hotspot.primary_category}</span>
+                    </button>
+                  )}
+
+                  {(hotspot.published_at || hotspot.topic_date || hotspot.created_at) && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Icons.Calendar className="w-3.5 h-3.5" />
+                      <time
+                        dateTime={hotspot.published_at || hotspot.topic_date || hotspot.created_at}
+                        title={formatDateTime(hotspot.published_at || hotspot.topic_date || hotspot.created_at)}
                       >
-                        <Icons.Copy className="w-4 h-4" />
-                        {copied ? '链接已复制' : '复制链接'}
-                      </button>
-                    </div>
-                  </div>
+                        {formatDateOnly(hotspot.published_at || hotspot.topic_date || hotspot.created_at)}
+                      </time>
+                    </span>
+                  )}
+
+                  <span className="inline-flex items-center gap-1.5 tabular-nums">
+                    <Icons.TrendingUp className="w-3.5 h-3.5" />
+                    热度 {formatCompactNumber(hotspot.heat_score)}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={copyLink}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${copied
+                      ? 'border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400'
+                      : 'border-slate-200 dark:border-slate-700 hover:border-cyan-300 dark:hover:border-cyan-700 hover:text-cyan-600 dark:hover:text-cyan-400'}`}
+                  >
+                    {copied ? <Icons.Check className="w-3.5 h-3.5" /> : <Icons.Copy className="w-3.5 h-3.5" />}
+                    <span aria-live="polite" className="inline-block min-w-[3.5em] text-left">{copied ? '已复制' : '复制链接'}</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="relative px-6 md:px-10 py-8 md:py-10 space-y-8">
-                <section className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/45 p-4 md:p-5">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">分类</div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white truncate">{hotspot.primary_category || '未分类'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">热度</div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">{formatCompactNumber(hotspot.heat_score)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">来源数</div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">{formatNumber(hotspot.source_count)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">更新时间</div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white truncate">{formatDateTime(hotspot.updated_at || hotspot.published_at || hotspot.created_at)}</div>
-                    </div>
-                  </div>
-                </section>
-
+              <div className="px-6 md:px-10 py-8 md:py-10 space-y-8">
                 <section className="space-y-5">
                   <div className="flex items-center gap-2">
                     <div className="w-1.5 h-6 rounded-full bg-primary-500" />
