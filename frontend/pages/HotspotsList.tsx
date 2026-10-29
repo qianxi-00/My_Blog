@@ -252,7 +252,7 @@ const HotspotTop3Carousel: React.FC<HotspotTop3CarouselProps> = ({ items }) => {
             本周焦点
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            精选 3 条高关注热点，快速进入重点内容。
+            最近 7 天发布的新文章，快速进入重点内容。
           </p>
         </div>
 
@@ -767,18 +767,31 @@ const HotspotsList: React.FC = () => {
     });
   }, [allItems, selectedArchive, timeRange]);
 
+  // 四十二期：'本周焦点' 原来从 dateScopedItems 里按热度取前 3，结果永远不动——
+  // heat_score 是死数据（流水线发布一律写 60，542 篇老文章一律 95），按热度排
+  // 等于按「谁在 95 那批里最后写入」排。现在固定取最近 7 天（按 created_at），
+  // 热度只做组内次序；也不再跟随下方时间筛选——它是筛选条件之上的编辑位。
   const featuredItems = useMemo(() => {
-    return [...dateScopedItems]
+    const now = new Date();
+    const recent = allItems.filter((item) => {
+      const date = getCreatedDate(item);
+      if (!date) return false;
+      const diffDays = (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
+      return diffDays >= 0 && diffDays <= 7;
+    });
+
+    // 近 7 天不足 3 篇时（长空窗）回退到全量，避免焦点卡片空着
+    const pool = recent.length >= 3 ? recent : allItems;
+    return [...pool]
       .sort((a, b) => {
         const heatDiff = getHeatScore(b) - getHeatScore(a);
         if (heatDiff !== 0) return heatDiff;
-        // 三十四期：并列时按 created_at（真实写作时间）排
         const aTime = getCreatedDate(a)?.getTime() || 0;
         const bTime = getCreatedDate(b)?.getTime() || 0;
         return bTime - aTime;
       })
       .slice(0, 3);
-  }, [dateScopedItems]);
+  }, [allItems]);
 
   const categoryStats = useMemo(() => {
     const counter = new Map<string, number>();
