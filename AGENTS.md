@@ -5,19 +5,19 @@
 
 > **本文件是重建版（2026-10-26）。** 旧版头部停留在 2026-09-28 的 `ci-34` / `index-BB9CPIwO.js` / `ebb9682`，与实际差了近一个月、十几个期次，容易把人带偏。本次按实测重排了章节顺序（期次严格倒序），刷新了「现行生产 / AI 链路 / 源码与仓库 / 数据事实 / 已知缺口 / 验证 / 待办」这些**描述现状**的段落，并补了三十七期。**各期次记录（八期~三十六期）正文原样保留**，它们记的是当时的决策与实测，不必回改。
 
-## 一眼看现状（2026-10-29 14:40 CST 实测）
+## 一眼看现状（2026-10-29 15:05 CST 实测）
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `68b6fcb`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
+| 生产提交 | `4dfb946`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
 | 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存 |
+| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件** |
 | 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **606** 条（**597 published** + 9 draft） |
 | 分类分布 | `AI模型 270 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **50** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
-| 磁盘 / 内存 | `/dev/vda2` 59G 用 **24G（42%）**，可用 33G；内存 3724 MB（可用 2179 MB）；`nproc` = 2。备份与死代码已在四十期清掉：`/data/My_Blog/_backup` **1.2G / 25 条目**（`ci-fe-*` 只剩 3 份，脚本按 `BACKUP_KEEP=3` 自动裁）、`dist` **28M**（无 live2d）、`dist.old-fe-*` 2 份各 219M |
+| 磁盘 / 内存 | `/dev/vda2` 59G 用 **23G（41%）**，可用 34G；内存 3724 MB（可用 2179 MB）；`nproc` = 2。备份与死代码已在四十期清掉：`/data/My_Blog/_backup` **1.2G / 25 条目**（`ci-fe-*` 只剩 3 份，脚本按 `BACKUP_KEEP=3` 自动裁）、`dist` **19M**（无 live2d）、`dist.old-fe-*` 2 份各 219M |
 
 **部署链路一句话**：推 `master` → GitHub Actions（`backend-checks` + `frontend-checks`）→ `deploy` job 按 `git diff` 判定后端/前端 → 后端 `scripts/ci/deploy_backend.sh` 在服务器 build 镜像并切容器；前端在 **runner** 上 build，产物 scp 到服务器后 `scripts/ci/deploy_frontend.sh` 原子替换 nginx 根。**服务器永不跑 npm/node（红线）**。
 
@@ -272,11 +272,43 @@ location /uploads/ {
 - `dist/uploads/images` 有 52 个文件，仓库 `frontend/public/uploads/images` 只有 47 个——差的 5 个是
   热点文章的内联图（`.svg` / `.png`），没进 git。已核：**没有任何 >200KB 的图被正文引用**。
 
-### 顺带发现（未修）
+### 顺带清理：23 张从没被用过的上传图（`4dfb946`，CI run #60）
 
-- **12 张孤儿图**（`6e1a696e` 567KB、`657607c5` 552KB、`e8f86414` 319KB 等）不被任何正文引用，
-  可删约 3.6MB。
+千禧说"清了吧"。第一轮我报的是"12 张孤儿图"，**那个结论是错的**——扫描范围不全。
+正确的排查走了四轮，教训值得记下来：
+
+| 轮次 | 扫描范围 | 结论 | 错在哪 |
+|---|---|---|---|
+| 1 | `articles.content_md` + `hot_topics.analysis_md` | 12 张孤儿 | 漏了 `cover_image` 列和别的表 |
+| 2 | 全库所有 TEXT 列 | 0 张孤儿 | 把 `article_images` 也算进去了——那是**上传日志**，每张图都有一条记录，拿它当引用依据等于循环论证 |
+| 3 | 去掉 `article_images`，但仍漏 `articles.cover_image` | 46 张孤儿 | 23 张封面全被误判 |
+| 4 | 见下 | **被引用 29 / 未被引用 23** | ✅ |
+
+第四轮扫的列：`articles` 的 `cover_image` / `content_md` / `content_html` / `summary` / `ai_intro`，
+`hot_topics` 的 `analysis_md` / `summary` / `key_points_json` / `title`，
+`prompts.content`、`forum_posts.content`、`comments.content`、`chat_messages.content`、
+`site_settings.value`。
+
+那 23 张是 2026-01 往媒体库传的测试图（`default (1).jpeg`、`qianxi.jpg`、`weibo1.jpeg`、
+`cover.jpg` 之类），`article_images.article_id` **全部为 NULL**，合计 **5.07 MB**。
+
+**动的手**（都带备份）：
+1. 文件备份 `/data/My_Blog/_backup/orphan-images-20261029-150041`（23 文件 5.2M）
+2. 数据库备份 `/data/blog/data/blog.db.bak-img-20261029-150041`（`sqlite3 .backup`）
+3. 删 `article_images` 对应 23 行（47 → 24）——不删的话后台媒体库会留 23 个指向已删文件的空条目
+4. `git rm` 那 23 个文件（`--cached` 只删索引，还得 `rm -f` 删工作树）
+5. 从 `dist/uploads/images/` 删掉
+
+**结果**：`dist/uploads/images` 12M → **2.1M**（52 → **29 文件**）、仓库源 7.0M → **1.8M**（47 → **24 文件**）、
+`dist` 总 24M → **19M**、磁盘 24G/42% → **23G/41%**。
+
+**验证**：被删的图 404、保留的图 200（h2）、`/` 与 `/articles` 200、`/health` healthy、
+API 拉 23 篇文章逐张 curl 封面**全部 200**。
+
+### 仍未做（用户未要求）
+
 - 老文章内联图同样有 1600px 的问题，只是详情页不是首屏，用户没报。
+  `self-play-alignment-paradigms.png` 136,817 B 是里面最大的一张。
 
 ## 四十期：裁掉 4.3G 备份 + 移除 191M 的 Live2D 死资源（2026-10-29，提交 `eaafeda`，前端-only）
 
