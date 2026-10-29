@@ -5,14 +5,14 @@
 
 > **本文件是重建版（2026-10-26）。** 旧版头部停留在 2026-09-28 的 `ci-34` / `index-BB9CPIwO.js` / `ebb9682`，与实际差了近一个月、十几个期次，容易把人带偏。本次按实测重排了章节顺序（期次严格倒序），刷新了「现行生产 / AI 链路 / 源码与仓库 / 数据事实 / 已知缺口 / 验证 / 待办」这些**描述现状**的段落，并补了三十七期。**各期次记录（八期~三十六期）正文原样保留**，它们记的是当时的决策与实测，不必回改。
 
-## 一眼看现状（2026-10-26 19:30 CST 实测）
+## 一眼看现状（2026-10-29 11:30 CST 实测）
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `f70f886`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
+| 生产提交 | `771993e`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
 | 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-BsLrrdIV.js`（328,584 B）；详情页 chunk `assets/HotspotDetail-pl8MbZzg.js`（36,977 B，三十七期） |
+| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建）；详情页 chunk `assets/HotspotDetail-pl8MbZzg.js`（36,977 B，三十七期）；桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B） |
 | 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **606** 条（**597 published** + 9 draft） |
 | 分类分布 | `AI模型 270 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **50** |
@@ -177,6 +177,76 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 三十八期：懒加载 chunk 失败不再打穿整页（2026-10-29，提交 `c9a828e` + `771993e`，前端-only）
+
+千禧报障（附图）："咱们的博客打不开了"。截图是全局 ErrorBoundary 的「页面出错了」：
+
+```
+Failed to fetch dynamically imported module:
+https://blog.qianxi7988.me/assets/DesktopPet-BvlulqHy.js
+```
+
+### 结论先说：文件和服务端都没问题，是公网链路丢包 + 前端没有兜底
+
+逐条排查（都有命令输出）：
+
+| 假设 | 实测 | 成立？ |
+|---|---|---|
+| chunk 被删了 | `/var/www/blog/dist/assets/DesktopPet-BvlulqHy.js` 存在，42,258 B，公网 200 | 否 |
+| 部署不完整 | 三层自洽：`index.html` → `index-BsLrrdIV.js` → 该 chunk；从 dist 所有 js 提取被引用的 chunk 共 **101 个，缺失 0** | 否 |
+| 用户撞上旧版本 | 用户 IP `67.159.48.150` 在 `11:08:04` 那一批请求**全是 200**，该 IP 全量日志 **404 数为 0** | 否 |
+| 服务器扛不住 | `load average 0.01`、容器 CPU 0.25%、出口 3.3 KB/s、网卡 errors/dropped **0/0**、磁盘 50% | 否 |
+| 防火墙/限流 | 无 fail2ban；`iptables` 只对 22 端口按 IP REJECT；nginx 无 `limit_req` | 否 |
+| 服务端慢 | 服务器本地 `curl` 同一文件 **0.0047s**（三次 4.7 / 4.4 / 4.3 ms） | 否 |
+| **公网链路** | 同一文件从本机连测：**5.51s / 62.70s / 2.57s / 1.59s / 1.78s**；另一次 25s 超时只传了 **15,975 / 42,258 字节**就断 | **是** |
+
+用户那次失败的请求**根本没进 nginx 访问日志**——请求死在链路上，所以 nginx 侧查不到任何 404。
+62.7 秒 ≈ TCP 重传退避 `1+2+4+8+16+32` 耗尽。
+
+顺手排除了 MTU：`ping -f -l` 探到路径在 1420~1440 附近开始丢包，于是在服务器加
+`iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1400`
+做 A/B（规则带 150 秒 `nohup` 自动撤销做防呆）。结果 **A 组（有钳制）12 次里仍有 1 次 25s 超时，
+B 组（无钳制）12 次全部完成** —— 钳制没用，是普通的间歇性丢包，不是 PMTU 黑洞。
+**规则已撤销**（`iptables -t mangle -L POSTROUTING | grep -c TCPMSS` = 0），`/tmp/mss_reverted` 已删。
+
+### 真正的缺陷：一个装饰组件的 chunk 失败能打穿整页
+
+全站只有一个 `ErrorBoundary`（`App.tsx:76`），而 34 个路由页 + 桌宠 + MermaidChart 全是
+`React.lazy`。任何一个 chunk 拉取失败，错误都冒到那个唯一边界，整页被换成「页面出错了」。
+
+触发这次故障的 `DesktopPet`（`PublicLayout.tsx:11`）只是右下角的**装饰小人**，1.5 秒后由
+`requestIdleCallback` 挂载——它加载失败本不该影响阅读。
+
+### 改动
+
+新增 `frontend/utils/lazyWithRetry.ts`：
+
+- `lazyWithRetry(factory, retryDelay = 1000)`：失败后隔 1 秒**重试一次**，仍失败才交给 ErrorBoundary。
+- `lazyOptional(factory)`：失败就当组件不存在（`{ default: () => null }`），**只给纯装饰用**。
+
+| 文件 | 改动 |
+|---|---|
+| `layouts/PublicLayout.tsx` | `DesktopPet` → `lazyOptional` |
+| `components/MarkdownRenderer.tsx` | `MermaidChart` → `lazyWithRetry`（图表是内容，重试；真失败仍报错，不静默吞内容） |
+| `App.tsx` | 34 处路由级 `React.lazy` → `lazyWithRetry` |
+
+### 验证
+
+- `tsc --noEmit -p tsconfig.json` → exit 0
+- `vitest run` → **2 files / 7 tests 全过**（新增 `__tests__/lazy-retry.test.ts` 两个用例：
+  工厂第一次 reject、第二次 resolve 时断言**被调用 2 次**且组件渲染出来；`lazyOptional`
+  一直 reject 时断言不抛异常、容器内容为空）
+- CI run `55`（`c9a828e`）= success
+- 线上：`index.html` → `assets/index-fRCBNrZy.js`（328,576 B）、`assets/DesktopPet-ZaaIhgFW.js`
+  （42,258 B），101 个引用 chunk **缺失 0**
+
+### 遗留风险（未处理，等千禧拍板）
+
+`scripts/ci/deploy_frontend.sh` 是**整目录替换**（`mv dist dist.old-fe-*` → `mv new dist`），
+旧 chunk 全被删。于是**每次部署都会让所有还开着的标签页在下一次切路由时 404**——这正是这类
+「页面出错了」最常见的来源。要根治得改成「合并新产物 + 保留旧 chunk N 天 + 定期裁剪」，
+会动部署脚本和 dist 体积（现在 219 MB），本期没动。
 
 ## 三十七期：热点详情页头部重做（2026-10-26，提交 `f70f886`，前端-only）
 
