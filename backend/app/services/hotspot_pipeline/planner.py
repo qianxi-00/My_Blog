@@ -49,7 +49,8 @@ PLANNER_SYSTEM_PROMPT = """你是《千禧 DevLog》的技术主编，负责在�
   "slug": "kebab-case-english-slug",            // 从标题生成，全小写连字符
   "summary": "一段摘要（80-120 字）",
   "target_chars": 6000,                          // 本篇目标字数（中文），见下方"字数自定"
-  "primary_category": "AI基础设施|AI模型|AI产品|AI应用|AI安全|其他",
+  "primary_category": "AI基础设施|AI模型|AI产品|AI应用|AI安全",
+                                                 // 五选一，没有"其他"；算法/训练/论文→AI模型，推理/部署/系统→AI基础设施，评测/智能体→AI应用，开源/商业→AI产品，鲁棒/对齐/攻防→AI安全
   "topic_tag": "一个精准的标签（如 推理优化 / 训练技巧 / 安全）",
   "anchor_paper": {
     "arxiv_id": "2501.12345",                    // 主锚论文（必须有）
