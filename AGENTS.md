@@ -10,14 +10,14 @@
 | 项 | 值 |
 |---|---|
 | 生产提交 | `7071849`（代码；本次文档提交紧随其后，`HEAD..origin/master` 差 0） |
-| 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
+| 后端镜像 | **`qianxi-blog:ci-62`**（CI run #62，四十三期分类归一的洞）；镜像构建源 = CI 里 `git archive HEAD backend` 导出的树 |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
 | 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件** |
 | 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **613** 条（**604 published** + 9 draft） |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
-| 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（只剩一个 `2026-10-28/` 归档子目录）/ archive/published **64** |
+| 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
-| 磁盘 / 内存 | `/dev/vda2` 59G 用 **23G（41%）**，可用 34G；内存 3724 MB（可用 2179 MB）；`nproc` = 2。备份与死代码已在四十期清掉：`/data/My_Blog/_backup` **654M**（`ci-fe-*` 只剩 3 份，脚本按 `BACKUP_KEEP=3` 自动裁）、`dist` **19M**（无 live2d）、`dist.old-fe-*` 2 份 |
+| 磁盘 / 内存 | `/dev/vda2` 59G 用 **24G（43%）**，可用 33G；内存 3724 MB（可用 2179 MB）；`nproc` = 2。备份与死代码已在四十期清掉：`/data/My_Blog/_backup` **644M**（`ci-fe-*` 只剩 3 份，脚本按 `BACKUP_KEEP=3` 自动裁）、`dist` **24M**（无 live2d；比 19M 多出的是三十九期保留的旧 chunk）、`dist.old-fe-*` 2 份 |
 
 **部署链路一句话**：推 `master` → GitHub Actions（`backend-checks` + `frontend-checks`）→ `deploy` job 按 `git diff` 判定后端/前端 → 后端 `scripts/ci/deploy_backend.sh` 在服务器 build 镜像并切容器；前端在 **runner** 上 build，产物 scp 到服务器后 `scripts/ci/deploy_frontend.sh` 原子替换 nginx 根。**服务器永不跑 npm/node（红线）**。
 
@@ -257,6 +257,15 @@ DB 实测：`hot_topic_sources` 3422 行，`source_type` **100% 是 `manual`**�
 2. `harness._plan_sources` 只列主锚 + **被正文引用**的辅助论文。
 
 而老图的 `research` 节点有 `search_github` / `search_arxiv` / `fetch_url` / `search_aihot` 四个匿名零密钥工具（`tools.py:44/72/110/142`），一次能产 5-8 份一手资料。二十三期重写 harness 时整个丢了——而审稿的加分项第 10 条恰恰是"是否有跨来源的横向对比"，只有一篇论文可看，这条永远拿不到分。
+
+**旁证：审稿真的因此打回过一篇。** `hotspot_queue/failed/2026-10-28/` 里躺着一篇
+`oswam-one-step-action-generation`（OSWAM：把多步去噪压成一步动作生成），10-28 00:27 那轮
+被判 failed，`error.txt` 原文：
+
+> 全文事实与数据几乎全部来自单篇 arXiv 论文，缺少官方代码库、技术报告或第三方基准等交叉来源，
+> 属于资料单薄，需补充至少 1-2 个独立来源以验证关键实验数字与对比结论
+
+这跟千禧说的"来源太少，难写出好文章"是同一句话，从审稿模型嘴里说出来的版本。
 
 改法（三文件）：
 - `harness.py`：新增 `_gather_research(plan)`（复用老图 `research` 节点，任何异常都吞掉，不让调研拖垮写作）与 `_research_materials(sources)`（每源最多 3 条、每条 200 字）；`write_sections_node` 在写作前调一次，**并把 `plan` 写回返回值**（LangGraph 节点内改 state 不持久化——三十一期的教训）；`_plan_sources` 末尾把调研来源追加进参考资料（不做 `_cited` 过滤，这是"参考了哪些一手材料"，老图那批 8 条也是全列）
