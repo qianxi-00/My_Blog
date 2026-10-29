@@ -5,19 +5,19 @@
 
 > **本文件是重建版（2026-10-26）。** 旧版头部停留在 2026-09-28 的 `ci-34` / `index-BB9CPIwO.js` / `ebb9682`，与实际差了近一个月、十几个期次，容易把人带偏。本次按实测重排了章节顺序（期次严格倒序），刷新了「现行生产 / AI 链路 / 源码与仓库 / 数据事实 / 已知缺口 / 验证 / 待办」这些**描述现状**的段落，并补了三十七期。**各期次记录（八期~三十六期）正文原样保留**，它们记的是当时的决策与实测，不必回改。
 
-## 一眼看现状（2026-10-29 19:40 CST 实测）
+## 一眼看现状（2026-10-29 13:45 CST 实测）
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `81df270`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
+| 生产提交 | `eaafeda`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
 | 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留 |
+| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除） |
 | 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **606** 条（**597 published** + 9 draft） |
 | 分类分布 | `AI模型 270 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **50** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
-| 磁盘 / 内存 | `/dev/vda2` 59G 用 29G（51%）；内存 3724 MB（可用 2179 MB）；`nproc` = 2。⚠️ 磁盘大头是**备份与死代码**：`/data/My_Blog/_backup` **5.5G / 46 份**（其中 `ci-fe-*` 24 份各 219M）、`dist/live2d` **191M**（死代码）、`dist.old-fe-*` 2 份各 219M |
+| 磁盘 / 内存 | `/dev/vda2` 59G 用 **24G（42%）**，可用 33G；内存 3724 MB（可用 2179 MB）；`nproc` = 2。备份与死代码已在四十期清掉：`/data/My_Blog/_backup` **1.2G / 25 条目**（`ci-fe-*` 只剩 3 份，脚本按 `BACKUP_KEEP=3` 自动裁）、`dist` **28M**（无 live2d）、`dist.old-fe-*` 2 份各 219M |
 
 **部署链路一句话**：推 `master` → GitHub Actions（`backend-checks` + `frontend-checks`）→ `deploy` job 按 `git diff` 判定后端/前端 → 后端 `scripts/ci/deploy_backend.sh` 在服务器 build 镜像并切容器；前端在 **runner** 上 build，产物 scp 到服务器后 `scripts/ci/deploy_frontend.sh` 原子替换 nginx 根。**服务器永不跑 npm/node（红线）**。
 
@@ -178,6 +178,77 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
 
+## 四十期：裁掉 4.3G 备份 + 移除 191M 的 Live2D 死资源（2026-10-29，提交 `eaafeda`，前端-only）
+
+千禧对三十九期遗留的两个问题都拍了板（`ask_user_question`）：
+「`_backup/ci-fe-*` 裁到 3 份」选**现在就裁**，「`dist/live2d` 191M 死代码」选**直接删**。
+
+### 动手前的核实——推翻了文档里的一个错误结论
+
+「已知缺口」第 1 条原本写的是 **"`frontend/public/live2d/` 目录存在但为空"**。实际不是：
+
+| 项 | 实测 |
+|---|---|
+| `frontend/public/live2d` | **220 个文件、191M**（`models/` 占绝大部分） |
+| 是否被 git 跟踪 | **是，220 个文件全部在版本控制里**（`git ls-files \| wc -l` = 220） |
+| 代码引用 | `grep -ril live2d frontend/ --include=*.ts --include=*.tsx` → **零命中**（只命中 `package.json` 的依赖名和资源自带的 `waifu-tips.json`） |
+| 线上请求 | `grep -c live2d /var/log/nginx/access.log{,.1}` → **0 / 0**，2026-09-24 迁移至今一次都没被请求过 |
+| `vite.config.*` | **没有** `publicDir`/`outDir` 覆盖 → Vite 默认 `publicDir: 'public'` |
+
+最后一行是关键：**只要 `public/live2d` 还在，每次 CI 构建都会把它原样复制进 `dist`**。
+所以只 `rm -rf dist/live2d` 是白删的——下次部署就回来了。必须连 git 里的源一起删。
+
+### 做了什么
+
+1. **裁备份**：`cd /data/My_Blog/_backup && ls -d ci-fe-* | sort | head -n -3 | xargs -r rm -rf`
+   → 删 21 份（`ci-fe-20261008-175156` … `ci-fe-20261026-175654`），留最近 3 份。
+   `_backup` **5.5G → 1.2G**。
+2. **删 dist 里的死资源**：`rm -rf /var/www/blog/dist/live2d` → `dist` **219M → 28M**。
+3. **删 git 里的源**（这一步才是持久的）：`git rm -r -q frontend/public/live2d`
+   → **220 files changed, 2279510 deletions(-)**，`frontend/public` 从 212M → 21M。
+   没另做磁盘备份——**git 历史仍保留这些 blob**，需要时
+   `git checkout <commit> -- frontend/public/live2d` 能完整恢复。
+
+### 结果
+
+| 项 | 前 | 后 |
+|---|---|---|
+| `/data/My_Blog/_backup` | 5.5G / 46 条目（`ci-fe-*` 24 份） | **1.2G / 25 条目（`ci-fe-*` 3 份）** |
+| `/var/www/blog/dist` | 219M（`live2d` 191M） | **28M**（`uploads 12M / images 7.7M / assets 7.1M / data 1.4M`） |
+| `frontend/public` | 212M | **21M** |
+| 磁盘 `/dev/vda2` | 29G 用 / 51% | **24G 用 / 42%**，可用 33G |
+
+### CI run #58 是新部署脚本的第一次真实运行
+
+`eaafeda` 只动 `frontend/`，`deploy` job 里 `DO_FRONTEND=true`，于是三十九期的新脚本
+在生产里跑了第一遍。观察到的三件事都对：
+
+- `dist` 稳定在 **28M，无 `live2d`** —— 说明源删干净后构建产物也干净了。
+- `_backup/ci-fe-*` 仍是 **3 份**（新增 `ci-fe-20261029-133913`，最老的一份被脚本自己裁掉）
+  —— **`BACKUP_KEEP=3` 在真实 CI 里生效**，不需要人工干预。
+- `dist.old-fe-*` 仍是 2 份（脚本原有的保留逻辑未变）。
+
+**一个容易被误判成 bug 的现象**：部署后 `index.html` 的主 chunk 还是
+`/assets/index-fRCBNrZy.js`，跟部署前一模一样。这是**正确的**——删 `public/` 下的
+静态资源不改变任何 JS bundle 的内容，Vite 的内容哈希自然不变。不要因为
+"chunk 没换"就以为部署没生效，要看 `dist` 体积和 `live2d` 是否还在。
+
+### 部署后验证（全部有输出）
+
+- 公网：`/` 200 (0.042s)、`/assets/index-fRCBNrZy.js` 200、`/api/v1/articles` 200、
+  `/api/v1/hotspots?status=published` 200、`/api/v1/settings/public` 200。
+- SPA 深链：`/archives` `/hotspots` `/prompts` `/articles` 全 200。
+- `dist/assets` **163 文件**，从所有 `.js` + `index.html` 提取被引用 chunk
+  **101 个，缺失 0**。
+- 容器 `qianxi-blog:ci-53 Up 2 days (healthy)`；内部 `/health` = `{"status":"healthy"}`。
+
+### 遗留
+
+- 另有 **22 个非 `ci-fe-*` 的历史备份目录**（`bubble-*` / `manual-*` / `r3-rescue-*` /
+  `skills-*`）不在脚本裁剪范围内，体积很小，未清。
+- 仓库 `.git` 仍是 **172M**——`git rm` 只删工作树和索引，历史 blob 还在。要真正瘦身
+  得 `git filter-repo` 改写历史 + 强推，**风险大且会影响所有克隆，没做**。
+
 ## 三十九期：部署脚本保留旧 chunk + 备份目录裁剪（2026-10-29，提交 `81df270`，只改 `scripts/ci/deploy_frontend.sh`）
 
 千禧批准三十八期收尾时提的建议（原话："可以,按照你的建议去做"）：把 `deploy_frontend.sh` 从
@@ -249,14 +320,13 @@ DEPLOY_FRONTEND_OK /assets/index-fRCBNrZy.js
 | 新包里同名的文件 | **不被旧文件覆盖**（内容是新的）✓ |
 | 体积上限 3MB / 实有 7MB | 从最老的删起，`fresh.js`（本次构建自带）**始终保留** ✓ |
 
-### 遗留（已告知千禧，等拍板）
+### 遗留（**四十期已全部处理**，见「四十期」）
 
-- **`dist/live2d` 占 191M**（`dist` 219M 的大头），而 Live2D 是**死代码**（见「已知缺口」
-  第 1 条：`Live2DWaifu` 与 `naihe-live2d-widget-v3` 全仓库零引用）。每次部署都要把它复制
-  进 `_backup` 再保留进新 dist。删掉它能省 191M × 备份份数。
-- **现有 24 份 `_backup/ci-fe-*`（约 5.2G）**：新脚本的第一次真实部署会按 `BACKUP_KEEP=3`
-  自动删掉其中 21 份。**这属于生产数据删除，等千禧确认后再让它自然发生**（或临时调大
-  `BACKUP_KEEP` 跑一次）。
+- **`dist/live2d` 占 191M**（`dist` 219M 的大头），而 Live2D 是**死代码**。千禧已确认直接删 →
+  四十期 `git rm -r frontend/public/live2d`（220 文件）+ 删 `dist/live2d`，`dist` 降到 28M。
+  **只删 `dist/live2d` 是不够的**——Vite 默认 `publicDir: 'public'`，源不删下次构建就回来。
+- **现有 24 份 `_backup/ci-fe-*`（约 5.2G）**：千禧已确认现在就裁 → 四十期手工删了 21 份
+  （`_backup` 5.5G → 1.2G）。此后由脚本按 `BACKUP_KEEP=3` 自动维持，CI #58 实测生效。
 - 另有一批非 `ci-fe-*` 的历史备份目录（`bubble-*` / `manual-*` / `r3-rescue-*` /
   `skills-*`，共 22 个）不在脚本的裁剪范围内，需要的话手工清。
 
@@ -1715,7 +1785,7 @@ python backend/scripts/selfcheck_skills.py       # 本地（若已装 backend �
 
 ## 已知缺口（2026-10-26 复核）
 
-1. **Live2D 是死代码**：`Live2DWaifu` 在 `frontend/` 下零引用，`naihe-live2d-widget-v3` 也零引用（只在 `package.json`），`frontend/public/live2d/` **目录存在但为空**。站点宠物是静态 `DesktopPet`（`/images/codex-pets/*/poster.webp`）。**2026-09-30 核实：服务器上从来没有过 live2d 目录**，历次 dist 备份均无。
+1. ~~Live2D 是死代码~~ **已清理（四十期，`eaafeda`）**。`Live2DWaifu` 与 `naihe-live2d-widget-v3` 全仓库零引用，`frontend/public/live2d/` 曾有 **220 个文件、191M**（此前文档误记为“空目录”），nginx 日志里 live2d 请求数为 0。已 `git rm -r` 移出版本控制并删掉 `dist/live2d`，`dist` 从 219M 降到 28M。站点宠物是静态 `DesktopPet`（`/images/codex-pets/*/poster.webp`），不受影响。需要恢复时 `git checkout <commit> -- frontend/public/live2d`（历史 blob 仍在）。
 2. **141 个内联图已排查定案（2026-09-24）**：5 个从图床 My_image 找回并字节级验证；**136 个永久丢失**——仓库 public、本地 dist、旧 Worker 部署包、COS 桶（545 对象）、My_image（1370 文件）、过期旧服务器 `8.148.252.27` 全部查尽，原件只存在于已消亡的 HF 容器层。是否清除 `analysis_md` 里的死引用，等千禧拍板。
 3. **管理端新上传的图片写进容器层**：`backend/app/api/v1/upload.py:45-48` 落盘 = `os.path.join(dirname×3(__file__), settings.UPLOAD_DIR)` → 容器内 `/app/uploads`；而 nginx 的 `/uploads/` 服务的是 `/var/www/blog/dist`，**不读容器层**。durable 副本仍要靠 `frontend/public/uploads` 进 Git。**未修**。
 4. ~~`chat.py` 的 `get_session_history` 没有路由装饰器~~ **已修复**（2026-10-26 复核：`backend/app/api/v1/chat.py:520-521` 有 `@router.get("/session/{session_id}/history", response_model=ChatSessionWithMessages)`）。该条关闭。
