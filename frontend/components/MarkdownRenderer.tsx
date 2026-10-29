@@ -1,8 +1,11 @@
 import React, { ReactNode, Suspense, useState } from 'react';
 import XmindViewer from './XmindViewer';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 
-// MermaidChart 会动态 import mermaid，自身按需加载，避免把图表引擎拖进首屏包
-const MermaidChart = React.lazy(() => import('./MermaidChart'));
+// MermaidChart 会动态 import mermaid，自身按需加载，避免把图表引擎拖进首屏包。
+// 走 lazyWithRetry：图表 chunk 拉取失败（链路抖动）时重试一次再放弃，
+// 否则一个 mermaid chunk 失败就会把整篇文章页打成「页面出错了」。
+const MermaidChart = lazyWithRetry(() => import('./MermaidChart'));
 
 /** 十三期：代码块复制按钮（带"已复制"反馈——原来点完毫无反应，用户会连点） */
 const CodeCopyButton = ({ text }: { text: string }) => {

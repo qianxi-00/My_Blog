@@ -5,47 +5,48 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './components/Toast';
 import PublicLayout from './layouts/PublicLayout';
 import ErrorBoundary from './components/ErrorBoundary';
+import { lazyWithRetry } from './utils/lazyWithRetry';
 
 // 路由级代码分割：33 个页面全部按需加载，避免首屏就下载整个 3MB 主包。
 // AdminLayout 属后台壳，同样只在进后台时才拉取。
-const AdminLayout = React.lazy(() => import('./layouts/AdminLayout'));
+const AdminLayout = lazyWithRetry(() => import('./layouts/AdminLayout'));
 
 // 公共页面
-const Home = React.lazy(() => import('./pages/Home'));
-const ArticleList = React.lazy(() => import('./pages/ArticleList'));
-const ArticleDetail = React.lazy(() => import('./pages/ArticleDetail'));
-const Archives = React.lazy(() => import('./pages/Archives'));
-const PromptLibrary = React.lazy(() => import('./pages/PromptLibrary'));
-const PromptDetail = React.lazy(() => import('./pages/PromptDetail'));
-const Unsubscribe = React.lazy(() => import('./pages/Unsubscribe'));
-const ForumHome = React.lazy(() => import('./pages/ForumHome'));
-const ForumNewThread = React.lazy(() => import('./pages/ForumNewThread'));
-const ForumThreadDetail = React.lazy(() => import('./pages/ForumThreadDetail'));
-const HotspotsList = React.lazy(() => import('./pages/HotspotsList'));
-const HotspotDetail = React.lazy(() => import('./pages/HotspotDetail'));
-const AiDaily = React.lazy(() => import('./pages/AiDaily'));
-const Login = React.lazy(() => import('./pages/Login'));
-const Register = React.lazy(() => import('./pages/Register'));
-const ForgotPassword = React.lazy(() => import('./pages/ForgotPassword'));
-const UserCenter = React.lazy(() => import('./pages/UserCenter'));
-const AuthorPage = React.lazy(() => import('./pages/AuthorPage'));
-const WritePage = React.lazy(() => import('./pages/WritePage'));
+const Home = lazyWithRetry(() => import('./pages/Home'));
+const ArticleList = lazyWithRetry(() => import('./pages/ArticleList'));
+const ArticleDetail = lazyWithRetry(() => import('./pages/ArticleDetail'));
+const Archives = lazyWithRetry(() => import('./pages/Archives'));
+const PromptLibrary = lazyWithRetry(() => import('./pages/PromptLibrary'));
+const PromptDetail = lazyWithRetry(() => import('./pages/PromptDetail'));
+const Unsubscribe = lazyWithRetry(() => import('./pages/Unsubscribe'));
+const ForumHome = lazyWithRetry(() => import('./pages/ForumHome'));
+const ForumNewThread = lazyWithRetry(() => import('./pages/ForumNewThread'));
+const ForumThreadDetail = lazyWithRetry(() => import('./pages/ForumThreadDetail'));
+const HotspotsList = lazyWithRetry(() => import('./pages/HotspotsList'));
+const HotspotDetail = lazyWithRetry(() => import('./pages/HotspotDetail'));
+const AiDaily = lazyWithRetry(() => import('./pages/AiDaily'));
+const Login = lazyWithRetry(() => import('./pages/Login'));
+const Register = lazyWithRetry(() => import('./pages/Register'));
+const ForgotPassword = lazyWithRetry(() => import('./pages/ForgotPassword'));
+const UserCenter = lazyWithRetry(() => import('./pages/UserCenter'));
+const AuthorPage = lazyWithRetry(() => import('./pages/AuthorPage'));
+const WritePage = lazyWithRetry(() => import('./pages/WritePage'));
 
 // 后台页面
-const AdminDashboard = React.lazy(() => import('./pages/AdminDashboard'));
-const AdminLogin = React.lazy(() => import('./pages/AdminLogin'));
-const ArticleManager = React.lazy(() => import('./pages/ArticleManager'));
-const ArticleEditor = React.lazy(() => import('./pages/ArticleEditor'));
-const CommentManager = React.lazy(() => import('./pages/CommentManager'));
-const PromptManager = React.lazy(() => import('./pages/PromptManager'));
-const SubscriberManager = React.lazy(() => import('./pages/SubscriberManager'));
-const Settings = React.lazy(() => import('./pages/Settings'));
-const AdminProfile = React.lazy(() => import('./pages/AdminProfile'));
-const AgentChat = React.lazy(() => import('./pages/AgentChat'));
-const HotspotManager = React.lazy(() => import('./pages/HotspotManager'));
-const HotspotEditor = React.lazy(() => import('./pages/HotspotEditor'));
-const HotspotUploadPage = React.lazy(() => import('./pages/HotspotUploadPage'));
-const AdminAccounts = React.lazy(() => import('./pages/AdminAccounts'));
+const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
+const AdminLogin = lazyWithRetry(() => import('./pages/AdminLogin'));
+const ArticleManager = lazyWithRetry(() => import('./pages/ArticleManager'));
+const ArticleEditor = lazyWithRetry(() => import('./pages/ArticleEditor'));
+const CommentManager = lazyWithRetry(() => import('./pages/CommentManager'));
+const PromptManager = lazyWithRetry(() => import('./pages/PromptManager'));
+const SubscriberManager = lazyWithRetry(() => import('./pages/SubscriberManager'));
+const Settings = lazyWithRetry(() => import('./pages/Settings'));
+const AdminProfile = lazyWithRetry(() => import('./pages/AdminProfile'));
+const AgentChat = lazyWithRetry(() => import('./pages/AgentChat'));
+const HotspotManager = lazyWithRetry(() => import('./pages/HotspotManager'));
+const HotspotEditor = lazyWithRetry(() => import('./pages/HotspotEditor'));
+const HotspotUploadPage = lazyWithRetry(() => import('./pages/HotspotUploadPage'));
+const AdminAccounts = lazyWithRetry(() => import('./pages/AdminAccounts'));
 
 // 路由切换 / 首次进入页面时的轻量占位：整页文字"加载中..."闪白难看，
 // 十三期改成居中 mini spinner（不占满屏，和 page-enter 淡入衔接）

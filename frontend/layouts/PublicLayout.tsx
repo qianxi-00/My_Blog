@@ -5,10 +5,15 @@ import { Button } from '../components/Shared';
 import Avatar from '../components/Avatar';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { lazyOptional } from '../utils/lazyWithRetry';
 
 // 桌宠会连带 MarkdownContent -> katex/highlight.js 整条链（约 1MB），
 // 所以既做懒加载、又在空闲时才挂载，不占首屏带宽。
-const DesktopPet = React.lazy(() => import('../components/DesktopPet'));
+//
+// 用 lazyOptional 而不是 lazy：它是纯装饰，加载失败必须当它不存在。
+// 2026-10-29 线上故障——这个 chunk 一次拉取失败（链路丢包，请求根本没到 nginx），
+// 错误抛到全局 ErrorBoundary，整站变成「页面出错了」。
+const DesktopPet = lazyOptional(() => import('../components/DesktopPet'));
 
 import { getPublicSettings, PublicSettings } from '../api/stats';
 
