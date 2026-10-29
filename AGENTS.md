@@ -5,19 +5,19 @@
 
 > **本文件是重建版（2026-10-26）。** 旧版头部停留在 2026-09-28 的 `ci-34` / `index-BB9CPIwO.js` / `ebb9682`，与实际差了近一个月、十几个期次，容易把人带偏。本次按实测重排了章节顺序（期次严格倒序），刷新了「现行生产 / AI 链路 / 源码与仓库 / 数据事实 / 已知缺口 / 验证 / 待办」这些**描述现状**的段落，并补了三十七期。**各期次记录（八期~三十六期）正文原样保留**，它们记的是当时的决策与实测，不必回改。
 
-## 一眼看现状（2026-10-29 15:05 CST 实测）
+## 一眼看现状（2026-10-29 16:35 CST 实测）
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `4dfb946`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
+| 生产提交 | `cd6aa8b`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
 | 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件** |
-| 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **606** 条（**597 published** + 9 draft） |
-| 分类分布 | `AI模型 270 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
-| 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **50** |
+| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件** |
+| 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **613** 条（**604 published** + 9 draft） |
+| 分类分布 | `AI模型 273 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27 / 其他 1`（三十六期归一后只剩 6 种写法；「其他」又冒出 1 篇，待下轮归因） |
+| 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（只剩一个 `2026-10-28/` 归档子目录）/ archive/published **64** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
-| 磁盘 / 内存 | `/dev/vda2` 59G 用 **23G（41%）**，可用 34G；内存 3724 MB（可用 2179 MB）；`nproc` = 2。备份与死代码已在四十期清掉：`/data/My_Blog/_backup` **1.2G / 25 条目**（`ci-fe-*` 只剩 3 份，脚本按 `BACKUP_KEEP=3` 自动裁）、`dist` **19M**（无 live2d）、`dist.old-fe-*` 2 份各 219M |
+| 磁盘 / 内存 | `/dev/vda2` 59G 用 **23G（41%）**，可用 34G；内存 3724 MB（可用 2179 MB）；`nproc` = 2。备份与死代码已在四十期清掉：`/data/My_Blog/_backup` **654M**（`ci-fe-*` 只剩 3 份，脚本按 `BACKUP_KEEP=3` 自动裁）、`dist` **19M**（无 live2d）、`dist.old-fe-*` 2 份 |
 
 **部署链路一句话**：推 `master` → GitHub Actions（`backend-checks` + `frontend-checks`）→ `deploy` job 按 `git diff` 判定后端/前端 → 后端 `scripts/ci/deploy_backend.sh` 在服务器 build 镜像并切容器；前端在 **runner** 上 build，产物 scp 到服务器后 `scripts/ci/deploy_frontend.sh` 原子替换 nginx 根。**服务器永不跑 npm/node（红线）**。
 
@@ -177,6 +177,85 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 四十二期：本周焦点解冻 + 恢复多方调研 + 内联图重压（2026-10-29，提交 `e552618` + `752475d` + `cd6aa8b`）
+
+千禧三条指令："还剩下的那件事你也做一下,该压就压 / 另外为啥我们热点页面的这个焦点导航一直都是这三篇文章? 没变过都 / 然后就是我们新写的一些文章,他的来源太少了, 我觉得这样难写出好文章,我们deepresearch肯定是多方调研的"
+
+### 一、焦点导航永远同三篇：heat_score 是死数据
+
+`HotspotsList.tsx` 的 `featuredItems` 原来从 `dateScopedItems` 里按 `heat_score` 取前 3。而 DB 实测（已发布 604 篇）：
+
+| 热度值 | 篇数 |
+|---|---|
+| 95 | **542** |
+| 60 | 46 |
+| 85 / 88 / 86 / 80 | 各 2~4 篇 |
+| 96 / 94 / 92 / 90 / 82 | 各 1~4 篇 |
+
+流水线发布时是写死的：`graph.py:765` `heat_score=60.0`。所以按热度排序 = 永远从"542 篇都是 95"那批里取，并列次键 `created_at` 挑出的是**那批里最后写入的 3 篇**——流水线切到 60 分之后这个次序再没变过，卡片就冻住了。
+
+改法：`featuredItems` 固定取最近 7 天（按 `getCreatedDate`），热度只做组内次序；不再跟随下方时间筛选（它是筛选条件之上的编辑位）；近 7 天不足 3 篇时回退全量防卡片空着。卡片副标题同步改成"最近 7 天发布的新文章"。
+
+### 二、来源从 8 条掉到 1 条：harness 把 research 节点丢了
+
+DB 实测：`hot_topic_sources` 3422 行，`source_type` **100% 是 `manual`**（`publish()` 里写死）；最近 8 篇（#709~#716）**每篇都只有 1 条来源**。
+
+| 样本 | 来源数 | 哪套图 |
+|---|---|---|
+| #680（2026-10-14） | **8**（OpenAI Alignment×2 / Anthropic research / Microsoft Research blog / Goodfire Research / GitHub×3） | 老图 |
+| #690 / #685 / #675 / #695 / #716 | **1**（只有 `主锚论文 2610.xxxxx`） | harness（二十三期接管） |
+
+根因两处：
+1. `planner.py:254` `llm = _llm(temperature=0).bind_tools([fetch_paper], tool_choice="auto")` —— 只绑了读论文，没绑检索；
+2. `harness._plan_sources` 只列主锚 + **被正文引用**的辅助论文。
+
+而老图的 `research` 节点有 `search_github` / `search_arxiv` / `fetch_url` / `search_aihot` 四个匿名零密钥工具（`tools.py:44/72/110/142`），一次能产 5-8 份一手资料。二十三期重写 harness 时整个丢了——而审稿的加分项第 10 条恰恰是"是否有跨来源的横向对比"，只有一篇论文可看，这条永远拿不到分。
+
+改法（三文件）：
+- `harness.py`：新增 `_gather_research(plan)`（复用老图 `research` 节点，任何异常都吞掉，不让调研拖垮写作）与 `_research_materials(sources)`（每源最多 3 条、每条 200 字）；`write_sections_node` 在写作前调一次，**并把 `plan` 写回返回值**（LangGraph 节点内改 state 不持久化——三十一期的教训）；`_plan_sources` 末尾把调研来源追加进参考资料（不做 `_cited` 过滤，这是"参考了哪些一手材料"，老图那批 8 条也是全列）
+- `writer.py`：system prompt 要求"材料里有「多方调研资料」时至少引用其中 2 份的具体事实并点明出处"；human prompt 的论文材料 `[:4500]` → `[:4200]`，腾出 1800 字给调研资料
+- `graph.py`：`research` 节点加三处韧性
+
+**韧性是被实测逼出来的**。第一轮跑（只改了 harness/writer）整轮作废：
+
+```
+research tool #1..#11（search_github ×4 / search_arxiv ×2 / search_aihot ×1 / fetch_url ×4）
+多方调研失败（不影响写作）: LLM JSON 解析失败且修复无效: Expecting ',' delimiter: line 1 column 3868
+== research sources: 0 → _plan_sources total: 1
+```
+
+stepfun 在 facts 字符串里吐未转义的英文双引号，`_extract_json` 抛异常没人接。改成两处 JSON 解析都包 try/except 转程序化兜底；兜底名字也从裸域名（8 条全叫 `api.github.com`，没价值）改成 `GitHub owner/repo` / `arXiv id` / 域名。
+
+### 三、内联图重压（千禧"该压就压"）
+
+只压 PNG 图表，JPEG 不动——实测这几张 JPEG 已经是合理压缩，用 q82/78/74 重编码反而变大（`e3f584da` 126,953 → 132,945）或只省 3%。
+
+| 文件 | 原 | 新 | 缩小 |
+|---|---|---|---|
+| `self-play-alignment-paradigms.png` | 136,817 | **39,958** | 3.4× |
+| `memory-layered-architecture.png` | 95,542 | **28,823** | 3.3× |
+| `markov-chain-state-transition.png` | 70,632 | **22,978** | 3.1× |
+
+方法 `Image.MEDIANCUT` 量化到 128 色 + `optimize=True`（三张都是不透明的，`alpha.getextrema()[0] == 255`；RGBA 带透明必须用 `FASTOCTREE`，否则报 `ValueError: Fast Octree (method == 2) and libimagequant (method == 3) are the only valid methods for quantizing RGBA images`）。质量核验：`ImageChops.difference` 平均像素差 0.045 / 0.041 / 0.022（满分 255），文字锐利无断层。
+
+**顺带补进 git**：这 3 张 PNG + 2 张 SVG 一直在 `dist/uploads/images` 里被正文引用，却从没进过 git——CI 部署靠"从旧 dist 复制 uploads/"侥幸活着。现补进，`dist` 与仓库两侧都是 29 文件（此前 dist 29 / 仓库 24）。
+
+### 验证
+
+- `tsc --noEmit -p tsconfig.json` → exit 0
+- 容器内真跑（真实网络 + LLM）：`_research_sources` **8 份**、材料 **3507 字**、`_plan_sources` **9 条**（主锚 + 8），arXiv 与 GitHub 混合（`kr4ckhe4d/dense-moe-research`、`Mohammad-Hallaq/smolmoe-upcycling` 等）
+- `write_sections_node` 返回键 `['plan', 'section_results', 'structure_round', 'log']`——`plan` 在里面，调研结果能带进下一节点
+- `dist/uploads/images` 2.1M → **1.9M**
+- 生效时点：**下一轮 cron（19:20）起**，即 #717 之后的文章才会带多条来源；#709~#716 的 1 条来源是既成事实，不回溯
+
+### 踩坑
+
+- **`HotspotsList.tsx` 的 blob 是 LF，不是 CRLF**。我从本地 scp 上去的版本是 CRLF，`git diff --stat` 显示 **2349 行改动**（1268 插入 / 1175 删除）——整文件重写。转回 LF 后降到 21 行。**后端 .py 是 CRLF，前端 .tsx 是 LF，提交前必须按文件看 blob 的换行**（`git show HEAD:<path> | python3 -c "..."` 数 CRLF 个数）。
+- `git commit` 不带 `-a` 会提交**整个暂存区**——之前 `git add` 过的 5 张图被一起卷进了后端那次提交。用 `git reset c89b12a` 回退后按文件重新分三次提交才对。
+- 补丁脚本的匹配锚点**只用 ASCII**：原文里的中文引号是 U+201C/U+201D 还是 ASCII 双引号肉眼分不出，整块中文锚点必失败。
+- `ops_bash` 里 Python 打印中文到 cp936 控制台会乱码，但**字符串本身没问题**；判断匹配失败要看 `t.count()` 而不是看输出。`git diff` 输出里出现过一次乱码，`decode('utf-8')` + 数 U+FFFD 确认文件本身是干净的。
+- `scp` 到不存在的目录会静默失败（`(no output)` + exit 0），需先 `ssh mkdir -p`。
 
 ## 四十一期：封面图渲染不出来——重压封面 + nginx 缓存头 + HTTP/2（2026-10-29，提交 `68b6fcb`）
 
