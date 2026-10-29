@@ -398,7 +398,15 @@ async def research(state: PipelineState) -> dict:
         )
         messages.append(summary)
 
-    result = _extract_json(messages[-1].content)
+    # 四十二期：汇总 JSON 坏掉不能整轮作废。实测 stepfun 会在 facts 字符串里
+    # 吐出未转义的英文双引号（…他说"FFN 层稀疏化"…），JSON 直接解析失败——
+    # 老代码让 _extract_json 抛出去，research 整个失败，10 次工具调用攒的
+    # 资料全丢。现在退化成"空资料"，走下面已有的二次总结 + 程序化抽取兜底。
+    try:
+        result = _extract_json(messages[-1].content)
+    except ValueError as exc:
+        _log(f"检索汇总 JSON 解析失败（{exc}）——转兜底")
+        result = {}
     sources = result.get("sources") or []
 
     # 空资料防线（dry-run 实测：14 次工具调用后总结 LLM 偷懒输出空数组，
@@ -416,7 +424,11 @@ async def research(state: PipelineState) -> dict:
                 )
             ]
         )
-        sources = _extract_json(retry.content).get("sources") or []
+        try:
+            sources = _extract_json(retry.content).get("sources") or []
+        except ValueError as exc:
+            _log(f"二次总结仍不是合法 JSON（{exc}）")
+            sources = []
 
     if not sources:
         # 程序化兜底：从工具消息文本里抽 URL 和首行标题
@@ -432,10 +444,21 @@ async def research(state: PipelineState) -> dict:
                 if url in seen:
                     continue
                 seen.add(url)
-                domain = urllib.parse.urlparse(url).netloc
+                parsed = urllib.parse.urlparse(url)
+                domain = parsed.netloc
+                # 名字按来源类型起：GitHub 用 owner/repo、arXiv 用论文号，
+                # 否则用域名——全部叫 "api.github.com" 的参考资料没有价值
+                m_gh = re.match(r"^/([^/]+/[^/]+?)(?:/|$)", parsed.path)
+                m_ax = re.search(r"abs/(\d{4}\.\d{4,5})", url)
+                if "github.com" in domain and m_gh:
+                    name = f"GitHub {m_gh.group(1)}"
+                elif m_ax:
+                    name = f"arXiv {m_ax.group(1)}"
+                else:
+                    name = domain
                 facts = [ln.strip() for ln in content.splitlines() if len(ln.strip()) > 30][:3]
-                sources.append({"name": domain, "url": url, "kind": "community", "facts": facts})
-            if len(sources) >= 5:
+                sources.append({"name": name, "url": url, "kind": "community", "facts": facts})
+            if len(sources) >= 8:
                 break
 
     _log(f"检索完成: {len(sources)} 份资料")

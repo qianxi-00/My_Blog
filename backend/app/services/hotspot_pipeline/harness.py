@@ -36,6 +36,7 @@ from .graph import (
     enqueue,
     failed,
     publish,
+    research,
     retry,
     review,
     _route_after_mermaid,
@@ -205,6 +206,36 @@ def _coerce_plan(plan: dict, errs: list[str]) -> dict:
     return out
 
 
+async def _gather_research(plan: dict) -> list[dict]:
+    """多方调研：复用老图的 research 节点（GitHub / arXiv / 任意网页 / AIHOT）。
+
+    四十二期补回。调研是增益项不是必需项——任何异常都吞掉，不让它拖垮写作。
+    """
+    try:
+        out = await research(
+            {"topic": str(plan.get("title") or ""), "direction": str(plan.get("goal") or "")}
+        )
+        return [s for s in (out.get("sources") or []) if isinstance(s, dict) and s.get("url")]
+    except Exception as exc:
+        _log(f"多方调研失败（不影响写作）: {exc}")
+        return []
+
+
+def _research_materials(sources: list[dict]) -> str:
+    """把调研到的一手资料压成写作材料块（只要事实要点，不塞整页正文）。"""
+    lines: list[str] = []
+    for s in sources[:8]:
+        url = str(s.get("url") or "").strip()
+        if not url:
+            continue
+        lines.append(f"- {s.get('name') or url} <{url}>")
+        for fact in (s.get("facts") or [])[:3]:
+            fact = str(fact).strip()
+            if fact:
+                lines.append(f"  · {fact[:200]}")
+    return "\n".join(lines)
+
+
 async def write_sections_node(state: dict) -> dict:
     """执行层节点：并发写所有章节（每章一个 agent，信号量限流）。
 
@@ -212,14 +243,26 @@ async def write_sections_node(state: dict) -> dict:
     章节重写就是新一稿；不重置会让第二稿直接撞超轮上限（老图每次 write 都是
     整篇重写所以看不出来）。
     """
-    plan = state.get("plan") or {}
+    plan = dict(state.get("plan") or {})
     materials = plan.get("_paper_material", "")
+
+    # 四十二期：二十三期 harness 重写时把老图的 research 节点（GitHub / arXiv /
+    # 任意网页 / AIHOT 四个工具，产 5-8 份一手资料）整个丢了，只剩主锚论文一条
+    # 来源——实测 #709~#716 每篇都只有 1 条来源，审稿"是否有跨来源的横向对比"
+    # 根本没法满足。这里在写作之前补一次调研，事实要点并进写作材料。
+    # 只在第一稿做；回修重写章节时复用结果，不重复烧钱。
+    if not plan.get("_research_sources"):
+        plan["_research_sources"] = await _gather_research(plan)
+        plan["_research_materials"] = _research_materials(plan["_research_sources"])
+        if plan["_research_sources"]:
+            _log(f"多方调研: {len(plan['_research_sources'])} 份资料")
     # 回修时带上闸/审稿意见：让章节 agent 知道这轮要修什么（老图靠 prompt
     # 拼接，harness 直接把问题贴进每节的 human message）
     fixes = "\n".join(f"- {e}" for e in (state.get("mermaid_errors") or []))[:1500]
     notes = str(state.get("review_notes") or "")[:800]
     results = await write_sections(plan, materials, fix_hint=f"{fixes}\n{notes}".strip())
     return {
+        "plan": plan,
         "section_results": results,
         "structure_round": 0,
         "log": [f"章节并发写作完成: {len([r for r in results if r.get('md')])}/{len(results)} 节"],
@@ -274,6 +317,15 @@ def _plan_sources(plan: dict, draft: str = "") -> list[dict]:
         if draft and not _cited(sid):
             continue  # 未引用就不列，保持来源与正文一致
         src.append({"name": f"辅助论文 {sid}", "url": f"https://arxiv.org/abs/{sid}"})
+
+    # 四十二期：多方调研到的 GitHub / 官方文档 / 技术博客一并进参考资料。
+    # 这类来源不做"引用才列"过滤——它们是"这篇还参考了哪些一手材料"，
+    # 老图（#680 那批 8 条来源）也是全列；审稿只认"参考资料段逐条带 URL"。
+    for s in plan.get("_research_sources") or []:
+        url = str(s.get("url") or "").strip()
+        if not url or any(x.get("url") == url for x in src):
+            continue
+        src.append({"name": str(s.get("name") or url)[:120], "url": url})
     return src
 
 

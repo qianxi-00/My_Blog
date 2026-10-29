@@ -38,6 +38,10 @@ SECTION_WRITER_SYSTEM_PROMPT = """你是《千禧 DevLog》的技术作者，负
 - 不要写章节标题（## 标记由汇总层统一加），只输出本节正文
 - 引用资料时带上出处线索（论文名/arXiv ID/URL），汇总层会整理成参考资料段
 
+- 材料里给了「多方调研资料」（GitHub 仓库 / 官方文档 / 技术博客）时，至少引用其中 2 份的
+  具体事实并点明出处（如"官方 README 写明…""该仓库 release notes 提到…"）——四十二期起
+  审稿会看"是否有跨来源的横向对比"，只复述单篇论文会扣分
+
 # 输出格式（严格）
 直接输出本节正文 Markdown，不要解释、不要 frontmatter、不要重复章节标题。
 """
@@ -134,7 +138,8 @@ async def _write_one(plan: dict, section: dict, materials: str, idx: int, fix_hi
 {('注意: 论文原图由汇总层统一插入，你本节正文里不要写图片链接，只需在合适位置写一行占位（形如 <!-- FIGURE: 图注 -->）') if fig.get('kind') == 'paper' else ''}
 
 可用论文材料（来自主锚论文全文/摘要，仅供引用事实）:
-{materials[:4500]}
+{materials[:4200]}
+{('多方调研资料（GitHub / 官方文档 / 技术博客；引用时点明出处）:' + chr(10) + str(plan.get('_research_materials') or '')[:1800] + chr(10)) if plan.get('_research_materials') else ''}
 {('【本轮必须修的问题（来自结构校验/审稿）】' + chr(10) + fix_hint) if fix_hint else ''}
 
 输出本节正文（Markdown，不要 ## 标题）："""
