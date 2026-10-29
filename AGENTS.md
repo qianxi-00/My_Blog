@@ -5,19 +5,19 @@
 
 > **本文件是重建版（2026-10-26）。** 旧版头部停留在 2026-09-28 的 `ci-34` / `index-BB9CPIwO.js` / `ebb9682`，与实际差了近一个月、十几个期次，容易把人带偏。本次按实测重排了章节顺序（期次严格倒序），刷新了「现行生产 / AI 链路 / 源码与仓库 / 数据事实 / 已知缺口 / 验证 / 待办」这些**描述现状**的段落，并补了三十七期。**各期次记录（八期~三十六期）正文原样保留**，它们记的是当时的决策与实测，不必回改。
 
-## 一眼看现状（2026-10-29 11:30 CST 实测）
+## 一眼看现状（2026-10-29 19:40 CST 实测）
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `771993e`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
+| 生产提交 | `81df270`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
 | 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建）；详情页 chunk `assets/HotspotDetail-pl8MbZzg.js`（36,977 B，三十七期）；桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B） |
+| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留 |
 | 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **606** 条（**597 published** + 9 draft） |
 | 分类分布 | `AI模型 270 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **50** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
-| 磁盘 / 内存 | `/dev/vda2` 59G 用 29G（51%）；内存 3724 MB（可用 2179 MB）；`nproc` = 2 |
+| 磁盘 / 内存 | `/dev/vda2` 59G 用 29G（51%）；内存 3724 MB（可用 2179 MB）；`nproc` = 2。⚠️ 磁盘大头是**备份与死代码**：`/data/My_Blog/_backup` **5.5G / 46 份**（其中 `ci-fe-*` 24 份各 219M）、`dist/live2d` **191M**（死代码）、`dist.old-fe-*` 2 份各 219M |
 
 **部署链路一句话**：推 `master` → GitHub Actions（`backend-checks` + `frontend-checks`）→ `deploy` job 按 `git diff` 判定后端/前端 → 后端 `scripts/ci/deploy_backend.sh` 在服务器 build 镜像并切容器；前端在 **runner** 上 build，产物 scp 到服务器后 `scripts/ci/deploy_frontend.sh` 原子替换 nginx 根。**服务器永不跑 npm/node（红线）**。
 
@@ -177,6 +177,88 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 三十九期：部署脚本保留旧 chunk + 备份目录裁剪（2026-10-29，提交 `81df270`，只改 `scripts/ci/deploy_frontend.sh`）
+
+千禧批准三十八期收尾时提的建议（原话："可以,按照你的建议去做"）：把 `deploy_frontend.sh` 从
+「整目录替换」改成「合并新产物 + 保留旧 chunk 几天 + 定期裁剪」。
+
+### 要解决的两个问题——都是"部署动作自己制造的故障"
+
+**1) 整目录替换会让还开着的标签页 404**
+
+老流程是 `mv dist dist.old-fe-<TS>` → `mv new dist`：本次构建没产出的 chunk **全部消失**。
+已经打开的标签页在下次切路由时 `import()` 拿 404 → 冒到唯一的 `ErrorBoundary` → 整页
+「页面出错了」。三十八期那次故障（`DesktopPet-BvlulqHy.js`）真凶是公网丢包，但**同一条错误
+信息也完全可以由部署本身产生**——这是同类故障里唯一能靠代码根治的一条。
+
+**2) `_backup/ci-fe-*` 是无限增长的磁盘泄漏**
+
+脚本每次部署 `cp -a "$LIVE"/. "/data/My_Blog/_backup/ci-fe-$TS"/` 做一份 219M 全量副本，
+**从来没有清理过**。实测积到 **46 份 / 5.5G**（其中 `ci-fe-*` 24 份各 219M），而
+`dist.old-fe-*` 另有两份各 219M——一次部署往盘上写 438M。磁盘总共 59G，用了 29G。
+
+### 改动（69 行 → 138 行）
+
+新增三个可覆盖的旋钮：
+
+| 变量 | 默认 | 含义 |
+|---|---|---|
+| `KEEP_DAYS` | 3 | 旧 chunk 最多在 `dist` 里留几天 |
+| `ASSETS_CAP_MB` | 64 | `dist/assets` 体积上限，超了从最老的旧 chunk 删起 |
+| `BACKUP_KEEP` | 3 | `_backup/ci-fe-*` 保留份数 |
+
+流程从 4 步变 5 步，**第 2 步里多了"携带旧 chunk"**：
+
+1. 解包 + 结构校验三关（不变）
+2. 组装新 dist：保留内容目录（不变）+ **把 `$LIVE/assets` 里「新包没有、且 `-mtime -KEEP_DAYS`
+   以内」的文件 `cp -a` 进新包**；再按 `ASSETS_CAP_MB` 兜体积上限（从最老的携带文件删起，
+   `$T/fresh-assets.txt` 里本次构建自带的文件**永不删**）
+3. 原子替换（不变）
+4. 验证（不变）+ **抽查一个携带过来的旧 chunk 是否 200**（抽查失败只告警，不阻断发布）
+5. 清理：`dist.old-fe-*` 留 2 份（不变）+ **`_backup/ci-fe-*` 留 `BACKUP_KEEP` 份**（新增）
+
+**为什么用 mtime 而不是"保留最近 N 代"**：`assets/*` 是内容哈希命名、只增不改，携带时
+`cp -a` 保留原 mtime，所以「超过 KEEP_DAYS 的不携带」本身就是滚动淘汰——不需要额外的代数
+记账，也不会误删本次构建自带的文件（它们来自 tarball，mtime 是构建时间）。旧备份目录里的
+文件在 `mv dist dist.old-fe-*` 后不再参与，自然被淘汰。
+
+### 验证（全部在服务器实跑，有输出）
+
+**端到端**：造一个"新构建"包（= 当前 dist 去掉内容目录，再删掉 `DesktopPet-ZaaIhgFW.js`
+模拟该 chunk 在新构建里消失），跑脚本：
+
+```
+结构 OK：179 个文件，主 chunk /assets/index-fRCBNrZy.js
+保留 uploads (53 文件) / data (36 文件) / live2d (220 文件)
+携带未过期旧 chunk 1 个（保留 3 天）
+生效 chunk: /assets/index-fRCBNrZy.js (home=200 chunk=200)
+旧 chunk 抽查: /assets/DesktopPet-ZaaIhgFW.js → 200
+DEPLOY_FRONTEND_OK /assets/index-fRCBNrZy.js
+```
+
+部署后线上 `index.html` → `index-fRCBNrZy.js`，**101 个引用 chunk 缺失 0**，首页 200。
+
+**保留期 / 上限逻辑的隔离测试**（`/tmp` 造文件，不碰生产）：
+
+| 用例 | 结果 |
+|---|---|
+| 今天的旧 chunk | 携带 ✓ |
+| 2 天前的旧 chunk | 携带 ✓ |
+| 5 天前的旧 chunk（超 3 天） | **不携带** ✓ |
+| 新包里同名的文件 | **不被旧文件覆盖**（内容是新的）✓ |
+| 体积上限 3MB / 实有 7MB | 从最老的删起，`fresh.js`（本次构建自带）**始终保留** ✓ |
+
+### 遗留（已告知千禧，等拍板）
+
+- **`dist/live2d` 占 191M**（`dist` 219M 的大头），而 Live2D 是**死代码**（见「已知缺口」
+  第 1 条：`Live2DWaifu` 与 `naihe-live2d-widget-v3` 全仓库零引用）。每次部署都要把它复制
+  进 `_backup` 再保留进新 dist。删掉它能省 191M × 备份份数。
+- **现有 24 份 `_backup/ci-fe-*`（约 5.2G）**：新脚本的第一次真实部署会按 `BACKUP_KEEP=3`
+  自动删掉其中 21 份。**这属于生产数据删除，等千禧确认后再让它自然发生**（或临时调大
+  `BACKUP_KEEP` 跑一次）。
+- 另有一批非 `ci-fe-*` 的历史备份目录（`bubble-*` / `manual-*` / `r3-rescue-*` /
+  `skills-*`，共 22 个）不在脚本的裁剪范围内，需要的话手工清。
 
 ## 三十八期：懒加载 chunk 失败不再打穿整页（2026-10-29，提交 `c9a828e` + `771993e`，前端-only）
 
