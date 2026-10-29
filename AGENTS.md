@@ -5,14 +5,14 @@
 
 > **本文件是重建版（2026-10-26）。** 旧版头部停留在 2026-09-28 的 `ci-34` / `index-BB9CPIwO.js` / `ebb9682`，与实际差了近一个月、十几个期次，容易把人带偏。本次按实测重排了章节顺序（期次严格倒序），刷新了「现行生产 / AI 链路 / 源码与仓库 / 数据事实 / 已知缺口 / 验证 / 待办」这些**描述现状**的段落，并补了三十七期。**各期次记录（八期~三十六期）正文原样保留**，它们记的是当时的决策与实测，不必回改。
 
-## 一眼看现状（2026-10-29 13:45 CST 实测）
+## 一眼看现状（2026-10-29 14:40 CST 实测）
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `eaafeda`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
+| 生产提交 | `68b6fcb`（= `origin/master`，服务器 `/data/blog/repo-tmp` HEAD，`HEAD..origin/master` 差 0 提交，工作区干净） |
 | 后端镜像 | **`qianxi-blog:ci-53`**（CI run `40300769780`，三十六期分类归一） |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除） |
+| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存 |
 | 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **606** 条（**597 published** + 9 draft） |
 | 分类分布 | `AI模型 270 / AI基础设施 158 / AI应用 91 / AI产品 53 / AI安全 25`（三十六期归一后"其他"已归零） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0** / archive/published **50** |
@@ -177,6 +177,106 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 四十一期：封面图渲染不出来——重压封面 + nginx 缓存头 + HTTP/2（2026-10-29，提交 `68b6fcb`）
+
+千禧报障（附截图）："有些文章的封面图渲染不出来了"——`/articles` 列表页右侧封面列显示破图 + alt 文字，
+`xGen-MM (BLIP-3) 的深度拆解`、`BLIP-2 (...)`、`BEiT-3 多模态"大一统"架构`、`多模态之CoCa—对比+字幕生成` 四篇。
+
+### 先排除掉的：不是文件缺失，也不是服务端
+
+- 23 篇文章的 `cover_image` **全部存在**，`/var/www/blog/dist/uploads/images/` 逐个校验 **23/23，缺失 0**；
+  公网 `curl` 全 200，`Content-Length` 与磁盘一致。
+- nginx access.log 里**没有任何 `/uploads/images/*.jpg` 的 404**（只有 `/uploads/.env`、`/wp-content/...` 这类扫描器 404）。
+- 服务器本地 `curl` 同一张图 **0.04s**。
+
+### 真正的分界线：文件体积
+
+同一次访问（IP `103.62.49.162`，`29/Oct 14:10:02`）的 nginx 日志：
+
+| 结果 | 字节数 |
+|---|---|
+| 成功加载 6 张 | `43498 / 53668 / 49423 / 99470 / 91381 / 199661` |
+| 截图里失败 5 张 | `326011 / 327181 / 290911 / 354851 / 243423` |
+
+**成功全部 ≤200KB，失败全部 ≥243KB**，分界干净。本机复现：326KB 那张连测三轮 =
+**5.06s / 8.35s / 第三轮 60 秒只传完 130,819 / 326,011 字节就断**。
+
+这和三十八期是同一个病：**公网链路间歇丢包 + TCP 重传退避耗尽**（`1+2+4+8+16+32`），字节越多越容易断。
+三十八期已证伪 MTU 假设，这次不再重复排查。
+
+### 三个放大因素
+
+1. **图太大**：封面全是 **1600px 宽**（列表只显示 250~400px），23 张合计 **11.2 MB**，
+   最大 `e3f584da7d694264ae4deb11bb8e59cc.jpg` **905,009 B（1600×2132）**。
+2. **`/uploads/` 没有缓存头**：原来只有 `Last-Modified`，**没有 `Cache-Control` / `Expires`**
+   → 浏览器不持久缓存，每次回访都重下。
+3. **站点是 HTTP/1.1**：`listen 443 ssl;` 没开 http2，6 张图各占一条连接排队。
+
+### 改动（千禧选"三项全做"）
+
+**1) 重压 23 张封面**（`frontend/public/uploads/images/`，提交 `68b6fcb`）
+
+策略：目标 **≤100KB**，优先降尺寸（`WIDTHS = [800, 720, 640]`）、其次降质量
+（`QUALITIES = [82, 78, 74, 70, 68]`），`Image.LANCZOS` + `optimize=True, progressive=True`。
+
+结果 **6.1 MB → 1.7 MB（缩小 3.6×）**，22/23 张 ≤100KB。典型：
+
+| 文件 | 原 | 新 | 缩小 |
+|---|---|---|---|
+| `f90d470f…jpg` | 326,011 | 94,259 | 3.5× |
+| `d560f1b1…jpg` | 243,423 | 55,958 | 4.4× |
+| `975d2ae4…jpg` | 567,236 | 97,303 | 5.8× |
+| `e3f584da…jpg` | 905,009 | 126,953 | **7.1×**（640×853 q68，唯一仍超 100KB 的） |
+
+原图备份 `/data/My_Blog/_backup/covers-orig-20261029-142435`（47 文件 12M）。
+
+**为什么可以直接压原图**：`cover_image` 只在 3 个卡片位置用——`frontend/pages/ArticleList.tsx:258`、
+`frontend/pages/AuthorPage.tsx:131`、`frontend/pages/Home.tsx:142`；**详情页不渲染封面**。
+所以压小原图不影响任何大图展示。
+
+**2) `/uploads/` 加 30 天缓存**（`/etc/nginx/sites-available/blog`）
+
+```nginx
+location /uploads/ {
+    expires 30d;          # 同时写 Expires 和 Cache-Control: max-age=2592000
+    try_files $uri =404;
+}
+```
+
+只用 `expires` 不再额外 `add_header Cache-Control`，避免像 `/assets/` 那样出现两个 `Cache-Control` 头。
+
+**3) 开 HTTP/2**
+
+`listen 443 ssl;` → `listen 443 ssl http2;`
+
+⚠️ **nginx 1.24.0 只认 `listen ... http2` 这种写法**。`http2 on;` 指令是 1.25.1 才加的，
+在 1.24 上写了会 `unknown directive`。
+
+### 验证（全部有输出）
+
+- `nginx -t` 通过；`systemctl reload nginx` 后 `active`。
+- HTTP/2 协商成功：服务器侧 `curl -sI --http2 -k https://127.0.0.1/ -H "Host: blog.qianxi7988.me"` → `HTTP/2 200`。
+- 缓存头生效：`/uploads/images/f90d470f….jpg` → `expires: Sat, 28 Nov 2026 06:26:36 GMT`
+  + `cache-control: max-age=2592000`。
+- 公网：`/` 200（0.046s）、两张封面 200（94,259 B / 126,953 B，0.045s / 0.040s）、
+  `/api/v1/articles` 200 —— `http_version` 全部 = **2**。
+- 本机（丢包链路）复测：`f90d470f` 三轮 14.2s 完成 / 70s 截断在 32,444 B / 5.9s 完成；
+  `5fe617ee` 9.5s、16.0s 均完成。
+
+### 诚实记录
+
+- **本机链路仍会偶尔截断**（5 次里 1 次）。服务器侧 0.04s、出口空闲、网卡零丢包，问题在公网，
+  我修不了。能做的只是把字节数降下来 + 加缓存 + 上 HTTP/2。
+- 缓存头对**首次访问**无效（浏览器本来就没有副本），主要收益是回访和列表页滚动时不再重下。
+- `dist/uploads/images` 有 52 个文件，仓库 `frontend/public/uploads/images` 只有 47 个——差的 5 个是
+  热点文章的内联图（`.svg` / `.png`），没进 git。已核：**没有任何 >200KB 的图被正文引用**。
+
+### 顺带发现（未修）
+
+- **12 张孤儿图**（`6e1a696e` 567KB、`657607c5` 552KB、`e8f86414` 319KB 等）不被任何正文引用，
+  可删约 3.6MB。
+- 老文章内联图同样有 1600px 的问题，只是详情页不是首屏，用户没报。
 
 ## 四十期：裁掉 4.3G 备份 + 移除 191M 的 Live2D 死资源（2026-10-29，提交 `eaafeda`，前端-only）
 
