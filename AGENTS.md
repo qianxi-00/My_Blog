@@ -9,11 +9,11 @@
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `7071849`（代码；本次文档提交紧随其后，`HEAD..origin/master` 差 0） |
-| 后端镜像 | **`qianxi-blog:ci-62`**（CI run #62，四十三期分类归一的洞）；镜像构建源 = CI 里 `git archive HEAD backend` 导出的树 |
+| 生产提交 | `e0873f7`（四十四期代码）+ `f0e6971`（导入脚本）+ 本期文档提交；本地领先 GitHub `origin/master` 32 个提交（远端停在 `ae1ddba`，见「源码与仓库」） |
+| 后端镜像 | **`qianxi-blog:manual-20261102-1`**（四十四期：prompts 新增 Thinking/Growth；本地打包 backend 直传构建，未走 CI）；上一版 `ci-62` 的容器保留 Exited(0) 作回滚点 |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-fRCBNrZy.js`（328,576 B，三十八期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件** |
-| 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **613** 条（**604 published** + 9 draft） |
+| 前端产物 | `assets/index-Can5Zs_K.js`（328,584 B，四十四期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件** |
+| 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
@@ -177,6 +177,37 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 四十四期：提示词库新增「思维」「成长」分类 + 收录卡兹克 12 条提示词（2026-11-02，提交 `e0873f7`，生产镜像 `qianxi-blog:manual-20261102-1`）
+
+**起因**：千禧给了一篇公众号文章（卡兹克《都 Agent 时代了，我还是想分享给你这 12 个我最常用的 Prompt》，`https://mp.weixin.qq.com/s/NAdhdFrUq9-BKelqzqpwBQ`），要把里面 12 条提示词收进博客提示词库。原文按「问清问题 / 学习 / 解决问题 / 决策 / 认识自己」分 5 组，而现有分类只有 Dev/Writing/Business/Academic/Other，没有落点 —— 千禧拍板新增 **Thinking（思维）**、**Growth（成长）**，并明确「构建只能在本地，不能在服务器上构建前端」（服务器 2 核 3.6G，红线照旧）。
+
+**为什么必须前后端 + 镜像一起改**：`prompts.category` 是 SQLAlchemy `Enum`。SQLite 建表没 CHECK（`create_constraint` 默认关），但**读结果时 Enum 会反查合法值，遇到未定义分类直接抛 `LookupError`** —— 库里只要出现 `Thinking` 行，旧镜像的 `GET /api/v1/prompts` 会整页 500。所以顺序是：先上镜像，再写数据，最后上页面。
+
+改动（10 文件）：
+- 后端：`backend/app/models/prompt.py`（Enum 加两值 + 注释）、`backend/app/schemas/prompt.py`（`PromptCategory` Literal）、`backend/app/api/v1/users.py`（用户改自己投稿的分类白名单）、`backend/app/services/agent/skills/prompts.py`（Agent 技能的 JSON schema enum）。
+- 前端：`frontend/api/prompts.ts`、`frontend/types.ts`、`frontend/pages/PromptDetail.tsx`（中文标签 思维/成长）、`frontend/pages/PromptLibrary.tsx`（筛选 chips、`categoryLabels`、提交下拉；**顺手补上了原来漏掉的「其他」chip**）、`frontend/pages/PromptManager.tsx`（徽章颜色 Thinking=cyan / Growth=rose、编辑下拉）、`frontend/pages/UserCenter.tsx`（我的投稿下拉）。
+- 脚本：`scripts/import_prompt_collection.py`（幂等，按 title 判重；`--dry-run` / `--update` / `--db`）。
+
+**数据**：12 条 id `56~67`，`status=approved`、`author_id=NULL`、`submitted_by=卡兹克`，描述里带「来源：卡兹克《…》+ 原文链接」。
+- Thinking 10：苏格拉底式提问 / 双层解释法 / 反向拆解 / 横纵分析法 / 事实核查 / 专家会诊 / 第一性原理 / 跨领域借解 / 双向钢人论证 / 用最小实验替代空想；
+- Growth 2：挖掘隐藏天赋 / 人生设计术。
+正文逐字取自原文，只补段落与编号换行（另做过「去空白后与原文逐字比对」，12/12 通过）。导入前备份线上库：`/data/blog/backups/blog-pre-prompts-20261102-165331.db`。
+
+**部署（没走 CI）**：本地领先 `origin/master` 29 个提交、又不能 push，CI 触发不了，所以手工走一遍 CI 的两条腿：
+- 后端：本地打包 `backend/` → scp → 服务器 `docker build` → 镜像自检（技能 55 个、`Prompt` 能构造 Thinking/Growth）→ 继承现容器 env（`runtime.env` 增量合并 0 键）→ `docker stop` + 旧容器改名保留（`Exited(0)`，可回滚）→ 起新容器（`--memory 1g --cpus 2`、`-v /data/blog/data:/data`、`-p 127.0.0.1:8000:7860`、`uvicorn --workers 2 --proxy-headers`）→ 90s health + 公网冒烟，失败回滚。脚本与 `scripts/ci/deploy_backend.sh` 一致，只去掉开头的 `git fetch && git reset --hard origin/master`。
+- 前端：**本机** `tsc --noEmit` + `npm run build`，打包 `dist`（排除 `uploads/`、`data/`，线上这两个目录由部署脚本保留）→ 服务器 `scripts/ci/deploy_frontend.sh` 原子替换。产物 `assets/index-Can5Zs_K.js`（328,584 B，180 文件；`PromptLibrary` 23,750 B、`PromptDetail` 8,171 B）。
+
+**验证（2026-11-02 17:00 CST）**：
+```
+GET /api/v1/prompts                    → total 36（37 条里 1 条 pending）
+GET /api/v1/prompts?category=Thinking  → 10
+GET /api/v1/prompts?category=Growth    → 2
+/#/prompts                             → chips 全部/开发/写作/商业/学术/思维/成长/其他；「思维」筛出 10 条
+/#/prompts/67                          → 「成长」徽章 + 作者卡兹克 + 原文链接 + markdown 正文正常
+```
+
+**坑**：站点是 **HashRouter**，直接访问 `/prompts` 会命中 SPA fallback 落回首页；验证要用 `/#/prompts`（截图前等懒加载 chunk 到齐，否则是白页）。旧 chunk 超过 `KEEP_DAYS=3` 会被清掉（本期部署携带 0 个），部署前就开着的标签页切路由会 404 —— 与三十九期结论一致。
 
 ## 四十三期：分类归一的洞 + 规划层去掉「其他」（2026-10-29，提交 `7071849`）
 
