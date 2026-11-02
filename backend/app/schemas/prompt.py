@@ -8,7 +8,7 @@ from typing import Optional, Literal
 from pydantic import BaseModel, Field
 
 
-PromptCategory = Literal["Dev", "Writing", "Business", "Academic", "Other"]
+PromptCategory = Literal["Dev", "Writing", "Business", "Academic", "Thinking", "Growth", "Other"]
 
 
 class PromptBase(BaseModel):

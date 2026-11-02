@@ -41,13 +41,15 @@ const PromptLibrary: React.FC = () => {
   // Copy success state
   const [copySuccess, setCopySuccess] = useState<number | null>(null);
 
-  const categories: (PromptCategory | 'All')[] = ['All', 'Dev', 'Writing', 'Business', 'Academic'];
+  const categories: (PromptCategory | 'All')[] = ['All', 'Dev', 'Writing', 'Business', 'Academic', 'Thinking', 'Growth', 'Other'];
   const categoryLabels: Record<PromptCategory | 'All', string> = {
     All: '全部',
     Dev: '开发',
     Writing: '写作',
     Business: '商业',
     Academic: '学术',
+    Thinking: '思维',
+    Growth: '成长',
     Other: '其他',
   };
 
@@ -556,6 +558,9 @@ const PromptLibrary: React.FC = () => {
                   <option value="Writing">Writing</option>
                   <option value="Business">Business</option>
                   <option value="Academic">Academic</option>
+                  <option value="Thinking">Thinking</option>
+                  <option value="Growth">Growth</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
               {/* 提交者身份已绑定登录账号（2026-09-26 二期），不再手填昵称 */}

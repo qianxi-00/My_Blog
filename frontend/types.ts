@@ -17,7 +17,7 @@ export interface Prompt {
   title: string;
   description: string;
   content: string;
-  category: 'Dev' | 'Writing' | 'Business' | 'Academic';
+  category: 'Dev' | 'Writing' | 'Business' | 'Academic' | 'Thinking' | 'Growth' | 'Other';
 }
 
 export interface ChatMessage {

@@ -201,7 +201,7 @@ async def update_my_prompt(
     update_data = {k: v for k, v in data.items() if k in allowed and v is not None}
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="没有可更新的字段")
-    if "category" in update_data and update_data["category"] not in ("Dev", "Writing", "Business", "Academic", "Other"):
+    if "category" in update_data and update_data["category"] not in ("Dev", "Writing", "Business", "Academic", "Thinking", "Growth", "Other"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无效的分类")
     if "title" in update_data and not str(update_data["title"]).strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="标题不能为空")

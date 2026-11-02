@@ -169,6 +169,8 @@ const PromptManager: React.FC = () => {
             Writing: 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800',
             Business: 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800',
             Academic: 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800',
+            Thinking: 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800',
+            Growth: 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800',
             Other: 'bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600',
         };
         return (
@@ -178,7 +180,7 @@ const PromptManager: React.FC = () => {
         );
     };
 
-    const categories: PromptCategory[] = ['Dev', 'Writing', 'Business', 'Academic', 'Other'];
+    const categories: PromptCategory[] = ['Dev', 'Writing', 'Business', 'Academic', 'Thinking', 'Growth', 'Other'];
 
     return (
         <div className="space-y-6">

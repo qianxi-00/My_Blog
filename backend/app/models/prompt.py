@@ -25,7 +25,11 @@ class Prompt(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     
     category: Mapped[str] = mapped_column(
-        Enum("Dev", "Writing", "Business", "Academic", "Other", name="prompt_category_enum"),
+        # 2026-11-02 四十四期：新增 Thinking（思维）/ Growth（成长），承载通用思维类提示词。
+        Enum(
+            "Dev", "Writing", "Business", "Academic", "Thinking", "Growth", "Other",
+            name="prompt_category_enum",
+        ),
         nullable=False
     )
     

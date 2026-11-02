@@ -12,6 +12,8 @@ const categoryLabels: Record<string, string> = {
   Writing: '写作',
   Business: '商业',
   Academic: '学术',
+  Thinking: '思维',
+  Growth: '成长',
   Other: '其他',
 };
 

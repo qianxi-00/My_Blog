@@ -802,7 +802,7 @@ const MyPromptsSection: React.FC<{ onAuthError: (error: any) => boolean }> = ({ 
                                                 onChange={(e) => setEditData({ ...editData, category: e.target.value })}
                                                 className="px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-cyan-500 outline-none"
                                             >
-                                                {['Dev', 'Writing', 'Business', 'Academic', 'Other'].map((c) => (
+                                                {['Dev', 'Writing', 'Business', 'Academic', 'Thinking', 'Growth', 'Other'].map((c) => (
                                                     <option key={c} value={c}>{c}</option>
                                                 ))}
                                             </select>

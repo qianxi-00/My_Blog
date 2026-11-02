@@ -57,7 +57,7 @@ SKILL_SCHEMAS: List[Dict[str, Any]] = [
                     "description": {"type": "string", "description": "描述（可选）"},
                     "category": {
                         "type": "string",
-                        "enum": ["Dev", "Writing", "Business", "Academic", "Other"],
+                        "enum": ["Dev", "Writing", "Business", "Academic", "Thinking", "Growth", "Other"],
                         "description": "分类（可选）",
                     },
                 },

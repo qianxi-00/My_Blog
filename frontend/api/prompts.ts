@@ -3,7 +3,7 @@
  */
 import api, { PaginatedResponse } from './config';
 
-export type PromptCategory = 'Dev' | 'Writing' | 'Business' | 'Academic' | 'Other';
+export type PromptCategory = 'Dev' | 'Writing' | 'Business' | 'Academic' | 'Thinking' | 'Growth' | 'Other';
 
 export interface PromptAuthor {
     id: number;
