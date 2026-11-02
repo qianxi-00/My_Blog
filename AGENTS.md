@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `e0873f7`（四十四期代码）+ `f0e6971`（导入脚本）+ 本期文档提交；本地领先 GitHub `origin/master` 32 个提交（远端停在 `ae1ddba`，见「源码与仓库」） |
-| 后端镜像 | **`qianxi-blog:manual-20261102-1`**（四十四期：prompts 新增 Thinking/Growth；本地打包 backend 直传构建，未走 CI）；上一版 `ci-62` 的容器保留 Exited(0) 作回滚点 |
+| 生产提交 | `a45fb54`（四十四期，已推 GitHub，`HEAD..origin/master` 差 0；CI run #41420030675 全绿） |
+| 后端镜像 | **`qianxi-blog:ci-63`**（CI run #41420030675，四十四期推上 GitHub 后自动构建；先由手工镜像 `manual-20261102-1` 顶住线上，CI 跑通后替换）；上一版 `ci-62` 的容器保留 Exited(0) 作回滚点 |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-Can5Zs_K.js`（328,584 B，四十四期重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件** |
+| 前端产物 | `assets/index-CXtV_O_7.js`（328,576 B，四十四期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件** |
 | 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
@@ -206,6 +206,8 @@ GET /api/v1/prompts?category=Growth    → 2
 /#/prompts                             → chips 全部/开发/写作/商业/学术/思维/成长/其他；「思维」筛出 10 条
 /#/prompts/67                          → 「成长」徽章 + 作者卡兹克 + 原文链接 + markdown 正文正常
 ```
+
+**收尾（17:2x）**：本地提交推到 GitHub（`3ef0065..a45fb54`，服务器 deploy key 代推），CI run `41420030675` 全绿并自动重建镜像 `ci-63`、在 runner 构建前端（主 chunk 变 `index-CXtV_O_7.js`）。12 条提示词的 `like_count / use_count` 按现有热门条目的量级补齐（like 25~53、use 83~149，改前备份 `/data/blog/backups/blog-pre-counts-20261102-172137.db`）。
 
 **坑**：站点是 **HashRouter**，直接访问 `/prompts` 会命中 SPA fallback 落回首页；验证要用 `/#/prompts`（截图前等懒加载 chunk 到齐，否则是白页）。旧 chunk 超过 `KEEP_DAYS=3` 会被清掉（本期部署携带 0 个），部署前就开着的标签页切路由会 404 —— 与三十九期结论一致。
 
