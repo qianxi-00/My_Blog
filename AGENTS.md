@@ -178,6 +178,21 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
 
+## 四十五期：首页头像 404——清理上传图时删掉了仍在引用的头像（2026-11-02，数据修复，无代码提交）
+
+**症状**：首页右侧大圆盘空白（`<img>` 404 后没内容），nginx 日志反复出现 `GET /uploads/images/2d6022de5c4244e3b27272cf453cfeb8.jpg 404`。
+
+**根因（两段）**：
+- 头像**不走** `site_settings.admin_avatar`：`GET /api/v1/settings/public` 优先取 `admins` 表里第一个 `super_admin` 的 `avatar_url`（`backend/app/api/v1/settings.py:56`）。
+- `admins.id=1`（qianxi）的 `avatar_url` 指向 `2d6022de…jpg`，这张图在**四十一期** `4dfb946`「清掉 23 张从没被用过的上传图」时被删 —— 当时的清理只扫文章正文/封面，没扫 `admins.avatar_url` 与 `site_settings`，误删。
+- 同一张图（md5 `b112688c9bf99835a55a25709c1d7a2f`，43,498 B）还以 `d6241590…jpg` 存在：`admins.id=3`、`site_settings.admin_avatar` 都指向它，且它在 git 里被跟踪。
+
+**修复**：把 `admins.id=1` 与 `users.id=1` 的 `avatar_url` 改指 `/uploads/images/d6241590da0640d68bf8cb5813f440d2.jpg`（同一份字节，不用恢复已删文件）。改后 `/api/v1/settings/public` 立即返回新路径，图片 200。缓存是 10 分钟 TTL 的 `settings:public`，本次线上 Redis 没启用（`REDIS_PORT=63791` 无监听），所以改库即时生效；若哪天 Redis 生效，改完要记得清该 key 或等 TTL。
+
+**教训**：
+- 删上传图前按「DB 里所有 `/uploads/` 引用」交叉核对：`admins/users.avatar_url`、`site_settings.value`、`articles.cover_image + content_md/html`、`comments.avatar_url`。事后审计 25 处引用，仅这一处悬空。
+- `users` 和 `admins` 两张表都有 `super_admin` 行，**头像以 `admins` 为准**；改 `users` 不动 `admins` 等于没改。
+
 ## 四十四期：提示词库新增「思维」「成长」分类 + 收录卡兹克 12 条提示词（2026-11-02，提交 `e0873f7`，生产镜像 `qianxi-blog:manual-20261102-1`）
 
 **起因**：千禧给了一篇公众号文章（卡兹克《都 Agent 时代了，我还是想分享给你这 12 个我最常用的 Prompt》，`https://mp.weixin.qq.com/s/NAdhdFrUq9-BKelqzqpwBQ`），要把里面 12 条提示词收进博客提示词库。原文按「问清问题 / 学习 / 解决问题 / 决策 / 认识自己」分 5 组，而现有分类只有 Dev/Writing/Business/Academic/Other，没有落点 —— 千禧拍板新增 **Thinking（思维）**、**Growth（成长）**，并明确「构建只能在本地，不能在服务器上构建前端」（服务器 2 核 3.6G，红线照旧）。
