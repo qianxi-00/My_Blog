@@ -9,10 +9,10 @@
 
 | 项 | 值 |
 |---|---|
-| 生产提交 | `a45fb54`（四十四期，已推 GitHub，`HEAD..origin/master` 差 0；CI run #41420030675 全绿） |
+| 生产提交 | `29d51de`（四十七期，已推 GitHub，`HEAD..origin/master` 差 0；CI run #43179657653 全绿，本次只有前端变更，后端部署步骤自动跳过） |
 | 后端镜像 | **`qianxi-blog:ci-63`**（CI run #41420030675，四十四期推上 GitHub 后自动构建；先由手工镜像 `manual-20261102-1` 顶住线上，CI 跑通后替换）；上一版 `ci-62` 的容器保留 Exited(0) 作回滚点 |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-CXtV_O_7.js`（328,576 B，四十四期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
+| 前端产物 | `assets/index-uP52-kpl.js`（328,576 B，四十七期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
@@ -177,6 +177,18 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 四十七期：文章详情页右侧信息栏在 lg(1024) 起显示（2026-11-12，提交 `29d51de`，CI run #43179657653）
+
+**症状**：千禧反馈迁入的 34 篇论文详情页「没有右边那一坨」（作者卡 / 文章信息 / 分享 / 标签 / 系列文章），老文章有。
+
+**根因**：不是数据问题。`frontend/components/ArticleSidebar.tsx:61` 根节点是 `hidden xl:block w-72`，`frontend/pages/ArticleDetail.tsx:694` 左侧大纲也是 `hidden xl:block`——Tailwind `xl` = **1280px**，CSS 视口 <1280px 时整块 `display:none`。1280 宽的屏幕扣掉滚动条后视口约 **1264px**，正好掉在断点下。实测 1264px 下文章 142（新）与 108（老）的两块 `aside` 都是 `display:none`；接口 `GET /api/v1/articles/109…142` 全部 200，`author`/`tags`/`read_time_minutes` 等字段与老文章一致。
+
+**修复**：右侧栏改 `hidden lg:block`（1024 起显示）；左侧大纲保持 `xl`，避免 1024–1279 区间「大纲 + 右侧栏」把正文挤到 400 多 px。只改一行，本地 `npm run build` 通过后由 CI 在 runner 构建部署（服务器不跑 node）。
+
+**验证**：CI 绿、主 chunk 变 `assets/index-uP52-kpl.js`（328,576 B）、`dist/uploads/wkq` 191 张与 `uploads/images` 均保留；1264px 窗口打开 `/#/articles/142`：右侧栏 `display:block`、宽 288px，左侧大纲仍 `none`，「目录」按钮可用。
+
+**教训**：`xl` 断点 ≠ 1280 屏。1280 屏有滚动条时 CSS 视口约 1264px，`min-width:1280px` 不命中；遇到「某块在窄窗口消失」先看根节点断点类，再在同宽度下对比老/新页面，别先怀疑数据。
 
 ## 四十六期：迁入 wkq9411.github.io 全部 34 篇文章 + 191 张图本地化（2026-11-12，数据操作，脚本见 `scripts/wkq_migration/`）
 
