@@ -58,7 +58,7 @@
 | nginx | `/etc/nginx/sites-available/blog`（独立文件，别动 `new-api` 那份）。80 端口有 `^~ /.well-known/acme-challenge/` 例外 + 301，**别删这个例外，删了证书续不了**。⚠️ **`/api/` 的 `proxy_set_header X-Forwarded-For` 必须是 `$remote_addr`（覆写），不能是 `$proxy_add_x_forwarded_for`（追加）**——否则客户端自带 XFF 头即可伪造来源 IP 绕过限流。**二十九期的缓存策略见该节**：`location /` 全量 no-store、`^~ /assets/` 长缓存 + `try_files $uri =404`（**别退回 `location = /index.html`，对根请求不生效，实测踩过**） |
 | 证书 | Let's Encrypt `blog.qianxi7988.me`，到期 **2026-12-23 07:07 UTC**，certbot 自动续期（webroot=`/var/www/blog/dist`）。同机还有 `cpa`（12-15）、`magpie`（2027-01-24）、`qianxi7988.me`+`api`（12-05） |
 | 运行配置 | `/data/blog/runtime.env`（600 root-only）。键：`OPENAI_API_KEY/BASE/MODEL/MODEL_FALLBACKS`、`ZHAIYAO_MODEL`、`AGENT_*`、`LLM_MODEL_CHAIN`、`JWT_SECRET_KEY`、`REDIS_ENABLED=false`、`SITE_URL`、`SMTP_*`（8 个）、以及十期加的 `PIPELINE_API_KEY / PIPELINE_API_BASE / PIPELINE_MODEL / PIPELINE_CRON_KEY`。**部署时 runtime.env 与容器现有 env 做增量合并**（容器已有的键以容器现值为准，只有新键才补进去） |
-| 备份 | `/data/blog/backup-db.sh`，cron 每天 04:30 热备份到 `/data/blog/backups/`（DB + nginx/cron/runtime.env 快照 + 源码变化时重打包），保留 14 天 |
+| 备份 | `/data/blog/backup-db.sh`，cron 每天 04:30 热备份到 `/data/blog/backups/`（DB + nginx/cron/runtime.env 快照 + 源码变化时重打包）。**2026-11-12 起只保留最新 1 份**（原为 14 天，千禧要求别堆太多）；脚本清理段同时清掉遗留的 `-shm`/`-wal` |
 | AI 日报 | `/data/blog/scripts/fetch_ai_daily.py` + `/etc/cron.d/blog-ai-daily`：每 30 分钟拉 **`aihot.news` /api/v1**（2026-10-08 自旧接口迁移），直写 `/var/www/blog/dist/data/`。ETag 状态 `/data/blog/logs/ai-daily-state.json`。日志 `/data/blog/logs/ai-daily-fetch.log` |
 | 提示词同步 | `/data/blog/scripts/sync_coze_prompts.py` + `/etc/cron.d/blog-coze-sync`：每天 05:10 拉扣子机器人人设 → 投稿接口入库 `pending`，后台审核后上架。PAT 在 `/data/blog/coze.env`（600，**最长 30 天过期**，过期日志记 401）。状态 `/data/blog/coze-sync-state.json`，日志 `/data/blog/logs/coze-prompt-sync.log` |
 | AI 网络桥 | docker 网络 `blog-net`：`qianxi-blog` 与 `new-api` 都挂着。**拆掉这个网络 AI 就断**（new-api 只发布在宿主 `127.0.0.1:3001`）。**2026-09-28 起持久化**：`/data/new-api-stack/docker-compose.yml` 的 `new-api` 服务声明 `networks: [default, blog-net]` + 顶层 `networks: blog-net: external: true`，`docker compose up -d` 不会再丢 |
@@ -205,6 +205,8 @@ docker exec -e PYTHONPATH=/app -w /app qianxi-blog python /data/import_wkq.py [-
 **验证**：`GET /api/v1/articles?page_size=3` total=**57**；`/api/v1/articles/109` 无 `{%`/`{:toc`/`<!--more-->`/`[[WKQPOST`/`wkqpicture` 残留；浏览器实测文章 109 架构图、116 的 KaTeX 公式（(1)–(4)）均正常渲染；`curl /uploads/wkq/20250321200005044.png` → 200 image/png 75,448 B。
 
 **回滚**：导入前备份 `/data/blog/backups/blog-pre-wkq-20261112-142145.db`（29,024,256 B）。
+
+**备份瘦身（2026-11-12）**：按千禧要求「只保留最新一次备份」，清掉 19 个旧 DB 和旧的 conf/src 快照（683M → 32M），只留 `blog-pre-covers-20261112-145913.db`（integrity ok，57 文 / 37 提示词）；`backup-db.sh` 的清理段同步改成「按 mtime 排序只留最新 1 份」。
 
 **教训**：① 迁站先确认目标站是 HashRouter 还是 BrowserRouter，站内链接格式跟着变；② 外链图片先测防盗链（带 Referer 请求一次），别等上线才发现全是破图；③ kramdown 属性清理要按「行尾 + 白名单前缀」做，`{:=` 是数学不是属性。
 
