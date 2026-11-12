@@ -58,7 +58,7 @@ const ArticleSidebar: React.FC<ArticleSidebarProps> = ({ article, relatedArticle
     };
 
     return (
-        <aside className="hidden xl:block w-72 flex-shrink-0 pl-8 pt-0">
+        <aside className="hidden lg:block w-72 flex-shrink-0 pl-8 pt-0">
             <div className="sticky top-16 space-y-4">
                 {/* 作者卡片 */}
                 <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 p-5 shadow-sm transition-colors">
