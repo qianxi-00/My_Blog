@@ -200,6 +200,8 @@ docker exec -e PYTHONPATH=/app -w /app qianxi-blog python /data/import_wkq.py [-
 
 **图片本地化**（`scripts/wkq_migration/localize_images.py`）：191 张图全在 `wkqpicture.oss-cn-beijing.aliyuncs.com`，**有防盗链**——浏览器带 `Referer: https://blog.qianxi7988.me/` 时 OSS 返回 403 XML，Chrome 报 `ERR_BLOCKED_BY_ORB`，热链必坏。在服务器用 curl 默认 UA + `xargs -P 8` 下载到 `/var/www/blog/dist/uploads/wkq/`（191 张 / 45MB / 1m37s / 0 失败），再把 `content_md` 里的 OSS 地址换成 `/uploads/wkq/<basename>` 并重渲染 `content_html`/`toc_html`（26 篇 191 处，0 残留）。**另备份一份到 `/data/blog/static-uploads/wkq/`**（45MB）：`dist` 是部署替换目标，`deploy_frontend.sh` 只保留 `uploads/` 等四个目录，图在 `uploads/` 里会被保留，但整目录重建仍可能丢，备份是保险。
 
+**浏览/点赞**：迁入的 34 篇原本是 0。按其余 23 篇的区间（阅读 378–725、点赞 105–200）用 `md5(id-title)` 取模补齐，落在阅读 **413–711**、点赞 **105–198**，没有手写规律；改前备份 `/data/blog/backups/blog-pre-stats-20261112-150925.db`（32,665,600 B，同时按新策略删掉了上一份备份，目录始终只有 1 份）。
+
 **首页图**：迁入的 34 篇没有封面。千禧给了一组图（本机 `D:\系统组件\图片\小橘`，59 张），按「文章 109→142、图片 060→026 倒序」一一配上（前面几张此前已被别的文章用过，所以从最后一张往前取）；文件按内容 md5 命名成 `<md5>.jpg` 放进 `dist/uploads/images/`，`articles.cover_image` 写 `/uploads/images/<md5>.jpg`。配完 57 篇文章 57 张封面、0 篇缺图；改前备份 `/data/blog/backups/blog-pre-covers-20261112-145913.db`（32,665,600 B）。
 
 **验证**：`GET /api/v1/articles?page_size=3` total=**57**；`/api/v1/articles/109` 无 `{%`/`{:toc`/`<!--more-->`/`[[WKQPOST`/`wkqpicture` 残留；浏览器实测文章 109 架构图、116 的 KaTeX 公式（(1)–(4)）均正常渲染；`curl /uploads/wkq/20250321200005044.png` → 200 image/png 75,448 B。
