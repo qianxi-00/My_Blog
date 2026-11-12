@@ -5,15 +5,15 @@
 
 > **本文件是重建版（2026-10-26）。** 旧版头部停留在 2026-09-28 的 `ci-34` / `index-BB9CPIwO.js` / `ebb9682`，与实际差了近一个月、十几个期次，容易把人带偏。本次按实测重排了章节顺序（期次严格倒序），刷新了「现行生产 / AI 链路 / 源码与仓库 / 数据事实 / 已知缺口 / 验证 / 待办」这些**描述现状**的段落，并补了三十七期。**各期次记录（八期~三十六期）正文原样保留**，它们记的是当时的决策与实测，不必回改。
 
-## 一眼看现状（2026-10-29 17:05 CST 实测）
+## 一眼看现状（2026-11-12 14:40 CST 实测）
 
 | 项 | 值 |
 |---|---|
 | 生产提交 | `a45fb54`（四十四期，已推 GitHub，`HEAD..origin/master` 差 0；CI run #41420030675 全绿） |
 | 后端镜像 | **`qianxi-blog:ci-63`**（CI run #41420030675，四十四期推上 GitHub 后自动构建；先由手工镜像 `manual-20261102-1` 顶住线上，CI 跑通后替换）；上一版 `ci-62` 的容器保留 Exited(0) 作回滚点 |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
-| 前端产物 | `assets/index-CXtV_O_7.js`（328,576 B，四十四期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件** |
-| 内容量 | 文章 **23** 篇（全 published，最新是 2026-04 的老文）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
+| 前端产物 | `assets/index-CXtV_O_7.js`（328,576 B，四十四期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
+| 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
@@ -177,6 +177,34 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 四十六期：迁入 wkq9411.github.io 全部 34 篇文章 + 191 张图本地化（2026-11-12，数据操作，脚本见 `scripts/wkq_migration/`）
+
+**起因**：千禧要把 `https://wkq9411.github.io/`（Jekyll 站，仓库 `WKQ9411/WKQ9411.github.io`，`_posts` 34 篇）的文章全量迁进博客，并要求「按分类打对应标签」。源分类：Paper 17 / RL 11 / Code 4 / Note 2。
+
+**清洗规则**（`scripts/wkq_migration/build_manifest.py` → `manifest.json`，1,267,592 B，md5 `a6f2cf4d3284838a606f95f6964ed080`）：
+
+- 去 BOM/front matter；删 `{% raw %}`/`{% endraw %}`；整块删开头 TOC（`# 目录` + `{:.no_toc}` + `* TOC` + `{:toc}` + `---`）；删 `<!--more-->`。
+- 只删**行尾** kramdown 属性 `{:#id}`/`{:.class}`；数学里的 `{:= \mathbf{P}}` 是 LaTeX underbrace 标签，删了公式就坏。
+- 内部链接 `](/YYYY-MM-DD/Key.html#anchor)` → `[[WKQPOST:Key]]` 占位；Key 精确匹配不到时去掉 `Code-/Paper-/Note-/RL-` 前缀再匹配（`Note-PG-PPO-GRPO` → `RL-PG-PPO-GRPO`）。34 篇 0 problems。
+
+**导入**（`scripts/wkq_migration/import_posts.py`，容器内跑）：
+
+```bash
+docker exec -e PYTHONPATH=/app -w /app qianxi-blog python /data/import_wkq.py [--apply]
+```
+
+- 两个坑：① 只 import `app.models.article` 会报 `InvalidRequestError: ... 'Comment' is not defined`，必须 `import app.main` 注册全部模型；② 异步里直接 `art.tags.append` 会 `MissingGreenlet`，要 `select(Article).options(selectinload(Article.tags))` 重查后再 append。
+- 结果：34 篇 → id **109–142**，status=published，author_id=1，category=源分类，published_at=front matter（16:00 +08:00），read_time 由后端 `estimate_read_time` 算；标签=源分类（Tag id：Code 1955、Note 1956、Paper 1957，RL 复用 119）。再把 `created_at/updated_at` 都设成 `published_at`——详情页右侧「文章信息」的发布日期读的是 `created_at`（`components/ArticleSidebar.tsx:172`），不改会显示导入时间。
+- **链接坑**：站内路由是 HashRouter，链接必须写成 `/#/articles/<id>`。第一版写成 `/articles/<id>`，点进去 nginx `try_files` 回落 `index.html`，HashRouter 看不到 hash → 直接掉回首页。用 `fix_hash_links.py` 改成 `/#/articles/<id>`（4 篇 9 处）。
+
+**图片本地化**（`scripts/wkq_migration/localize_images.py`）：191 张图全在 `wkqpicture.oss-cn-beijing.aliyuncs.com`，**有防盗链**——浏览器带 `Referer: https://blog.qianxi7988.me/` 时 OSS 返回 403 XML，Chrome 报 `ERR_BLOCKED_BY_ORB`，热链必坏。在服务器用 curl 默认 UA + `xargs -P 8` 下载到 `/var/www/blog/dist/uploads/wkq/`（191 张 / 45MB / 1m37s / 0 失败），再把 `content_md` 里的 OSS 地址换成 `/uploads/wkq/<basename>` 并重渲染 `content_html`/`toc_html`（26 篇 191 处，0 残留）。**另备份一份到 `/data/blog/static-uploads/wkq/`**（45MB）：`dist` 是部署替换目标，`deploy_frontend.sh` 只保留 `uploads/` 等四个目录，图在 `uploads/` 里会被保留，但整目录重建仍可能丢，备份是保险。
+
+**验证**：`GET /api/v1/articles?page_size=3` total=**57**；`/api/v1/articles/109` 无 `{%`/`{:toc`/`<!--more-->`/`[[WKQPOST`/`wkqpicture` 残留；浏览器实测文章 109 架构图、116 的 KaTeX 公式（(1)–(4)）均正常渲染；`curl /uploads/wkq/20250321200005044.png` → 200 image/png 75,448 B。
+
+**回滚**：导入前备份 `/data/blog/backups/blog-pre-wkq-20261112-142145.db`（29,024,256 B）。
+
+**教训**：① 迁站先确认目标站是 HashRouter 还是 BrowserRouter，站内链接格式跟着变；② 外链图片先测防盗链（带 Referer 请求一次），别等上线才发现全是破图；③ kramdown 属性清理要按「行尾 + 白名单前缀」做，`{:=` 是数学不是属性。
 
 ## 四十五期：首页头像 404——清理上传图时删掉了仍在引用的头像（2026-11-02，数据修复，无代码提交）
 
