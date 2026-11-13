@@ -179,7 +179,7 @@ def render_entry(slot: str, db: dict, ai: dict, pipe: dict, bk: dict, archived: 
             f"- 内容：文章 {db['articles']}（今日 +{db['articles_today']}）｜热点 {db['hot_topics']}｜"
             f"提示词 {db['prompts']}｜评论 {db['comments']}",
             f"- AIHOT：索引更新于 {ai['updated']}，ai-daily {ai['files']} 个文件（索引 total={ai['total']}）",
-            f"- 流水线：最近 run `{pipe['run_id']}` 状态 {pipe['status']}；队列 archive {pipe['archive']} / failed {pipe['failed']}",
+            f"- 流水线：最近 run `{pipe['run_id']}` 状态 {pipe['status']}；队列 archive {pipe['archive']} 轮 / failed {pipe['failed']}",
             f"- 备份：{bk['db']}（{bk['db_mtime']}）；NAS 导出 {bk['nas']}",
             f"- 访问：今日 PV {db['views_today']} / UV {db['uv_today']}；AI 调用 {db['ai_calls_today']} 次",
         ]
@@ -188,7 +188,7 @@ def render_entry(slot: str, db: dict, ai: dict, pipe: dict, bk: dict, archived: 
         items = "、".join(archived[:6]) + ("…" if len(archived) > 6 else "")
         lines = [
             f"- 新增归档 {len(archived)} 篇：{items}",
-            f"- 队列 archive {pipe['archive']} / failed {pipe['failed']}；最近 run `{pipe['run_id']}` 状态 {pipe['status']}",
+            f"- 队列 archive {pipe['archive']} 轮 / failed {pipe['failed']}；最近 run `{pipe['run_id']}` 状态 {pipe['status']}",
             f"- 文章 {db['articles']}（今日 +{db['articles_today']}）｜热点 {db['hot_topics']}",
         ]
     return title + "\n" + "\n".join(lines) + "\n"
