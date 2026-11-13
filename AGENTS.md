@@ -14,6 +14,7 @@
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
 | 前端产物 | `assets/index-uP52-kpl.js`（328,576 B，四十七期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
+| NAS 备份 | `个人文件夹/MyBlogArchive/nas-export`（438MB 全量快照，2026-11-12 18:34 打包，四十八期）；`个人文件夹/MyBlog` 由 rsync 任务每天 05:00 同步 10MB 核心包（db+conf） |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
@@ -177,6 +178,18 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 四十八期：博客全量备份到绿联 NAS（2026-11-13，rsync + 百度网盘中转，无代码提交）
+
+- **背景**：NAS 不能开 SSH、登录的是户主子账号、与服务器不互通；只能经 `root@101.32.163.17:22`（腾讯云新加坡）中转。实测 NAS→服务器跨境 **~25KB/s**（444MB 要 5 小时），服务器→百度网盘 **~500KB/s**。
+- **服务器侧**（已落地）：
+  - `/data/blog/nas-export.sh`（root，700）+ `/etc/cron.d/blog-backup` 的 `35 4 * * *`：每天生成 `/data/blog/nas-export/` = `db/blog-<ts>.db.gz.gpg`（gpg AES256，口令 `/data/blog/.nas-backup.pass`，留 7 份）+ `conf/conf-<ts>.tgz.gpg`（nginx/cron/runtime.env，留 2 份）+ `uploads/`、`figures/`（`rsync -a --delete` 镜像）+ `source/blog.git`（`git push --mirror`）+ `source/blog-src-latest.tar.gz` + `MANIFEST.sha256` + `status.json`，约 438MB / 887 文件。
+  - `/etc/rsyncd.conf`：`port 18730`、`read only = yes`、`use chroot = yes`；模块 `[blogbackup] path=/data/blog/nas-current`（软链，平时指 `nas-core` 10MB，需要全量时临时指 `nas-export`）；账号 `nasbackup`，secrets `/etc/rsyncd.secrets`，密码副本见 `/etc/rsyncd.secrets`。NAS 只读拉取，服务器不需要 SSH。
+- **NAS 侧**：
+  - 客户端「同步与备份 → 备份与还原 → 备份 rsync 服务器」任务「博客备份」：源 `rsync(nasbackup@101.32.163.17:18730)` → `个人文件夹/MyBlog`，每天 05:00，增量备份。10MB 核心包已成功（2026-11-13 05:00 那次）。
+  - 全量走百度网盘中转（跨境太慢）：服务器 `bypy -s 1000m upload` 整文件上传 `archive/blog-export-20261112.tar.gz`（396,442,242 B），NAS「网盘工具 → 下载至绿联云」单次下载（**同步任务要百度网盘 NAS 会员，单次下载不需要**）→ `个人文件夹/MyBlogArchive/`，右键解压得到 `nas-export/`（438MB，db/conf/uploads/figures/source/MANIFEST/status 齐全）。
+- **坑**：① `bypy` 分片上传接口被百度拒（`31064 file is not authorized`），必须整文件上传，且 `-s` 要带单位（`-s 50m`；裸 `-s 50` 会被当成 50 字节仍走分片）；② 绿联客户端会主动剥离 `--remote-debugging-port`（日志 `Ignore user startup render/debug switches`），别指望 CDP 自动化；③ NAS 客户端 UI 无 UIA/OCR，只能截图 + 坐标点击；④ 跨境 rsync 单次拉 400MB 不现实，小体量夜间可以跑完。
+- **恢复**：把 `MyBlogArchive/nas-export/` 拷回服务器 `/data/blog/`；数据库是 `blog-<ts>.db.gz.gpg`（`gpg --decrypt` + `gunzip`），源码可直接 `git clone /path/blog.git`。凭据只在本地 `C:\Users\QianXi\.dsh-ops\blog\nas-backup\{rsync.pass,gpg.pass,README.md}`。
 
 ## 四十七期：文章详情页右侧信息栏在 lg(1024) 起显示（2026-11-12，提交 `29d51de`，CI run #43179657653）
 
