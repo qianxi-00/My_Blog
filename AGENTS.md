@@ -14,6 +14,7 @@
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
 | 前端产物 | `assets/index-uP52-kpl.js`（328,576 B，四十七期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
 | 前端性能 | 五十一期：Tailwind 构建期编译（`frontend/tailwind.config.js` + `postcss.config.js`）、去 Google Fonts/CDN、文章详情去 `content_html`；首页传输 1871KB→524KB |
+| 加载体验 | 启动动画（`frontend/index.html` 内联 splash）+ 骨架屏（`frontend/components/Skeleton.tsx`）+ `fade-up` / `stagger-in` / `card-lift`（五十三期，`3a8ec76`）；`prefers-reduced-motion` 下全部关闭 |
 | CDN | Cloudflare 代理（橙云）+ 删遗留 Worker 路由；nginx real_ip 还原真实客户端 IP；`/data/*` 边缘缓存 5 分钟（五十二期） |
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | NAS 备份 | `个人文件夹/MyBlogArchive/nas-export`（438MB 全量快照，2026-11-12 18:34 打包，四十八期）；`个人文件夹/MyBlog` 由 rsync 任务每天 05:00 同步 10MB 核心包（db+conf） |
@@ -182,6 +183,23 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 五十三期：加载体验——启动动画、骨架屏与过渡动效（2026-11-13，提交 `3a8ec76`）
+
+**起因**：首屏从 HTML 到达 React 渲染之间是纯白（跨境 TTFB ~1.2–1.9s + 入口 JS 105KB gz）；各页面数据加载态是「加载中...」纯文字或转圈，内容到达时高度会跳变。
+
+**做了什么**：
+1. **启动动画（Boot splash）**：`frontend/index.html` 内联 `<style>` + `#boot-splash` 结构（渐变 logo「Q」+ 呼吸环 + 进度条），不依赖任何外部资源；`index.tsx` 在 `createRoot().render()` 后双 `requestAnimationFrame` 给 `body` 加 `.app-ready`，CSS 260ms 淡出并移除节点；12s 仍未就绪则显示「加载较慢，请检查网络后刷新」。
+2. **主题引导脚本**：`index.html` 内联几行，读 `localStorage['blog-theme']` 或 `prefers-color-scheme`，在样式加载前给 `<html>` 加 `dark`——顺带修掉暗色用户每次加载先闪一帧白底。
+3. **骨架屏**：新增 `frontend/components/Skeleton.tsx`（`Skeleton` / `CardSkeleton` / `ListSkeleton` / `DetailSkeleton` / `ProfileSkeleton` / `PageSkeleton`），替换 `ArticleDetail`、`AuthorPage`、`HotspotDetail`、`PromptDetail`、`ForumThreadDetail`、`AiDaily`、`AiWeekly`、`AiResets`、`Leaderboard` 的纯文字/转圈加载态；灰块用 `.skeleton` 的 CSS shimmer（1.6s），暗色下降低高光。
+4. **过渡与微交互**：`index.css` 新增 `.fade-up`（260ms 上浮淡入）、`.stagger-in`（列表前 6 项 40ms 递增）、`.card-lift`（悬浮 -2px）；热点卡片启用 `card-lift`。全部只动 `transform` / `opacity`，时长 180–320ms。
+5. **无障碍**：`prefers-reduced-motion: reduce` 下骨架流光、入场、悬浮过渡全部关闭；splash 只保留静态 logo 与快速淡出。
+
+**未启用**：View Transitions API（React Router 的 `viewTransition`）。评估后放弃——路由 chunk 是懒加载，`startViewTransition` 会在新 chunk 到达前拍下旧页快照，过渡中先闪 Suspense 占位；与现有 `page-enter` 叠加还会双重淡入。路由过渡继续用 `page-enter`（所有浏览器一致）。
+
+**验证**：`npx tsc --noEmit` 通过；`npm run build` 18.57s；本地 `vite preview` 限速截图确认 splash 出现→淡出、文章详情骨架正常；CI 全绿后线上复查。
+
+**约定（后续新页面照此）**：加载态优先用 `Skeleton` 组件而不是「加载中...」；新增动效时长 180–320ms、只动 transform/opacity、必须进 reduced-motion 总闸。
 
 ## 五十二期：接入 Cloudflare 代理（2026-11-13，DNS 橙云 + 删遗留 Worker 路由 + 真实 IP 还原）
 
