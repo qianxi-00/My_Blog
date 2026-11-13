@@ -13,6 +13,7 @@
 | 后端镜像 | **`qianxi-blog:ci-63`**（CI run #41420030675，四十四期推上 GitHub 后自动构建；先由手工镜像 `manual-20261102-1` 顶住线上，CI 跑通后替换）；上一版 `ci-62` 的容器保留 Exited(0) 作回滚点 |
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
 | 前端产物 | `assets/index-uP52-kpl.js`（328,576 B，四十七期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
+| 前端性能 | 五十一期：Tailwind 构建期编译（`frontend/tailwind.config.js` + `postcss.config.js`）、去 Google Fonts/CDN、文章详情去 `content_html`；首页传输 1871KB→524KB |
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | NAS 备份 | `个人文件夹/MyBlogArchive/nas-export`（438MB 全量快照，2026-11-12 18:34 打包，四十八期）；`个人文件夹/MyBlog` 由 rsync 任务每天 05:00 同步 10MB 核心包（db+conf） |
 | AIHOT 扩展 | 模型榜 `/#/leaderboard`（`fetch_ai_leaderboard.py`，每小时 :25）、周报月报 `/#/ai-weekly`、额度重置 `/#/ai-resets`、热点页 Top10（`fetch_ai_extras.py`，每 30 分钟 :02/:32）；数据在 `dist/data/`，脚本在 `/data/blog/scripts/` |
@@ -180,6 +181,29 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 五十一期：首屏性能——Tailwind 构建期编译、去 Google Fonts、文章接口瘦身（2026-11-13，提交 `d1bc2d5` / `29ddf9d` / `6a29a88`）
+
+**症状**：用户反馈博客整体响应慢，热点、文章页尤其明显。
+
+**诊断（先量再改）**：
+- 后端不是瓶颈：服务器本地 `GET /api/v1/articles` 16ms、`/api/v1/articles/109` 16ms（响应 281KB）。
+- 首屏传输 1871KB / 32 请求，两个外部域名：`cdn.tailwindcss.com`、`fonts.googleapis.com`。
+- Google Fonts 的 CSS 请求 122KB、耗时 2.7s，且是**阻塞样式表**；国内网络下常直接失败。
+- 仓库根本没有 `tailwind.config.js` / PostCSS：全站样式靠 `cdn.tailwindcss.com` 在浏览器里**运行时 JIT 编译**（每次访问先下 ~100KB JS 再生成 CSS）。
+- 网络层：广州→新加坡直连 TCP 1.3s、TLS 11.6s；经代理 TLS 2s、TTFB 2–3.4s。这是跨境内核，代码层改不动。
+
+**改动**：
+1. Tailwind 迁到构建期（v3.4）：新增 `frontend/tailwind.config.js`（主题与旧 CDN 内联 config 逐项对齐：primary 全色阶、slate-850、spacing 4.5、pulse-slow、字体栈）、`frontend/postcss.config.js`，`frontend/index.css` 顶部加 `@tailwind base/components/utilities`；`index.html` 删掉 CDN 脚本与内联 config。产物 `assets/index-*.css` 186KB / gzip 31KB。
+2. 删掉 Google Fonts `<link>`（Noto Sans SC + Inter），字体改系统栈（`-apple-system` / `PingFang SC` / `Microsoft YaHei` / `Segoe UI`）；同时删掉构建后无引用的 `esm.sh` importmap。
+3. 文章详情公开接口不再下发 `content_html` / `toc_html`：前端一律用 `content_md` 客户端渲染（`MarkdownContent`），这两个服务端渲染产物每篇白传 ~170KB。单篇响应 281KB→78.5KB（gzip 53KB→23.8KB）；管理员请求保留。
+4. nginx 补缓存：`/data/` 5 分钟（AIHOT JSON 75KB/61KB 等原本落在 SPA 的 `no-store` 里，每次回访重下）、`/images/` 30 天 immutable（桌宠 webp 等）；`/assets/` 原本已是 30d immutable。
+
+**踩坑**：第 3 步最初把 `await db.refresh(article)` 也删了，导致 commit 后实例属性过期、序列化 `updated_at` 触发懒加载 → `MissingGreenlet` → 详情接口 500。refresh 是 DB 本地读（不走网络），必须保留；恢复后接口正常（`6a29a88`）。
+
+**效果（线上实测）**：首页传输 1871KB→524KB（-72%）、请求 32→29、外部域名 2→0；文章详情接口 gzip 53KB→23.8KB。首屏 DCL 仍 ~3.3s，瓶颈是跨境 TTFB（2–3s），需 CDN/线路层面解决。
+
+**遗留**：可选把站点挂 Cloudflare 或换国内可达 CDN（需评估备案/线路）；桌宠在 idle 后才加载，但仍会建 chat session（2–4 个请求），可再延后到用户点开时。
 
 ## 五十期：接入 AIHOT 2.0——模型榜、周报月报、热榜 Top10、观点与额度重置（2026-11-13，提交 `a17b2d5`）
 
