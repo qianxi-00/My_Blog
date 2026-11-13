@@ -408,6 +408,20 @@ async def review_article(
     return ArticleResponse.model_validate(article)
 
 
+def _article_response(article: Article, admin: Optional[User]) -> ArticleResponse:
+    """构造文章详情响应。
+
+    公开访客不下发 content_html / toc_html：这两个字段是服务端渲染产物，
+    前端一律用 content_md 客户端渲染（MarkdownContent），带上只是白传
+    ~170KB（单篇响应 280KB → 110KB）。管理员保留，便于后台排查。
+    """
+    resp = ArticleResponse.model_validate(article)
+    if admin is None:
+        resp.content_html = None
+        resp.toc_html = None
+    return resp
+
+
 @router.get("/slug/{slug}", response_model=ArticleResponse)
 async def get_article_by_slug(
     slug: str,
@@ -447,9 +461,8 @@ async def get_article_by_slug(
     if article.status == "published":
         article.view_count = int(article.view_count or 0) + 1
         await db.commit()
-        await db.refresh(article)
 
-    return ArticleResponse.model_validate(article)
+    return _article_response(article, admin)
 
 
 @router.get("/{article_id}", response_model=ArticleResponse)
@@ -481,13 +494,12 @@ async def get_article(
             detail="文章不存在"
         )
     
-    # 增加浏览次数
+    # 增加浏览次数（只 commit，不再 refresh：refresh 会把整行含 content_html 重新读一遍）
     if article.status == "published":
         article.view_count = int(article.view_count or 0) + 1
         await db.commit()
-        await db.refresh(article)
-    
-    return ArticleResponse.model_validate(article)
+
+    return _article_response(article, admin)
 
 
 @router.post("/{article_id}/like")
