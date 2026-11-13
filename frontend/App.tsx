@@ -25,6 +25,9 @@ const ForumThreadDetail = lazyWithRetry(() => import('./pages/ForumThreadDetail'
 const HotspotsList = lazyWithRetry(() => import('./pages/HotspotsList'));
 const HotspotDetail = lazyWithRetry(() => import('./pages/HotspotDetail'));
 const AiDaily = lazyWithRetry(() => import('./pages/AiDaily'));
+const AiWeekly = lazyWithRetry(() => import('./pages/AiWeekly'));
+const Leaderboard = lazyWithRetry(() => import('./pages/Leaderboard'));
+const AiResets = lazyWithRetry(() => import('./pages/AiResets'));
 const Login = lazyWithRetry(() => import('./pages/Login'));
 const Register = lazyWithRetry(() => import('./pages/Register'));
 const ForgotPassword = lazyWithRetry(() => import('./pages/ForgotPassword'));
@@ -96,6 +99,9 @@ const App: React.FC = () => {
                 <Route path="forum/threads/:id" element={<ForumThreadDetail />} />
                 <Route path="hotspots" element={<HotspotsList />} />
                 <Route path="ai-daily" element={<AiDaily />} />
+                <Route path="ai-weekly" element={<AiWeekly />} />
+                <Route path="leaderboard" element={<Leaderboard />} />
+                <Route path="ai-resets" element={<AiResets />} />
                 <Route path="hotspots/:id" element={<HotspotDetail />} />
                 {/* 用户系统路由 */}
                 <Route path="user" element={<UserCenter />} />

@@ -50,6 +50,7 @@ CATEGORIES = [
     ('industry', '行业', 'industry'),
     ('paper', '论文', 'paper'),
     ('tip', '技巧', 'tip'),
+    ('opinion', '观点', 'opinion'),
 ]
 
 

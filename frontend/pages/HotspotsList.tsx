@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
+import AiHotRankCard from '../components/AiHotRankCard';
 import {
   getHotspots,
   HotTopicListItem,
@@ -1013,6 +1014,8 @@ const HotspotsList: React.FC = () => {
       </section>
 
       <div className="space-y-6">
+        <AiHotRankCard />
+
         <HotspotTop3Carousel items={featuredItems} />
 
         <HotspotFilters

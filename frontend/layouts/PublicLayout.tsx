@@ -65,6 +65,8 @@ const PublicLayout: React.FC = () => {
     { label: '文章', path: '/articles' },
     { label: '热点', path: '/hotspots' },
     { label: 'AI日报', path: '/ai-daily' },
+    { label: '周报', path: '/ai-weekly' },
+    { label: '模型榜', path: '/leaderboard' },
     { label: '归档', path: '/archives' },
     { label: '提示词', path: '/prompts' },
     { label: '论坛', path: '/forum' },
@@ -100,7 +102,7 @@ const PublicLayout: React.FC = () => {
             </Link>
 
             {/* Desktop Nav */}
-            <nav className="hidden md:flex items-center gap-8">
+            <nav className="hidden lg:flex items-center gap-6">
               {navLinks.map((link) => (
                 <Link
                   key={link.path}

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { getAiDaily, getAiDailyIndex, getAiSelected, AiDailyPayload, AiDailySection, AiDailyIndex, AiSelectedPayload, AiSelectedItem } from '../api/aiDaily';
 
@@ -14,6 +15,7 @@ const SELECTED_TABS = [
   { key: 'industry', label: '行业', hint: '行业趋势' },
   { key: 'paper', label: '论文', hint: '研究论文' },
   { key: 'tip', label: '技巧', hint: '技巧观点' },
+  { key: 'opinion', label: '观点', hint: '观点评论' },
 ];
 
 const categoryStyle = (label: string) => {
@@ -57,6 +59,7 @@ const selectedCategoryName = (category?: string) => {
   if (category === 'industry') return '行业';
   if (category === 'paper') return '论文';
   if (category === 'tip') return '技巧';
+  if (category === 'opinion') return '观点';
   return '精选';
 };
 
@@ -106,13 +109,19 @@ const SelectedItemCard: React.FC<{ item: AiSelectedItem; index: number; featured
 const AiSelectedPanel: React.FC<{ selected: AiSelectedPayload | null; loading: boolean; error: string | null }> = ({ selected, loading, error }) => {
   const [activeTab, setActiveTab] = useState('all');
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState('');
 
   const activeCategory = useMemo(() => selected?.categories?.find((cat) => cat.key === activeTab), [selected, activeTab]);
-  const items = activeCategory?.items || selected?.items || [];
+  const items = useMemo(() => {
+    const base = activeCategory?.items || selected?.items || [];
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return base;
+    return base.filter((item) => `${item.title} ${item.summary || ''} ${item.source || ''}`.toLowerCase().includes(keyword));
+  }, [activeCategory, selected, query]);
   const totalPages = Math.max(1, Math.ceil(items.length / SELECTED_PAGE_SIZE));
   const pagedItems = items.slice((page - 1) * SELECTED_PAGE_SIZE, page * SELECTED_PAGE_SIZE);
 
-  useEffect(() => { setPage(1); }, [activeTab]);
+  useEffect(() => { setPage(1); }, [activeTab, query]);
 
   return (
     <section id="ai-selected" className="relative overflow-hidden bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
@@ -126,7 +135,18 @@ const AiSelectedPanel: React.FC<{ selected: AiSelectedPayload | null; loading: b
             <Icons.Sparkles className="w-4 h-4 text-primary-500" /> 实时精选
             <span className="text-sm font-semibold text-slate-400">{selected?.total || 0} 条在池</span>
           </h2>
-          <span className="text-xs text-slate-400">{formatTime(selected?.fetchedAt)} 更新</span>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Icons.Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索标题 / 摘要 / 来源"
+                className="w-44 sm:w-56 rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/70 pl-9 pr-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-cyan-200 dark:focus:ring-cyan-800"
+              />
+            </div>
+            <span className="text-xs text-slate-400">{formatTime(selected?.fetchedAt)} 更新</span>
+          </div>
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1">
@@ -292,6 +312,17 @@ const AiDaily: React.FC = () => {
               <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
                 与 AI HOT 对齐的实时精选流（{selected?.total || 0} 条在池），下方保留每日成稿简报与历史归档。
               </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link to="/leaderboard" className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:border-cyan-200 dark:hover:border-cyan-700 transition-colors">
+                  <Icons.TrendingUp className="w-3.5 h-3.5 text-primary-500" /> 大模型排行榜
+                </Link>
+                <Link to="/ai-weekly" className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:border-cyan-200 dark:hover:border-cyan-700 transition-colors">
+                  <Icons.BookOpen className="w-3.5 h-3.5 text-primary-500" /> AI 周报 / 月报
+                </Link>
+                <Link to="/ai-resets" className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:border-cyan-200 dark:hover:border-cyan-700 transition-colors">
+                  <Icons.RefreshCw className="w-3.5 h-3.5 text-primary-500" /> 额度重置监控
+                </Link>
+              </div>
             </div>
             <div className="text-sm font-semibold text-slate-500 dark:text-slate-400 shrink-0">
               {formatDate(daily.date)} · {totalItems(daily.sections)} 条简报
