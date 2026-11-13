@@ -15,10 +15,128 @@
   <meta name="twitter:card" content="summary" />
   <link rel="icon" href="/logo.png" type="image/png" />
   <link rel="stylesheet" href="/index.css">
+
+  <!-- 五十三期：主题引导脚本。必须在样式之前执行，避免暗色用户先看到一帧白底。
+       同时探测 View Transitions 支持，供路由过渡降级使用。 -->
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem('blog-theme');
+        var theme = stored === 'dark' || stored === 'light'
+          ? stored
+          : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        if (theme === 'dark') document.documentElement.classList.add('dark');
+      } catch (e) { /* 隐私模式下 localStorage 可能抛错，忽略 */ }
+    })();
+  </script>
+
+  <!-- 五十三期：启动动画（Boot splash）。纯内联 CSS，不依赖 JS/CSS 资源加载，
+       React 挂载后由 index.tsx 给 body 加 .app-ready 淡出。 -->
+  <style>
+    #boot-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8fafc;
+      color: #475569;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      transition: opacity 260ms ease, visibility 260ms ease;
+    }
+    html.dark #boot-splash { background: #0f172a; color: #94a3b8; }
+    body.app-ready #boot-splash { opacity: 0; visibility: hidden; }
+    .boot-inner { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+    .boot-mark {
+      position: relative;
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+      color: #fff;
+      font-size: 30px;
+      font-weight: 900;
+      letter-spacing: -1px;
+      box-shadow: 0 12px 30px -8px rgba(14, 165, 233, 0.55);
+      animation: boot-pop 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .boot-mark::after {
+      content: "";
+      position: absolute;
+      inset: -10px;
+      border-radius: 28px;
+      border: 1.5px solid rgba(14, 165, 233, 0.35);
+      animation: boot-ring 2.2s ease-out infinite;
+    }
+    .boot-bar {
+      position: relative;
+      width: 132px;
+      height: 3px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(148, 163, 184, 0.28);
+    }
+    .boot-bar i {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 44%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, transparent, #0ea5e9, #6366f1, transparent);
+      animation: boot-slide 1.15s ease-in-out infinite;
+    }
+    .boot-tip {
+      margin: 0;
+      font-size: 12.5px;
+      letter-spacing: 0.08em;
+      opacity: 0.85;
+    }
+    .boot-slow { display: none; font-size: 12px; opacity: 0.9; }
+    #boot-splash.is-slow .boot-slow { display: block; }
+    @keyframes boot-pop {
+      from { opacity: 0; transform: scale(0.82) translateY(6px); }
+      to { opacity: 1; transform: none; }
+    }
+    @keyframes boot-ring {
+      0% { transform: scale(0.9); opacity: 0.55; }
+      70% { transform: scale(1.12); opacity: 0; }
+      100% { transform: scale(1.12); opacity: 0; }
+    }
+    @keyframes boot-slide {
+      0% { left: -44%; }
+      100% { left: 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .boot-mark, .boot-mark::after, .boot-bar i { animation: none !important; }
+      #boot-splash { transition: none; }
+    }
+  </style>
 </head>
 
 <body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 antialiased selection:bg-primary-100 selection:text-primary-700 transition-colors duration-300">
   <div id="root"></div>
+
+  <div id="boot-splash" role="status" aria-label="页面加载中">
+    <div class="boot-inner">
+      <div class="boot-mark">Q</div>
+      <div class="boot-bar"><i></i></div>
+      <p class="boot-tip">正在载入千禧的博客…</p>
+      <p class="boot-slow">加载较慢，请检查网络后刷新页面</p>
+    </div>
+  </div>
+
+  <script>
+    // 兜底：12 秒仍未挂载（断网/JS 失败）时给出提示，避免一直看动画
+    setTimeout(function () {
+      var el = document.getElementById('boot-splash');
+      if (el && !document.body.classList.contains('app-ready')) el.classList.add('is-slow');
+    }, 12000);
+  </script>
+
   <script type="module" src="/index.tsx"></script>
 </body>
 

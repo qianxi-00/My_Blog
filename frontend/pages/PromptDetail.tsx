@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { DetailSkeleton } from '../components/Skeleton';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button, Card } from '../components/Shared';
 import { Icons } from '../components/Icons';
@@ -146,7 +147,7 @@ const PromptDetail: React.FC = () => {
   }
 
   if (loading) {
-    return <div className="max-w-6xl mx-auto px-4 py-20 text-center text-slate-400 animate-pulse">加载 Prompt 中...</div>;
+    return <DetailSkeleton />;
   }
 
   if (!prompt) {

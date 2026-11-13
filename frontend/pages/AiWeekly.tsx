@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ListSkeleton } from '../components/Skeleton';
 import { Icons } from '../components/Icons';
 import { AiPeriodPayload, AiPeriodReport, AiPeriodSection, getAiMonthly, getAiWeekly } from '../api/aiExtras';
 
@@ -181,8 +182,8 @@ export default function AiWeekly() {
       </section>
 
       {loading && (
-        <div className="py-20 text-center text-slate-500 dark:text-slate-400">
-          <Icons.RefreshCw className="w-7 h-7 mx-auto mb-3 animate-spin text-primary-500" /> 正在加载...
+        <div className="py-10">
+          <ListSkeleton rows={3} />
         </div>
       )}
 

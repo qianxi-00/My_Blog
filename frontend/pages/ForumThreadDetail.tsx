@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { DetailSkeleton } from '../components/Skeleton';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button, Card, Input } from '../components/Shared';
 import { Icons } from '../components/Icons';
@@ -130,11 +131,7 @@ const ForumThreadDetailPage: React.FC = () => {
   }
 
   if (loading) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center text-slate-400 dark:text-slate-500">
-        <div className="animate-pulse">加载中...</div>
-      </div>
-    );
+    return <DetailSkeleton />;
   }
 
   if (!thread) {

@@ -427,3 +427,77 @@ em {
 html {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
+
+
+/* ===== 五十三期：骨架屏 / 入场过渡 / 微交互 ===== */
+
+/* 骨架块：灰底 + 斜向流光，暗色下降低高光强度 */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.18);
+}
+.dark .skeleton {
+  background: rgba(148, 163, 184, 0.14);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+.dark .skeleton::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+}
+@keyframes skeleton-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* 内容到达后的淡入上浮（骨架 -> 正文） */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.fade-up {
+  animation: fade-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 卡片悬浮微交互（"PPT 感"的轻量版，只动 transform/box-shadow） */
+.card-lift {
+  transition: transform 180ms ease, box-shadow 180ms ease;
+  will-change: transform;
+}
+.card-lift:hover {
+  transform: translateY(-2px);
+}
+.card-lift:active {
+  transform: translateY(0) scale(0.995);
+}
+
+/* 列表前几项依次入场（仅首屏挂载时播放一次） */
+@keyframes stagger-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.stagger-in > * {
+  animation: stagger-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger-in > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-in > *:nth-child(2) { animation-delay: 40ms; }
+.stagger-in > *:nth-child(3) { animation-delay: 80ms; }
+.stagger-in > *:nth-child(4) { animation-delay: 120ms; }
+.stagger-in > *:nth-child(5) { animation-delay: 160ms; }
+.stagger-in > *:nth-child(6) { animation-delay: 200ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  .fade-up,
+  .stagger-in > *,
+  .card-lift {
+    animation: none !important;
+    transition: none !important;
+  }
+}

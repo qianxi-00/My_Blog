@@ -14,3 +14,13 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+// 五十三期：等 React 首帧真正渲染后再撤掉启动动画，避免内容还没出现 splash 就消失
+const dismissSplash = () => {
+  document.body.classList.add('app-ready');
+  const splash = document.getElementById('boot-splash');
+  if (!splash) return;
+  splash.addEventListener('transitionend', () => splash.remove(), { once: true });
+  window.setTimeout(() => splash.remove(), 900);
+};
+requestAnimationFrame(() => requestAnimationFrame(dismissSplash));

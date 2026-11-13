@@ -3,6 +3,7 @@
  * 作者卡片（头像/昵称/简介）+ TA 的已发布文章列表
  */
 import React, { useState, useEffect } from 'react';
+import { ProfileSkeleton } from '../components/Skeleton';
 import { Link, useParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import Avatar from '../components/Avatar';
@@ -35,11 +36,7 @@ const AuthorPage: React.FC = () => {
     }, [username]);
 
     if (loading) {
-        return (
-            <div className="max-w-4xl mx-auto px-4 py-20 text-center text-slate-400 dark:text-slate-500">
-                <div className="animate-pulse">加载中...</div>
-            </div>
-        );
+        return <ProfileSkeleton />;
     }
 
     if (error || !profile) {

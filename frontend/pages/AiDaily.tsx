@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { PageSkeleton } from '../components/Skeleton';
 import { Link } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { getAiDaily, getAiDailyIndex, getAiSelected, AiDailyPayload, AiDailySection, AiDailyIndex, AiSelectedPayload, AiSelectedItem } from '../api/aiDaily';
@@ -269,14 +270,7 @@ const AiDaily: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <Icons.RefreshCw className="w-8 h-8 text-primary-500 animate-spin mx-auto mb-4" />
-          <p className="text-slate-500 dark:text-slate-400">正在加载 AI 日报...</p>
-        </div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   if (error || !daily) {

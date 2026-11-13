@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { DetailSkeleton } from '../components/Skeleton';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import MarkdownContent from '../components/MarkdownContent';
@@ -153,13 +154,7 @@ const HotspotDetail: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm p-10 text-center text-slate-500 dark:text-slate-400">
-          正在加载热点详情...
-        </div>
-      </div>
-    );
+    return <DetailSkeleton />;
   }
 
   if (error || !hotspot) {

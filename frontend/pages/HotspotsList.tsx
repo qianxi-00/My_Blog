@@ -1085,7 +1085,7 @@ const HotspotsList: React.FC = () => {
                 {paginatedItems.map((item, index) => {
                   const sourceBadges = getSourceValues(item).slice(0, 3);
                   return (
-                    <article key={item.id} className="group bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm hover:shadow-lg transition-all">
+                    <article key={item.id} className="group card-lift bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm hover:shadow-lg">
                       <div className="h-2 bg-gradient-to-r from-indigo-500 via-primary-500 to-cyan-400" />
                       <div className="p-5 space-y-3">
                         <div className="flex items-center justify-between gap-3 text-xs">

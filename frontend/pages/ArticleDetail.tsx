@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { DetailSkeleton } from '../components/Skeleton';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
 import { Button } from '../components/Shared';
@@ -381,11 +382,7 @@ const ArticleDetail: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 py-20 text-center text-slate-400 dark:text-slate-500">
-        <div className="animate-pulse transition-colors">加载中...</div>
-      </div>
-    );
+    return <DetailSkeleton />;
   }
 
   if (!article) {
