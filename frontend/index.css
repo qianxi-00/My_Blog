@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* 代码高亮美化 */
 code[class*="language-"],
 pre[class*="language-"] {
