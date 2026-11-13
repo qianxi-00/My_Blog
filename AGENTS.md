@@ -200,6 +200,8 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 - 浏览器：TTFB **2184ms → 1212ms**，DCL **3350ms → 1442ms**；首屏传输 1871KB → 524KB（无 CF 时）→ 静态资源命中 CF 边缘后二次访问接近 0；
 - `/assets/*.js|css`、`/uploads/*`、`/data/*.json` 均 `cf-cache-status: HIT`；`/api/*` 保持 `DYNAMIC`。
 
+**证书**：`certbot renew --dry-run --cert-name blog.qianxi7988.me` 通过——Cloudflare 对 `/.well-known/acme-challenge/` 不做 HTTPS 跳转，webroot 续期不受代理影响。
+
 **注意**：
 - `index.html` 是 DYNAMIC（不缓存），部署后不需要 purge；若以后给 HTML 加边缘缓存，部署后要 purge。
 - 若哪天要回到旧 HF Space 架构，重建 Worker 路由即可（脚本仍在账户里）。
