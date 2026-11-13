@@ -15,6 +15,7 @@
 | 前端产物 | `assets/index-uP52-kpl.js`（328,576 B，四十七期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | NAS 备份 | `个人文件夹/MyBlogArchive/nas-export`（438MB 全量快照，2026-11-12 18:34 打包，四十八期）；`个人文件夹/MyBlog` 由 rsync 任务每天 05:00 同步 10MB 核心包（db+conf） |
+| AIHOT 扩展 | 模型榜 `/#/leaderboard`（`fetch_ai_leaderboard.py`，每小时 :25）、周报月报 `/#/ai-weekly`、额度重置 `/#/ai-resets`、热点页 Top10（`fetch_ai_extras.py`，每 30 分钟 :02/:32）；数据在 `dist/data/`，脚本在 `/data/blog/scripts/` |
 | GitHub 台账 | `ops/activity/YYYY-MM-DD.md`：每天 10 次快照 + 最多 3 次流水线归档提交（四十九期，`/etc/cron.d/blog-activity`）；纯 md 提交不触发 CI |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
@@ -179,6 +180,33 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 五十期：接入 AIHOT 2.0——模型榜、周报月报、热榜 Top10、观点与额度重置（2026-11-13，提交 `a17b2d5`）
+
+**数据源**：AIHOT（`https://aihot.news`）JSON API v2.0.0：`weeklies` / `monthlies`（latest、`?limit=12`、`/{week|month}`）、`hot-topics`、`codex|antigravity|claude|grok-bot-resets`（+ `/recent`）、`stories`、`selected/snapshot|changes`。**模型榜没有公开 API**，官方明确「模型榜和价格对比目前只有网页」。
+
+**模型榜抓取**：榜单页是 React Router 7，数据走 turbo-stream。`https://aihot.news/leaderboard.data` 直接返回扁平数组（约 85KB，text/plain）；HTML 里 `streamController.enqueue("…")` 是同一份流。解码规则：
+- 顶层是数组，对象里 `{"_keyIdx": valueIdx}` 表示 key/value 都是数组下标；负数代表特殊值（降级为 None）。
+- `.data` 的根节点是 route 映射；HTML 的根是 `{loaderData, actionData, errors}`。用「同时含 `boards` 和 `models` 的对象」递归定位载荷。
+- 产物：`boards` 5 个（overall 综合 / coding 编程 / reasoning 科研 / professional 专业办公 / knowledge 知识问答）× 50 条 `{slug, rank, score, sourceCount, coverage}`；`models` 104 个（含价格 ¥ 与上下文长度）；`run.methodologyVersion`、`generatedAt`、`fx`。
+
+**额度重置限流**：完整历史接口「每客户端 10 分钟一次」，超出返回 429（detail 提示 retry after N seconds 或轮询 `/recent`）。脚本对 429 立即降级到 `/recent`，并与旧文件按事件 id 合并、保留 30 条。
+
+**脚本与调度**（均在 `/data/blog/scripts/`）：
+- `fetch_ai_leaderboard.py` → `/etc/cron.d/blog-ai-leaderboard`，每小时 `25 * * * *`；输出 `dist/data/ai-leaderboard.json`。
+- `fetch_ai_extras.py` → `/etc/cron.d/blog-ai-extras`，每 30 分钟 `2,32 * * * *`；输出 `ai-weekly.json` + `ai-weekly/<week>.json`、`ai-monthly.json` + `ai-monthly/<month>.json`（各留 12 期）、`ai-hot.json`、`ai-resets.json`。
+- 包装脚本 `run_ai_leaderboard.sh` / `run_ai_extras.sh` 设置 `AI_*_DATA_ROOT=/var/www/blog/dist/data` 与日志路径；日志 `/data/blog/logs/ai-leaderboard.log`、`ai-extras.log`。
+- `fetch_ai_daily.py` 的 `CATEGORIES` 增加 `opinion`（观点），`/etc/cron.d/blog-ai-daily` 每 30 分钟跑一次。
+
+**前端**：
+- 新页面 `frontend/pages/Leaderboard.tsx`（5 榜 tab、桌面表格 + 移动卡片、价格/上下文/发布/链接、方法学与汇率元信息）、`AiWeekly.tsx`（周报/月报 + 最近 12 期，按期次按需拉 `/data/ai-<kind>/<key>.json`）、`AiResets.tsx`（4 个源 tab + 时间线状态徽章）。
+- 新组件 `frontend/components/AiHotRankCard.tsx`：热榜 Top10，插在热点页 `<HotspotTop3Carousel>` 之前。
+- 路由 `/#/leaderboard`、`/#/ai-weekly`、`/#/ai-resets`；导航加「周报」「模型榜」，桌面导航断点从 `md` 调到 `lg`（避免 8 项挤爆）。
+- AI 日报：新增「观点」tab、精选流搜索框（标题/摘要/来源）、hero 三个入口链接。
+
+**部署注意**：`scripts/ci/deploy_frontend.sh` 会保留 dist 下的 `uploads data .well-known live2d`，所以 `dist/data/*.json` 不会被前端发布覆盖；新脚本必须手动 scp 到 `/data/blog/scripts/`（CI 只部署前端与后端镜像，不传脚本）。
+
+**验证**：线上 `/#/leaderboard` 显示 5 榜（综合 50、编程 50、科研 50、专业办公 50、知识问答 50）、榜首 Claude Fable 5.2 / 80.7；`/#/ai-weekly` 显示 2026-W45；`/#/ai-resets` 显示 4 源时间线；热点页 Top10 正常；`dist/data/*.json` 均 200。
 
 ## 四十九期：GitHub 每日贡献——自动化运行台账（2026-11-13，提交 `ca50ae4` / `ed7c879`，脚本 `scripts/ops/activity_commit.py`）
 
