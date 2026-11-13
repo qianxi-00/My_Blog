@@ -15,6 +15,7 @@
 | 前端产物 | `assets/index-uP52-kpl.js`（328,576 B，四十七期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | NAS 备份 | `个人文件夹/MyBlogArchive/nas-export`（438MB 全量快照，2026-11-12 18:34 打包，四十八期）；`个人文件夹/MyBlog` 由 rsync 任务每天 05:00 同步 10MB 核心包（db+conf） |
+| GitHub 台账 | `ops/activity/YYYY-MM-DD.md`：每天 10 次快照 + 最多 3 次流水线归档提交（四十九期，`/etc/cron.d/blog-activity`）；纯 md 提交不触发 CI |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
@@ -178,6 +179,32 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 四十九期：GitHub 每日贡献——自动化运行台账（2026-11-13，提交 `ca50ae4` / `ed7c879`，脚本 `scripts/ops/activity_commit.py`）
+
+**目标**：让 `qianxi-00/My_Blog` 每天稳定产生 10–13 次提交（贡献图），且每次提交都带真实运行数据，而不是空提交。
+
+**为什么能计数**：提交作者固定 `Qian Xi <1964055097@qq.com>`，该邮箱已关联 GitHub 账号（最新提交在 GitHub 上 `author.login = qianxi-00`）；提交落在默认分支 `master`（仓库 public、非 fork）。
+
+**为什么不会触发 CI**：`ci-cd.yml` 的 `paths-ignore` 含 `**/*.md`；`deploy-docs.yml` 只监听 `docs/**`；台账只写 `ops/activity/*.md`。实测首条台账提交 `890217d` 的 Actions run 数为 **0**。
+
+**落点**：
+- 仓库：`scripts/ops/activity_commit.py`（源）、`ops/README.md`、`ops/activity/YYYY-MM-DD.md`（每日一个文件，追加小节）。
+- 服务器：脚本 `/data/blog/scripts/activity_commit.py`；专用克隆 `/data/blog/ops-repo`（不与 `repo-tmp` 混用，避免被 CI 部署的 `reset --hard` 影响）；状态 `/data/blog/state/activity-state.json`；补发队列 `/data/blog/state/activity-pending/`；日志 `/data/blog/logs/activity-commit.log`；调度 `/etc/cron.d/blog-activity`。
+
+**节奏（CST）**：
+- 快照：03:10 05:10 09:10 11:10 13:10 15:10 17:10 19:10 21:10 23:10（10 次/天）
+- 流水线归档检查：00:10 04:10 20:10，仅当 `hotspot_queue/archive` 轮数增加才提交（最多 3 次/天）
+
+**条目内容**（全部只读采集）：文章/热点/提示词/评论数、AIHOT 索引更新时间与文件数、最近流水线 run 与队列轮数、最新备份与 NAS 导出时间、当日 PV/UV 与 AI 调用数。
+
+**行为**：cron 每分钟只有一个槽，脚本自身幂等（同槽重复运行跳过）；每次 `git fetch + reset --hard origin/master` → 追加条目 → 以 `Qian Xi` 身份提交 → deploy key 推送；推送失败重试 3 次，仍失败落 `activity-pending/` 下次补发。
+
+**验证**：手动 `--slot snapshot --force` 后 GitHub 出现 `890217d`（`author.login=qianxi-00`），`actions/runs?head_sha=890217d` 为 0；`--slot pipeline` 在无新归档时正确跳过。
+
+**注意**：这是"刷贡献图"用途，条目必须保持真实数据、不做空提交；若仓库以后启用分支保护，需改走 PR 或给机器人加白名单。
+
+**停用**：`rm /etc/cron.d/blog-activity`。
 
 ## 四十八期：博客全量备份到绿联 NAS（2026-11-13，rsync + 百度网盘中转，无代码提交）
 
