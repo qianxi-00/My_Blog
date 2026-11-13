@@ -461,6 +461,9 @@ async def get_article_by_slug(
     if article.status == "published":
         article.view_count = int(article.view_count or 0) + 1
         await db.commit()
+        # commit 后实例属性过期，序列化 updated_at 会触发懒加载（MissingGreenlet），
+        # 必须 refresh 一次把字段读回来。这是 DB 本地读，不走网络。
+        await db.refresh(article)
 
     return _article_response(article, admin)
 
@@ -494,10 +497,13 @@ async def get_article(
             detail="文章不存在"
         )
     
-    # 增加浏览次数（只 commit，不再 refresh：refresh 会把整行含 content_html 重新读一遍）
+    # 增加浏览次数
     if article.status == "published":
         article.view_count = int(article.view_count or 0) + 1
         await db.commit()
+        # commit 后实例属性过期，序列化 updated_at 会触发懒加载（MissingGreenlet），
+        # 必须 refresh 一次把字段读回来。这是 DB 本地读，不走网络。
+        await db.refresh(article)
 
     return _article_response(article, admin)
 
