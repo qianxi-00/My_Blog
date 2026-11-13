@@ -14,6 +14,7 @@
 | 容器 | `qianxi-blog`，`Up (healthy)`，`127.0.0.1:8000->7860/tcp`，`--workers 2`，挂载 `-v /data/blog/data:/data` |
 | 前端产物 | `assets/index-uP52-kpl.js`（328,576 B，四十七期 CI 重建），详情页 chunk `assets/HotspotDetail-1wEAevNM.js`（36,977 B），桌宠 chunk `assets/DesktopPet-ZaaIhgFW.js`（42,258 B）。**三十九期起部署不再整目录替换**，旧 chunk 按 `KEEP_DAYS=3` 保留。**四十期起 `dist` 只剩 28M**（`live2d` 的 191M 已随 `eaafeda` 从源码移除）。**四十一期起封面图重压**：`dist/uploads/images` 12M→7.3M，nginx 开 HTTP/2 + `/uploads/` 30 天缓存。**同期末清掉 23 张从没被用过的上传图**（`4dfb946`），`dist/uploads/images` 再降到 **2.1M / 29 文件**。**四十二期**补进 5 张一直没被 git 跟踪的内联图 + 3 张 PNG 图表重压 3.3×（`cd6aa8b`），`dist/uploads/images` **1.9M / 29 文件**；**四十六期**迁入的 191 张 wkq 图在 `dist/uploads/wkq`（45MB，另备份 `/data/blog/static-uploads/wkq`） |
 | 前端性能 | 五十一期：Tailwind 构建期编译（`frontend/tailwind.config.js` + `postcss.config.js`）、去 Google Fonts/CDN、文章详情去 `content_html`；首页传输 1871KB→524KB |
+| CDN | Cloudflare 代理（橙云）+ 删遗留 Worker 路由；nginx real_ip 还原真实客户端 IP；`/data/*` 边缘缓存 5 分钟（五十二期） |
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | NAS 备份 | `个人文件夹/MyBlogArchive/nas-export`（438MB 全量快照，2026-11-12 18:34 打包，四十八期）；`个人文件夹/MyBlog` 由 rsync 任务每天 05:00 同步 10MB 核心包（db+conf） |
 | AIHOT 扩展 | 模型榜 `/#/leaderboard`（`fetch_ai_leaderboard.py`，每小时 :25）、周报月报 `/#/ai-weekly`、额度重置 `/#/ai-resets`、热点页 Top10（`fetch_ai_extras.py`，每 30 分钟 :02/:32）；数据在 `dist/data/`，脚本在 `/data/blog/scripts/` |
@@ -181,6 +182,28 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 五十二期：接入 Cloudflare 代理（2026-11-13，DNS 橙云 + 删遗留 Worker 路由 + 真实 IP 还原）
+
+**背景**：五十一期把首屏传输从 1871KB 降到 524KB，但广州→新加坡直连 TLS 11.6s、TTFB 11.7s，跨境链路仍是瓶颈。`qianxi7988.me` 的 NS 本来就在 Cloudflare（`nelci` / `wells`），只是 `blog` 记录一直是灰云（仅 DNS）。
+
+**关键发现（差点翻车）**：点亮橙云后站点变成**旧版**（`assets/index-BltLeyg5.js`、还在用 tailwind CDN、字体 300 档），API 指向 `qian7988-qianxi-blog-backend.hf.space`。原因是 zone 里有一条 **Worker 路由** `blog.qianxi7988.me/* -> qianxi-blog-site`：该 Worker 打包了旧版静态资源、并把 `/api` 反代到旧 HF Space（回退源 `blog-origin.qianxi7988.me`）。灰云期间流量直连源站所以没暴露，一开橙云就被 Worker 接管。处理：删除该 Worker 路由（脚本保留在账户里，可随时重建）+ purge 全站缓存。
+
+**改动**：
+1. DNS：`blog` A 记录 `101.32.163.17` 改为 **Proxied**（橙云）；SSL 模式 full → **strict**；开启 Always Use HTTPS、0-RTT、Early Hints（Brotli / HTTP/3 / TLS 1.3 本来已开）。
+2. 删除 Worker 路由 `9ee84040…`（pattern `blog.qianxi7988.me/*`，script `qianxi-blog-site`）。
+3. nginx `server` 块加 **real_ip**：`set_real_ip_from` 覆盖 Cloudflare 官方 v4/v6 网段 + `real_ip_header CF-Connecting-IP;`——否则 `$remote_addr` 全是 CF 节点 IP，点赞/评论去重（`get_user_identifier` = IP+UA hash）和登录限流会串号。只信任 CF 网段，直连源站伪造该头无效。改前备份 `/root/nginx-blog-*.bak*`。
+4. Cache Rule：`/data/*` 边缘缓存 5 分钟（CF 默认不缓存 `.json`）；`/assets/*`、`/uploads/*` 走扩展名默认缓存 + 源站 30d immutable。
+
+**实测**：
+- 直连（广州电信）：TLS **11.66s → 1.20s**，TTFB **11.75s → 1.89s**；
+- 浏览器：TTFB **2184ms → 1212ms**，DCL **3350ms → 1442ms**；首屏传输 1871KB → 524KB（无 CF 时）→ 静态资源命中 CF 边缘后二次访问接近 0；
+- `/assets/*.js|css`、`/uploads/*`、`/data/*.json` 均 `cf-cache-status: HIT`；`/api/*` 保持 `DYNAMIC`。
+
+**注意**：
+- `index.html` 是 DYNAMIC（不缓存），部署后不需要 purge；若以后给 HTML 加边缘缓存，部署后要 purge。
+- 若哪天要回到旧 HF Space 架构，重建 Worker 路由即可（脚本仍在账户里）。
+- CF 免费版国内线路有波动，若明显变慢，把橙云改回灰云即可回退（源站 IP 不变）。
 
 ## 五十一期：首屏性能——Tailwind 构建期编译、去 Google Fonts、文章接口瘦身（2026-11-13，提交 `d1bc2d5` / `29ddf9d` / `6a29a88`）
 
