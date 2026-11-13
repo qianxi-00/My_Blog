@@ -203,6 +203,7 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 - 新组件 `frontend/components/AiHotRankCard.tsx`：热榜 Top10，插在热点页 `<HotspotTop3Carousel>` 之前。
 - 路由 `/#/leaderboard`、`/#/ai-weekly`、`/#/ai-resets`；导航加「周报」「模型榜」，桌面导航断点从 `md` 调到 `lg`（避免 8 项挤爆）。
 - AI 日报：新增「观点」tab、精选流搜索框（标题/摘要/来源）、hero 三个入口链接。
+- 版面：周报/月报为「分节 + 每页最多 6 条」分页阅读，顶部用两张等权卡片切换；模型榜加 Top3 领奖台、得分条与 20 条/页分页（`PAGE_SIZE`）。
 
 **部署注意**：`scripts/ci/deploy_frontend.sh` 会保留 dist 下的 `uploads data .well-known live2d`，所以 `dist/data/*.json` 不会被前端发布覆盖；新脚本必须手动 scp 到 `/data/blog/scripts/`（CI 只部署前端与后端镜像，不传脚本）。
 
