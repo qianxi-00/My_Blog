@@ -19,7 +19,7 @@
 | 内容量 | 文章 **57** 篇（四十六期从 wkq9411.github.io 迁入 34 篇，id 109–142，全 published）；热点 **613** 条（**604 published** + 9 draft）；提示词 **36** 条 approved（25→36，四十四期新增 12 条） |
 | NAS 备份 | `个人文件夹/MyBlogArchive/nas-export`（438MB 全量快照，2026-11-12 18:34 打包，四十八期）；`个人文件夹/MyBlog` 由 rsync 任务每天 05:00 同步 10MB 核心包（db+conf） |
 | AIHOT 扩展 | 模型榜 `/#/leaderboard`（`fetch_ai_leaderboard.py`，每小时 :25）、周报月报 `/#/ai-weekly`、额度重置 `/#/ai-resets`、热点页 Top10（`fetch_ai_extras.py`，每 30 分钟 :02/:32）；数据在 `dist/data/`，脚本在 `/data/blog/scripts/` |
-| GitHub 台账 | `ops/activity/YYYY-MM-DD.md`：每天 10 次快照 + 最多 3 次流水线归档提交（四十九期，`/etc/cron.d/blog-activity`）；纯 md 提交不触发 CI |
+| GitHub 台账 | `ops/activity/YYYY-MM-DD.md`：每天 10–20 次随机时刻快照（五十四期 `--slot auto`，`/etc/cron.d/blog-activity` 每 10 分钟）；纯 md 提交不触发 CI |
 | 分类分布 | `AI模型 274 / AI基础设施 158 / AI应用 92 / AI产品 53 / AI安全 27`（**5 种，「其他」归零**；四十三期补上了归一关键词表的洞，见该期） |
 | 队列 | 宿主 `/data/blog/data/pipeline/hotspot_queue`：pending **0** / failed **0**（`2026-10-28/oswam-…` 是 10-28 00:27 那篇被审稿打回的单来源稿，见四十二期）/ archive/published **64** |
 | 证书 | `blog.qianxi7988.me` 到 **2026-12-23 07:07 UTC**（certbot 自动续，还有 57 天） |
@@ -183,6 +183,24 @@ POST /api/v1/hotspot-pipeline/cron    header: x-cron-key
 ```
 
 ⚠️ **这份 cron 不在 git 里**，改完记得同步到仓库 `ops/cron/hotspot-pipeline`（三十五期留档）。另注意：`/etc/cron.d/` 里**文件名不能带点号**（cron 会忽略，如 `xxx.bak-20261022` 实测未被执行）。
+
+## 五十四期：GitHub 台账改为动态 10–20 次/天（2026-11-16，`scripts/ops/activity_commit.py --slot auto`）
+
+**起因**：固定 10 个整点槽位太死板（每天 10 次，时间点一眼能看出是机器），用户要求改成每天 10–20 次、随机时刻。
+
+**做法**：
+- cron 从「两条固定槽位」改成 `*/10 * * * *` 调 `--slot auto`（`/etc/cron.d/blog-activity`）；
+- 脚本首次运行当天时生成计划并存进 `activity-state.json` 的 `plan` 字段：`{date, target, already, times, fired}`；
+- 目标数由 `random.Random(f"activity-plan-{date}")` 决定（同一天可复现），范围 10–20；时刻从 08:00–23:50 的 10 分钟网格里随机取，相邻至少 20 分钟；
+- 生成计划前先数当天台账已有的 `## HH:MM` 条目（`committed_today`），**扣掉已提交次数**，所以中途上线当天也不会超标；
+- 每次触发只提交「已到点且未提交」的最后一个槽位；错过超过 90 分钟的槽位直接标记跳过，不集中补发；
+- 零点后第一次运行会按新日期重排计划。
+
+**验证**：上线当天 dry-run 显示「全天目标 16 次，已提交 6 次，剩余 10 个时刻：16:20…22:40」，真实运行已把 plan 落进 state；之后每 10 分钟由 cron 自行触发。
+
+**手工补提交**：`--slot snapshot --force` 仍可用（不计入 plan 的 `fired`，但会写进当天台账）。
+
+**注意**：`--slot auto` 依赖 `committed_today()` 数台账条目；如果某天台账文件被手工删改，当天计划可能偏多/偏少，改完 state 里的 `plan` 即可。
 
 ## 五十三期：加载体验——启动动画、骨架屏与过渡动效（2026-11-13，提交 `3a8ec76`）
 
