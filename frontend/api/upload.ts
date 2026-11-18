@@ -22,15 +22,37 @@ export interface MarkdownUploadResult {
     images_processed?: number;
 }
 
-// 上传图片
-export const uploadImage = async (file: File, articleId?: number): Promise<UploadedImage> => {
+export interface AvatarUploadResult {
+    url: string;
+    filename: string;
+    size: number;
+}
+
+// 上传图片（支持 images / forum 作用域）
+export const uploadImage = async (
+    file: File,
+    articleId?: number,
+    scope: 'images' | 'forum' = 'images'
+): Promise<UploadedImage> => {
     const formData = new FormData();
     formData.append('file', file);
-    if (articleId) {
-        formData.append('article_id', articleId.toString());
-    }
 
     const response = await api.post('/upload/image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: {
+            scope,
+            ...(articleId ? { article_id: articleId } : {}),
+        },
+    });
+    return response.data;
+};
+
+// 上传用户头像
+export const uploadAvatar = async (file: File): Promise<AvatarUploadResult> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post('/upload/avatar', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;

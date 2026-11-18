@@ -19,10 +19,15 @@ export interface Comment {
     is_admin_reply: boolean;
     admin_id?: number;
     admin_display_name?: string;
+    user_id?: number;
+    username?: string;
+    user_display_name?: string;
+    user_role?: string;
     ip_address?: string;
     status: 'pending' | 'approved' | 'rejected';
     like_count: number;
     is_reported: boolean;
+    edited_at?: string;
     created_at: string;
     replies?: Comment[];
 }
@@ -149,6 +154,12 @@ export const dismissReport = async (id: number): Promise<{ message: string }> =>
 // 确认举报（删除评论）
 export const confirmReport = async (id: number): Promise<{ message: string }> => {
     const response = await api.put(`/comments/${id}/confirm-report`);
+    return response.data;
+};
+
+// 编辑评论（作者本人或管理员）
+export const updateComment = async (id: number, content: string): Promise<Comment> => {
+    const response = await api.put<Comment>(`/comments/${id}`, { content });
     return response.data;
 };
 

@@ -85,31 +85,33 @@ pre:hover {
 .prose table {
   border-collapse: collapse;
   width: 100%;
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(226, 232, 240, 0.9);
 }
 
 .prose table thead {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  background: #0f172a;
 }
 
 .prose table th {
-  padding: 12px 16px;
+  padding: 10px 14px;
   text-align: left;
-  color: white;
+  color: #f8fafc;
   font-weight: 600;
+  font-size: 13px;
 }
 
 .prose table td {
-  padding: 12px 16px;
+  padding: 10px 14px;
   text-align: left;
   border: none;
+  font-size: 14px;
 }
 
 .prose table tbody tr {
   border-bottom: 1px solid #e2e8f0;
-  transition: background-color 0.2s ease;
+  transition: background-color 0.15s ease;
 }
 
 .prose table tbody tr:hover {
@@ -117,124 +119,108 @@ pre:hover {
 }
 
 .prose table tbody tr:nth-child(even) {
-  background-color: #f1f5f9;
+  background-color: #f8fafc;
 }
 
 /* ===== Dark Mode 表格适配 ===== */
 .dark .prose table {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  border-color: #1e293b;
+}
+
+.dark .prose table thead {
+  background: #1e293b;
 }
 
 .dark .prose table tbody tr {
-  border-bottom-color: #334155;
+  border-bottom-color: #1e293b;
 }
 
 .dark .prose table tbody tr:hover {
-  background-color: #1e293b;
+  background-color: rgba(30, 41, 59, 0.7);
 }
 
 .dark .prose table tbody tr:nth-child(even) {
-  background-color: #0f172a;
+  background-color: rgba(15, 23, 42, 0.5);
 }
 
 .dark .prose table td {
   color: #cbd5e1;
 }
 
-/* 图片美化 */
-figure img {
-  border-radius: 12px;
-  transition: transform 0.3s ease, box-shadow 0.3s ease, filter 0.3s ease;
+/* 图片美化（限定正文） */
+.prose figure img {
+  border-radius: 10px;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
-figure img:hover {
-  transform: scale(1.02);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-  filter: brightness(1.05);
-}
-
-.dark figure img:hover {
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-  filter: brightness(1.1);
-}
-
-/* 块引用美化 */
-blockquote {
-  border-left: 4px solid #0284c7;
-  background-color: #f0f9ff;
+/* 块引用美化（限定正文） */
+.prose blockquote {
+  border-left: 3px solid #0284c7;
+  background-color: #f8fafc;
   border-radius: 0 8px 8px 0;
-  padding: 16px;
-  margin: 24px 0;
-  font-style: italic;
+  padding: 12px 16px;
+  margin: 20px 0;
 }
 
-blockquote p {
+.prose blockquote p {
   margin: 0;
-  color: #1e293b;
-}
-
-blockquote:hover {
-  box-shadow: inset 4px 0 0 #0284c7, 0 4px 12px rgba(2, 132, 199, 0.1);
-  background-color: rgba(240, 249, 255, 0.8);
+  color: #334155;
 }
 
 /* ===== Dark Mode 块引用 ===== */
-.dark blockquote {
-  background-color: #0f172a;
-  border-left-color: #0ea5e9;
+.dark .prose blockquote {
+  background-color: rgba(15, 23, 42, 0.7);
+  border-left-color: #38bdf8;
 }
 
-.dark blockquote p {
+.dark .prose blockquote p {
   color: #cbd5e1;
 }
 
-.dark blockquote:hover {
-  box-shadow: inset 4px 0 0 #0ea5e9, 0 4px 12px rgba(14, 165, 233, 0.15);
-  background-color: #0f172a;
+/* 正文链接与基础链接重置 */
+a {
+  text-decoration: none;
 }
 
-/* 链接美化 */
-a {
-  position: relative;
-  text-decoration: none;
+.prose a {
   color: #0284c7;
   font-weight: 500;
-  transition: color 0.2s ease, text-decoration 0.2s ease;
-}
-
-a:hover {
-  color: #0369a1;
   text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
+  text-decoration-color: rgba(2, 132, 199, 0.35);
+  text-underline-offset: 3px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 
-.dark a {
+.prose a:hover {
+  color: #0369a1;
+  text-decoration-color: currentColor;
+}
+
+.dark .prose a {
   color: #38bdf8;
+  text-decoration-color: rgba(56, 189, 248, 0.35);
 }
 
-.dark a:hover {
+.dark .prose a:hover {
   color: #7dd3fc;
 }
 
-/* 列表美化 */
-ul, ol {
-  margin: 16px 0;
-  padding-left: 24px;
+/* 列表美化（严格限定在正文 .prose 内，避免干扰 UI 导航与列表组件） */
+.prose ul,
+.prose ol {
+  margin: 14px 0;
+  padding-left: 22px;
 }
 
-li {
-  margin: 8px 0;
+.prose li {
+  margin: 6px 0;
   color: #334155;
   line-height: 1.8;
-  transition: color 0.2s ease, transform 0.2s ease;
+  transition: color 0.15s ease;
 }
 
-/* 十三期：li:hover 的全站列表悬停位移收窄到正文 .prose 内——
-   原全局规则波及导航菜单/目录/评论区，整个页面都在抖 */
 .prose li:hover {
   color: #0284c7;
-  transform: translateX(2px);
 }
 
 .dark .prose li {

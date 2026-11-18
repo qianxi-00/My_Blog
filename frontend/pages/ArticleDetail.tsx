@@ -2,29 +2,38 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DetailSkeleton } from '../components/Skeleton';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
-import { Button } from '../components/Shared';
+import { Badge, Button, EmptyState } from '../components/Shared';
 import MarkdownContent from '../components/MarkdownContent';
-import { getArticle, getArticleBySlug, Article, getAllArticles, likeArticle, getArticleLikeStatus, ArticleListItem } from '../api/articles';
-import { getArticleComments, submitComment, likeComment, reportComment, Comment } from '../api/comments';
+import {
+  getArticle,
+  getArticleBySlug,
+  Article,
+  getAllArticles,
+  likeArticle,
+  getArticleLikeStatus,
+  ArticleListItem,
+} from '../api/articles';
+import {
+  getArticleComments,
+  submitComment,
+  likeComment,
+  reportComment,
+  updateComment,
+  deleteComment,
+  Comment,
+} from '../api/comments';
+import { getBookmarkStatus, toggleBookmark } from '../api/users';
 import { recordPageView } from '../api/stats';
-import { getFileUrl } from '../api/config';
 import FloatingActions from '../components/FloatingActions';
 import ArticleSidebar from '../components/ArticleSidebar';
 import Avatar from '../components/Avatar';
 import { extractHeadingsFromMarkdown } from '../components/MarkdownRenderer';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../components/Toast';
+import { useConfirm } from '../components/ConfirmDialog';
+import { copyToClipboard } from '../utils/helpers';
 import { errorText } from '../utils/errors';
 
-// 评论对象可能附带登录用户身份（additive：有 user 就按用户身份渲染，没有就按访客渲染）
-interface CommentWithUser extends Comment {
-  user?: { username: string; display_name?: string; avatar_url?: string };
-}
-
-// （十三期 TOC 死链修复：本地手搓的 extractHeadings 已删——它的 id 算法会删连字符，
-//  与渲染侧 buildHeadingId（保留连字符）不一致，导致 9 条目录 5 条死链。改用
-//  MarkdownRenderer 导出的 extractHeadingsFromMarkdown，与渲染侧同一套 id 算法。）
-
-// 举报理由选项
 const REPORT_REASONS = [
   { value: 'spam', label: '垃圾广告' },
   { value: 'abuse', label: '辱骂攻击' },
@@ -34,112 +43,127 @@ const REPORT_REASONS = [
   { value: 'other', label: '其他原因' },
 ];
 
+const getCommentDisplayName = (comment: Comment): string => {
+  if (comment.user_display_name) return comment.user_display_name;
+  if (comment.is_admin_reply) return comment.admin_display_name || '作者';
+  return comment.username || comment.nickname || '匿名读者';
+};
+
+const getCleanCommentAvatar = (comment: Comment): string | undefined => {
+  if (!comment.user_id || !comment.avatar_url) return undefined;
+  if (comment.avatar_url.includes('dicebear.com')) return undefined;
+  return comment.avatar_url;
+};
+
 const ArticleDetail: React.FC = () => {
   const { id, slug } = useParams();
   const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isAdmin } = useAuth();
+  const { showToast } = useToast();
+  const { confirm, confirmDialog } = useConfirm();
+
   const [article, setArticle] = useState<Article | null>(null);
-  const [comments, setComments] = useState<CommentWithUser[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 根评论表单
   const [commentText, setCommentText] = useState('');
   const [nickname, setNickname] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
   const [activeHeading, setActiveHeading] = useState<string>('');
   const [prevArticle, setPrevArticle] = useState<ArticleListItem | null>(null);
   const [nextArticle, setNextArticle] = useState<ArticleListItem | null>(null);
   const [relatedArticles, setRelatedArticles] = useState<ArticleListItem[]>([]);
 
-  // 回复相关状态
+  // 回复表单
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replyNickname, setReplyNickname] = useState('');
 
-  // 举报相关状态
+  // 行内编辑
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // 举报
   const [reportingComment, setReportingComment] = useState<number | null>(null);
   const [reportReason, setReportReason] = useState('');
   const [reportDescription, setReportDescription] = useState('');
 
-  // 点赞状态缓存
+  // 评论交互状态
   const [likedComments, setLikedComments] = useState<Set<number>>(new Set());
-
-  // 长评论展开状态
   const [expandedTexts, setExpandedTexts] = useState<Set<number>>(new Set());
-  // 深层回复展开状态（每条回复的嵌套子回复折叠）
   const [expandedNested, setExpandedNested] = useState<Set<number>>(new Set());
 
-  const COMMENT_MAX_LEN = 200; // 超过此长度折叠
-  const NESTED_REPLY_LIMIT = 2; // 默认显示的子回复数量
+  const COMMENT_MAX_LEN = 200;
+  const NESTED_REPLY_LIMIT = 2;
 
-  const toggleText = (id: number) => setExpandedTexts(prev => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
+  // 文章点赞 & 收藏
+  const [articleLiked, setArticleLiked] = useState(false);
+  const [articleLikeCount, setArticleLikeCount] = useState(0);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
 
-  // 递归收集所有后代回复的 id
+  // 评论展开与移动端目录
+  const [expandedReplies, setExpandedReplies] = useState<Record<number, boolean>>({});
+  const [showMobileTOC, setShowMobileTOC] = useState(false);
+
+  const toggleText = (cid: number) =>
+    setExpandedTexts((prev) => {
+      const next = new Set(prev);
+      next.has(cid) ? next.delete(cid) : next.add(cid);
+      return next;
+    });
+
   const collectAllDescendantIds = (comment: Comment): number[] => {
     const ids: number[] = [];
-    for (const reply of (comment.replies || [])) {
+    for (const reply of comment.replies || []) {
       ids.push(reply.id);
       ids.push(...collectAllDescendantIds(reply));
     }
     return ids;
   };
 
-  // 从 comments 树中查找指定 id 的评论
-  const findCommentById = (list: Comment[], id: number): Comment | null => {
+  const findCommentById = (list: Comment[], cid: number): Comment | null => {
     for (const c of list) {
-      if (c.id === id) return c;
-      const found = findCommentById(c.replies || [], id);
+      if (c.id === cid) return c;
+      const found = findCommentById(c.replies || [], cid);
       if (found) return found;
     }
     return null;
   };
 
-  // 展开：递归将自己及所有后代加入 set；收起：递归移除
-  const toggleNested = (id: number) => setExpandedNested(prev => {
-    const next = new Set(prev);
-    const target = findCommentById(comments, id);
-    const descendantIds = target ? collectAllDescendantIds(target) : [];
-    if (next.has(id)) {
-      // 收起：移除自己和所有后代
-      next.delete(id);
-      descendantIds.forEach(did => next.delete(did));
-    } else {
-      // 展开：添加自己和所有后代
-      next.add(id);
-      descendantIds.forEach(did => next.add(did));
-    }
-    return next;
-  });
+  const toggleNested = (cid: number) =>
+    setExpandedNested((prev) => {
+      const next = new Set(prev);
+      const target = findCommentById(comments, cid);
+      const descendantIds = target ? collectAllDescendantIds(target) : [];
+      if (next.has(cid)) {
+        next.delete(cid);
+        descendantIds.forEach((did) => next.delete(did));
+      } else {
+        next.add(cid);
+        descendantIds.forEach((did) => next.add(did));
+      }
+      return next;
+    });
 
-  // 文章点赞状态
-  const [articleLiked, setArticleLiked] = useState(false);
-  const [articleLikeCount, setArticleLikeCount] = useState(0);
-
-  // 评论回复展开状态
-  const [expandedReplies, setExpandedReplies] = useState<Record<number, boolean>>({});
-  // 十三期 D2：移动端目录抽屉（xl 以下目录与悬浮条都隐藏，长文无法跳转）
-  const [showMobileTOC, setShowMobileTOC] = useState(false);
-
-  // 生成目录（十三期：与渲染侧同一套 id 算法，TOC 不再死链）
   const headings = useMemo(() => {
     if (!article?.content_md) return [];
     return extractHeadingsFromMarkdown(article.content_md);
   }, [article?.content_md]);
 
-  // 监听滚动，更新当前活跃的标题
   useEffect(() => {
     if (headings.length === 0) return;
 
     const handleScroll = () => {
-      const headingElements = headings.map(h => ({
-        id: h.id,
-        element: document.getElementById(h.id)
-      })).filter(h => h.element);
+      const headingElements = headings
+        .map((h) => ({ id: h.id, element: document.getElementById(h.id) }))
+        .filter((h) => h.element);
 
-      // 如果滚动到底部，高亮最后一个
-      if ((window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 150) {
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 150) {
         if (headings.length > 0) {
           setActiveHeading(headings[headings.length - 1].id);
           return;
@@ -147,12 +171,11 @@ const ArticleDetail: React.FC = () => {
       }
 
       let current = '';
-      for (const { id, element } of headingElements) {
+      for (const { id: hid, element } of headingElements) {
         if (element) {
           const rect = element.getBoundingClientRect();
-          // 如果标题上方距离视口顶部小于 100px (header 高度 + 缓冲)，则激活
           if (rect.top < 120) {
-            current = id;
+            current = hid;
           }
         }
       }
@@ -160,7 +183,7 @@ const ArticleDetail: React.FC = () => {
     };
 
     handleScroll();
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [headings]);
 
@@ -168,11 +191,14 @@ const ArticleDetail: React.FC = () => {
     const fetchData = async () => {
       if (!id && !slug) return;
       setLoading(true);
+      setPrevArticle(null);
+      setNextArticle(null);
+      setRelatedArticles([]);
+      setBookmarked(false);
       try {
         let articleRes: Article;
-
-        if (id && !isNaN(parseInt(id))) {
-          articleRes = await getArticle(parseInt(id));
+        if (id && !isNaN(parseInt(id, 10))) {
+          articleRes = await getArticle(parseInt(id, 10));
         } else if (slug) {
           articleRes = await getArticleBySlug(slug);
         } else {
@@ -182,41 +208,48 @@ const ArticleDetail: React.FC = () => {
         setArticle(articleRes);
         setArticleLikeCount(articleRes.like_count || 0);
 
-        // 获取文章点赞状态
-        try {
-          const likeStatus = await getArticleLikeStatus(articleRes.id);
-          setArticleLiked(likeStatus.liked);
-        } catch (err) {
-          console.error('获取点赞状态失败:', err);
-        }
-
-        // 获取评论
-        const commentsRes = await getArticleComments(articleRes.id);
+        const [likeRes, commentsRes] = await Promise.all([
+          getArticleLikeStatus(articleRes.id).catch(() => null),
+          getArticleComments(articleRes.id).catch(() => []),
+        ]);
+        if (likeRes) setArticleLiked(likeRes.liked);
         setComments(commentsRes);
 
-        // 获取所有文章用于找前一篇和后一篇
         try {
           const allArticlesRes = await getAllArticles();
           const allArticles = Array.isArray(allArticlesRes) ? allArticlesRes : (allArticlesRes as any).data || [];
-          const publishedArticles = allArticles
+          const publishedArticles: ArticleListItem[] = allArticles
             .filter((a: any) => a.published_at && a.status === 'published')
             .sort((a: any, b: any) => new Date(b.published_at!).getTime() - new Date(a.published_at!).getTime());
 
-          const currentIndex = publishedArticles.findIndex((a: any) => a.id === articleRes.id);
-
-          if (currentIndex > 0) {
-            setPrevArticle(publishedArticles[currentIndex - 1]);
-          }
+          const currentIndex = publishedArticles.findIndex((a) => a.id === articleRes.id);
+          if (currentIndex > 0) setPrevArticle(publishedArticles[currentIndex - 1]);
           if (currentIndex >= 0 && currentIndex < publishedArticles.length - 1) {
             setNextArticle(publishedArticles[currentIndex + 1]);
           }
+
+          // 计算相关文章推荐（匹配同标签或同分类）
+          const currentTagSet = new Set((articleRes.tags || []).map((t) => t.name));
+          const scored = publishedArticles
+            .filter((a) => a.id !== articleRes.id)
+            .map((a) => {
+              const tagOverlap = (a.tags || []).filter((t) => currentTagSet.has(t.name)).length;
+              const sameCategory = articleRes.category && a.category === articleRes.category ? 2 : 0;
+              return { item: a, score: tagOverlap * 3 + sameCategory };
+            })
+            .filter((s) => s.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5)
+            .map((s) => s.item);
+          setRelatedArticles(scored.length > 0 ? scored : publishedArticles.filter((a) => a.id !== articleRes.id).slice(0, 5));
         } catch (err) {
-          console.error('获取文章列表失败:', err);
+          console.error('获取相关文章列表失败:', err);
         }
 
-        recordPageView({ page_path: `/articles/${articleRes.id}`, article_id: articleRes.id }).catch(() => { });
+        recordPageView({ page_path: `/articles/${articleRes.id}`, article_id: articleRes.id }).catch(() => {});
       } catch (error) {
         console.error('获取文章失败:', error);
+        setArticle(null);
       } finally {
         setLoading(false);
       }
@@ -225,118 +258,212 @@ const ArticleDetail: React.FC = () => {
     window.scrollTo(0, 0);
   }, [id, slug]);
 
+  // 同步收藏状态（登录态变化时更新）
+  useEffect(() => {
+    if (!article?.id || !isAuthenticated) {
+      setBookmarked(false);
+      return;
+    }
+    let mounted = true;
+    getBookmarkStatus('article', article.id)
+      .then((res) => {
+        if (mounted) setBookmarked(Boolean(res.bookmarked));
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [article?.id, isAuthenticated]);
+
   const refreshComments = async () => {
     if (!article) return;
     const commentsRes = await getArticleComments(article.id);
     setComments(commentsRes);
   };
 
+  const handleToggleBookmark = async () => {
+    if (!article) return;
+    if (!isAuthenticated) {
+      showToast('请先登录后收藏文章', 'info');
+      navigate(`/login?redirect=${encodeURIComponent(`/articles/${article.id}`)}`);
+      return;
+    }
+    if (bookmarkLoading) return;
+    setBookmarkLoading(true);
+    try {
+      const res = await toggleBookmark('article', article.id);
+      setBookmarked(res.bookmarked);
+      showToast(res.bookmarked ? '已加入收藏' : '已取消收藏', 'success');
+    } catch (err: any) {
+      showToast(errorText(err, '收藏操作失败'), 'error');
+    } finally {
+      setBookmarkLoading(false);
+    }
+  };
+
   const handleSubmitComment = async () => {
     if (!article || !commentText.trim()) {
-      alert('请填写评论内容');
+      showToast('请填写评论内容', 'error');
       return;
     }
     setSubmitting(true);
     try {
-      // 登录用户不带 nickname/email，服务端使用其资料
-      await submitComment(article.id, isAuthenticated ? { content: commentText } : { nickname: nickname.trim() || undefined, content: commentText });
+      await submitComment(
+        article.id,
+        isAuthenticated
+          ? { content: commentText.trim() }
+          : {
+              nickname: nickname.trim() || undefined,
+              email: guestEmail.trim() || undefined,
+              content: commentText.trim(),
+            },
+      );
       setCommentText('');
+      showToast('评论已发布', 'success');
       await refreshComments();
     } catch (error: any) {
-      alert(errorText(error, '提交失败'));
+      showToast(errorText(error, '提交失败'), 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleSubmitReply = async (parentId: number) => {
-    if (!article || !replyText.trim() || (!isAuthenticated && !replyNickname.trim())) {
-      alert('请填写昵称和回复内容');
+    if (!article || !replyText.trim()) {
+      showToast('请填写回复内容', 'error');
       return;
     }
     try {
-      await submitComment(article.id, isAuthenticated
-        ? { content: replyText, parent_id: parentId }
-        : { nickname: replyNickname, content: replyText, parent_id: parentId });
+      await submitComment(
+        article.id,
+        isAuthenticated
+          ? { content: replyText.trim(), parent_id: parentId }
+          : {
+              nickname: replyNickname.trim() || undefined,
+              content: replyText.trim(),
+              parent_id: parentId,
+            },
+      );
       setReplyText('');
       setReplyingTo(null);
-      setExpandedReplies(prev => ({ ...prev, [parentId]: true }));
+      setExpandedReplies((prev) => ({ ...prev, [parentId]: true }));
+      showToast('回复已发布', 'success');
       await refreshComments();
     } catch (error: any) {
-      alert(errorText(error, '回复失败'));
+      showToast(errorText(error, '回复失败'), 'error');
     }
   };
 
-  /**
-   * 十三期 B5：评论点赞乐观更新。原来路径是 等 API 返回才变心 + 之后 refreshComments
-   * 全量二次请求——400ms 零反馈真空用户会连点，且 emoji 与全站 lucide 语言断裂。
-   * 现在：点击瞬间本地 toggle + 计数 ±1，成功后用 likeComment 返回值校准，
-   * 失败回滚，全程不再全量重拉评论。
-   * recursive 补丁：评论树可能含多层 replies，需要递归定位目标评论。
-   */
-  const updateCommentLikeInTree = (list: CommentWithUser[], id: number, liked: boolean, delta: number): CommentWithUser[] =>
+  const updateCommentInTree = (
+    list: Comment[],
+    cid: number,
+    updater: (c: Comment) => Comment,
+  ): Comment[] =>
     list.map((c) => {
-      if (c.id === id) {
-        return { ...c, like_count: Math.max(0, (c.like_count || 0) + delta) };
-      }
-      if (c.replies && c.replies.length > 0) {
-        return { ...c, replies: updateCommentLikeInTree(c.replies, id, liked, delta) };
-      }
+      if (c.id === cid) return updater(c);
+      if (c.replies?.length) return { ...c, replies: updateCommentInTree(c.replies, cid, updater) };
       return c;
     });
 
-  // 服务端返回值校准：直接把该项的 like_count 设为服务端值（不管中间状态）
-  const setCommentLikeCountInTree = (list: CommentWithUser[], id: number, likeCount: number): CommentWithUser[] =>
-    list.map((c) => {
-      if (c.id === id) return { ...c, like_count: likeCount };
-      if (c.replies && c.replies.length > 0) return { ...c, replies: setCommentLikeCountInTree(c.replies, id, likeCount) };
-      return c;
+  const handleSaveEdit = async (commentId: number) => {
+    if (!editingText.trim()) {
+      showToast('评论内容不能为空', 'error');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const updated = await updateComment(commentId, editingText.trim());
+      setComments((prev) =>
+        updateCommentInTree(prev, commentId, (c) => ({
+          ...c,
+          content: updated.content,
+          edited_at: updated.edited_at || new Date().toISOString(),
+        })),
+      );
+      setEditingId(null);
+      setEditingText('');
+      showToast('评论已更新', 'success');
+    } catch (err: any) {
+      showToast(errorText(err, '编辑失败'), 'error');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    const ok = await confirm({
+      title: '删除评论',
+      message: '确认删除这条评论吗？删除后将无法恢复。',
+      confirmText: '删除',
+      danger: true,
     });
+    if (!ok) return;
+    try {
+      await deleteComment(commentId);
+      showToast('评论已删除', 'success');
+      await refreshComments();
+    } catch (err: any) {
+      showToast(errorText(err, '删除失败'), 'error');
+    }
+  };
 
   const handleLike = async (commentId: number) => {
     const willLike = !likedComments.has(commentId);
-    // 乐观更新
-    setLikedComments(prev => {
+    setLikedComments((prev) => {
       const next = new Set(prev);
-      if (willLike) next.add(commentId); else next.delete(commentId);
+      if (willLike) next.add(commentId);
+      else next.delete(commentId);
       return next;
     });
-    setComments(prev => updateCommentLikeInTree(prev, commentId, willLike, willLike ? 1 : -1));
+    setComments((prev) =>
+      updateCommentInTree(prev, commentId, (c) => ({
+        ...c,
+        like_count: Math.max(0, (c.like_count || 0) + (willLike ? 1 : -1)),
+      })),
+    );
     try {
       const result = await likeComment(commentId);
-      setComments(prev => setCommentLikeCountInTree(prev, commentId, result.like_count));
+      setComments((prev) =>
+        updateCommentInTree(prev, commentId, (c) => ({ ...c, like_count: result.like_count })),
+      );
       if (result.liked !== willLike) {
-        setLikedComments(prev => {
+        setLikedComments((prev) => {
           const next = new Set(prev);
-          if (result.liked) next.add(commentId); else next.delete(commentId);
+          if (result.liked) next.add(commentId);
+          else next.delete(commentId);
           return next;
         });
       }
     } catch (error: any) {
-      // 失败回滚到未点状态
-      setLikedComments(prev => {
+      setLikedComments((prev) => {
         const next = new Set(prev);
-        if (willLike) next.delete(commentId); else next.add(commentId);
+        if (willLike) next.delete(commentId);
+        else next.add(commentId);
         return next;
       });
-      setComments(prev => updateCommentLikeInTree(prev, commentId, !willLike, willLike ? -1 : 1));
+      setComments((prev) =>
+        updateCommentInTree(prev, commentId, (c) => ({
+          ...c,
+          like_count: Math.max(0, (c.like_count || 0) + (willLike ? -1 : 1)),
+        })),
+      );
       console.error('点赞失败:', error);
     }
   };
 
   const handleReport = async (commentId: number) => {
     if (!reportReason) {
-      alert('请选择举报原因');
+      showToast('请选择举报原因', 'error');
       return;
     }
     try {
       await reportComment(commentId, { reason: reportReason, description: reportDescription });
-      alert('举报成功，我们会尽快处理');
+      showToast('举报成功，我们会尽快处理', 'success');
       setReportingComment(null);
       setReportReason('');
       setReportDescription('');
     } catch (error: any) {
-      alert(errorText(error, '举报失败'));
+      showToast(errorText(error, '举报失败'), 'error');
     }
   };
 
@@ -347,35 +474,22 @@ const ArticleDetail: React.FC = () => {
       setArticleLiked(result.liked);
       setArticleLikeCount(result.like_count);
     } catch (error: any) {
-      console.error('文章点赞失败:', error);
+      showToast(errorText(error, '操作失败'), 'error');
     }
   };
 
   const toggleReplies = (commentId: number) => {
-    setExpandedReplies(prev => {
+    setExpandedReplies((prev) => {
       const willExpand = !prev[commentId];
-      if (willExpand) {
-        // 展开顶级回复的同时，递归展开所有嵌套层
-        const comment = comments.find(c => c.id === commentId);
-        if (comment) {
-          const allIds = collectAllDescendantIds(comment);
-          setExpandedNested(prevNested => {
-            const next = new Set(prevNested);
-            allIds.forEach(id => next.add(id));
-            return next;
-          });
-        }
-      } else {
-        // 收起顶级回复的同时，清除所有嵌套层的展开状态
-        const comment = comments.find(c => c.id === commentId);
-        if (comment) {
-          const allIds = collectAllDescendantIds(comment);
-          setExpandedNested(prevNested => {
-            const next = new Set(prevNested);
-            allIds.forEach(id => next.delete(id));
-            return next;
-          });
-        }
+      const comment = comments.find((c) => c.id === commentId);
+      if (comment) {
+        const allIds = collectAllDescendantIds(comment);
+        setExpandedNested((prevNested) => {
+          const next = new Set(prevNested);
+          if (willExpand) allIds.forEach((cid) => next.add(cid));
+          else allIds.forEach((cid) => next.delete(cid));
+          return next;
+        });
       }
       return { ...prev, [commentId]: willExpand };
     });
@@ -387,115 +501,250 @@ const ArticleDetail: React.FC = () => {
 
   if (!article) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-20 text-center">
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-white mb-4 transition-colors">文章不存在</h1>
-        <Link to="/articles" className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors">返回文章列表</Link>
+      <div className="max-w-3xl mx-auto px-4 py-20">
+        <EmptyState
+          icon={<Icons.FileText className="w-6 h-6" />}
+          title="文章不存在或已下架"
+          description="请检查访问链接，或回到文章列表继续阅读其他内容。"
+          action={
+            <Link to="/articles">
+              <Button size="sm">返回文章列表</Button>
+            </Link>
+          }
+        />
       </div>
     );
   }
 
-  const getCommentDisplayName = (comment: CommentWithUser) => comment.is_admin_reply
-    ? '作者'
-    : (comment.user?.display_name || comment.user?.username || comment.nickname || '匿名读者');
-
-  // 渲染单条回复
   const countAllComments = (list: Comment[]): number =>
     list.reduce((acc, c) => acc + 1 + countAllComments(c.replies || []), 0);
 
-  const MAX_REPLY_DEPTH = 2; // 默认最多展示 2 层回复，更深的折叠
+  const MAX_REPLY_DEPTH = 2;
 
-  const renderReply = (reply: CommentWithUser, depth: number = 1) => {
+  const renderReplyForm = (targetId: number, displayName: string) => (
+    <div className="mt-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/40 p-3.5 transition-colors space-y-2.5">
+      {!isAuthenticated && (
+        <input
+          type="text"
+          placeholder="你的昵称（可选）"
+          value={replyNickname}
+          onChange={(e) => setReplyNickname(e.target.value)}
+          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 focus:outline-none dark:text-white transition-colors"
+        />
+      )}
+      <textarea
+        placeholder={`回复 @${displayName}...`}
+        value={replyText}
+        onChange={(e) => setReplyText(e.target.value)}
+        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 focus:outline-none resize-none h-20 dark:text-white transition-colors"
+      />
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setReplyingTo(null)}
+          className="px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+        >
+          取消
+        </button>
+        <Button size="sm" onClick={() => handleSubmitReply(targetId)}>
+          发送回复
+        </Button>
+      </div>
+    </div>
+  );
+
+  const renderCommentHeader = (comment: Comment) => {
+    const displayName = getCommentDisplayName(comment);
+    const isAuthorBadge =
+      comment.is_admin_reply || comment.user_role === 'admin' || comment.user_role === 'super_admin';
+
+    return (
+      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+        {comment.username ? (
+          <Link
+            to={`/user/${encodeURIComponent(comment.username)}`}
+            className={`text-sm font-semibold hover:underline ${
+              isAuthorBadge ? 'text-primary-600 dark:text-primary-400' : 'text-slate-900 dark:text-slate-100'
+            }`}
+          >
+            {displayName}
+          </Link>
+        ) : (
+          <span
+            className={`text-sm font-semibold ${
+              isAuthorBadge ? 'text-primary-600 dark:text-primary-400' : 'text-slate-900 dark:text-slate-100'
+            }`}
+          >
+            {displayName}
+          </span>
+        )}
+
+        {isAuthorBadge ? (
+          <Badge color="primary" className="text-[10px] py-0">
+            {comment.is_admin_reply ? '作者回复' : '站长'}
+          </Badge>
+        ) : comment.user_id ? (
+          <Badge color="slate" className="text-[10px] py-0">
+            成员
+          </Badge>
+        ) : null}
+
+        <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+          {new Date(comment.created_at).toLocaleDateString('zh-CN')}
+        </span>
+
+        {comment.edited_at && (
+          <span className="text-[11px] text-slate-400 dark:text-slate-500">(已编辑)</span>
+        )}
+      </div>
+    );
+  };
+
+  const renderReply = (reply: Comment, depth: number = 1) => {
     const isLong = reply.content.length > COMMENT_MAX_LEN;
     const isTextExpanded = expandedTexts.has(reply.id);
     const nestedReplies = reply.replies || [];
     const isNestedExpanded = expandedNested.has(reply.id);
-
-    // 深度>=MAX_REPLY_DEPTH 时，默认完全折叠子回复（基于深度的折叠）
     const foldedByDepth = depth >= MAX_REPLY_DEPTH && nestedReplies.length > 0;
     const visibleNested = isNestedExpanded
       ? nestedReplies
-      : (foldedByDepth ? [] : nestedReplies.slice(0, NESTED_REPLY_LIMIT));
-    // 是否需要显示折叠/展开按钮
+      : foldedByDepth
+        ? []
+        : nestedReplies.slice(0, NESTED_REPLY_LIMIT);
     const showToggle = foldedByDepth || nestedReplies.length > NESTED_REPLY_LIMIT;
+    const displayName = getCommentDisplayName(reply);
+    const canManage = isAdmin || (!!user && reply.user_id === user.id);
+    const isEditing = editingId === reply.id;
 
     return (
-      <div key={reply.id} className={`py-3 transition-colors ${
-        reply.is_admin_reply
-          ? 'rounded-xl bg-gradient-to-r from-cyan-50/60 to-purple-50/40 dark:from-cyan-900/10 dark:to-purple-900/10 border-l-4 border-cyan-500 px-3 -mx-1 my-0.5'
-          : ''
-      }`}>
+      <div
+        key={reply.id}
+        className={`py-3 transition-colors ${
+          reply.is_admin_reply
+            ? 'rounded-xl bg-primary-50/35 dark:bg-primary-950/20 border-l-2 border-primary-500 px-3 -mx-1 my-1'
+            : ''
+        }`}
+      >
         <div className="flex gap-3">
-          {reply.user ? (
-            <Avatar name={getCommentDisplayName(reply)} avatarUrl={reply.user.avatar_url} className="w-7 h-7 text-sm" />
+          {reply.username ? (
+            <Link to={`/user/${encodeURIComponent(reply.username)}`} className="shrink-0">
+              <Avatar name={displayName} avatarUrl={getCleanCommentAvatar(reply)} className="w-7 h-7 text-xs ring-1 ring-slate-200 dark:ring-slate-700" />
+            </Link>
           ) : (
-            <img
-              src={getFileUrl(reply.avatar_url) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${getCommentDisplayName(reply)}`}
-              alt={getCommentDisplayName(reply)}
-              className={`w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 transition-colors ${reply.is_admin_reply ? 'ring-2 ring-cyan-400/60' : ''}`}
-            />
+            <Avatar name={displayName} avatarUrl={getCleanCommentAvatar(reply)} className="w-7 h-7 text-xs ring-1 ring-slate-200 dark:ring-slate-700" />
           )}
+
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`text-sm font-medium transition-colors ${reply.is_admin_reply ? 'text-primary-600 dark:text-primary-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                {getCommentDisplayName(reply)}
-              </span>
-              {reply.is_admin_reply ? (
-                <span className="px-1.5 py-0.5 text-[10px] bg-gradient-to-r from-cyan-500 to-purple-500 text-white rounded transition-colors">作者</span>
-              ) : reply.user && (
-                <span className="px-1.5 py-0.5 text-[10px] bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 rounded border border-cyan-100 dark:border-cyan-800 transition-colors">用户</span>
-              )}
-              <span className="text-xs text-slate-400 dark:text-slate-500 transition-colors">{new Date(reply.created_at).toLocaleDateString('zh-CN')}</span>
-            </div>
-            {isLong && !isTextExpanded ? (
+            {renderCommentHeader(reply)}
+
+            {isEditing ? (
+              <div className="mt-2 space-y-2">
+                <textarea
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={() => { setEditingId(null); setEditingText(''); }}>
+                    取消
+                  </Button>
+                  <Button size="sm" disabled={savingEdit} onClick={() => handleSaveEdit(reply.id)}>
+                    {savingEdit ? '保存中...' : '保存'}
+                  </Button>
+                </div>
+              </div>
+            ) : isLong && !isTextExpanded ? (
               <div>
-                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300">{reply.content.slice(0, COMMENT_MAX_LEN) + '...'}</MarkdownContent>
-                <button onClick={() => toggleText(reply.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">展开全文</button>
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 text-sm">
+                  {reply.content.slice(0, COMMENT_MAX_LEN) + '...'}
+                </MarkdownContent>
+                <button
+                  type="button"
+                  onClick={() => toggleText(reply.id)}
+                  className="text-xs text-primary-600 dark:text-primary-400 hover:underline mt-1"
+                >
+                  展开全文
+                </button>
               </div>
             ) : (
               <div>
-                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300">{reply.content}</MarkdownContent>
-                {isLong && <button onClick={() => toggleText(reply.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">收起</button>}
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 text-sm">
+                  {reply.content}
+                </MarkdownContent>
+                {isLong && (
+                  <button
+                    type="button"
+                    onClick={() => toggleText(reply.id)}
+                    className="text-xs text-primary-600 dark:text-primary-400 hover:underline mt-1"
+                  >
+                    收起
+                  </button>
+                )}
               </div>
             )}
-            <div className="flex items-center gap-4 mt-2 text-xs text-slate-400 dark:text-slate-500">
+
+            <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-slate-400 dark:text-slate-500">
               <button
+                type="button"
                 onClick={() => handleLike(reply.id)}
-                className={`flex items-center gap-1 hover:text-red-500 transition-colors ${likedComments.has(reply.id) ? 'text-red-500' : ''}`}
+                className={`flex items-center gap-1 hover:text-red-500 transition-colors cursor-pointer ${likedComments.has(reply.id) ? 'text-red-500' : ''}`}
               >
                 <Icons.Heart
                   key={`${reply.id}-${likedComments.has(reply.id)}`}
                   className={`w-3.5 h-3.5 ${likedComments.has(reply.id) ? 'fill-red-500 like-pop' : ''}`}
                 />
-                <span>{reply.like_count || 0}</span>
+                <span className="tabular-nums">{reply.like_count || 0}</span>
               </button>
-              {/* 十三期 A6：嵌套回复操作区原来只有点赞没有「回复」——想回应二级回复
-                  只能错挂到顶级下，对话指代断裂。补上回复按钮，parent id 直连本层。 */}
               <button
+                type="button"
                 onClick={() => {
-                  // 检修补丁：切换回复目标时清掉旧框里的半截字（防错发给上一人）
                   if (replyingTo !== reply.id) setReplyText('');
                   setReplyingTo(replyingTo === reply.id ? null : reply.id);
                   setReplyNickname(nickname);
                 }}
-                className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors cursor-pointer"
               >
                 回复
               </button>
+              {canManage && !isEditing && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(reply.id);
+                      setEditingText(reply.content);
+                      setReplyingTo(null);
+                    }}
+                    className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors cursor-pointer"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteComment(reply.id)}
+                    className="hover:text-red-500 transition-colors cursor-pointer"
+                  >
+                    删除
+                  </button>
+                </>
+              )}
             </div>
-            {/* 嵌套回复的回复框：replyingTo 命中的嵌套 id 在这里展开 */}
-            {replyingTo === reply.id && renderReplyForm(reply.id, getCommentDisplayName(reply))}
-            {/* 嵌套回复，带深度折叠 */}
+
+            {replyingTo === reply.id && renderReplyForm(reply.id, displayName)}
+
             {nestedReplies.length > 0 && (
-              <div className={`mt-2 pl-3 border-l-2 border-slate-200 dark:border-slate-700 transition-colors ${foldedByDepth && !isNestedExpanded ? '' : ''}`}>
+              <div className="mt-2 pl-3 border-l border-slate-200 dark:border-slate-800">
                 {visibleNested.length > 0 && (
-                  <div className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800 transition-colors">
-                    {visibleNested.map(nested => renderReply(nested, depth + 1))}
+                  <div className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {visibleNested.map((nested) => renderReply(nested, depth + 1))}
                   </div>
                 )}
                 {showToggle && (
                   <button
+                    type="button"
                     onClick={() => toggleNested(reply.id)}
-                    className="mt-1 text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 font-medium flex items-center gap-1"
+                    className="mt-1 text-xs text-primary-600 dark:text-primary-400 hover:underline font-medium flex items-center gap-1 cursor-pointer"
                   >
                     {isNestedExpanded
                       ? '收起回复 ↑'
@@ -512,128 +761,158 @@ const ArticleDetail: React.FC = () => {
     );
   };
 
-  // 十三期 A6：回复框 JSX 提取为共用函数（评论/嵌套回复两处用）。
-  // 假表单修复：登录用户根本不传 nickname——昵称框对登录用户隐藏，
-  // 不再收一个会被后端静默丢弃的字段。
-  const renderReplyForm = (targetId: number, displayName: string) => (
-    <div className="mt-4 bg-slate-50 dark:bg-slate-800 rounded-xl p-4 transition-colors">
-      {!isAuthenticated && (
-        <input
-          type="text"
-          placeholder="你的昵称"
-          value={replyNickname}
-          onChange={(e) => setReplyNickname(e.target.value)}
-          className="w-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none mb-3 dark:text-white transition-colors"
-        />
-      )}
-      <textarea
-        placeholder={`回复 @${displayName}...`}
-        value={replyText}
-        onChange={(e) => setReplyText(e.target.value)}
-        className="w-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-3 text-sm focus:ring-2 focus:ring-primary-500 focus:outline-none resize-none h-20 dark:text-white transition-colors"
-      ></textarea>
-      <div className="flex justify-end gap-2 mt-2">
-        <button onClick={() => setReplyingTo(null)} className="px-3 py-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">取消</button>
-        <Button size="sm" onClick={() => handleSubmitReply(targetId)}>发送</Button>
-      </div>
-    </div>
-  );
-
-  // 渲染评论
-  const renderComment = (comment: CommentWithUser) => {
+  const renderComment = (comment: Comment) => {
     const replies = comment.replies || [];
     const isExpanded = expandedReplies[comment.id];
     const visibleReplies = isExpanded ? replies : replies.slice(0, 2);
     const hasMoreReplies = replies.length > 2;
+    const displayName = getCommentDisplayName(comment);
+    const canManage = isAdmin || (!!user && comment.user_id === user.id);
+    const isOwn = !!user && comment.user_id === user.id;
+    const isEditing = editingId === comment.id;
 
     return (
-      <div key={comment.id} className={`py-5 border-b border-slate-100 dark:border-slate-800 last:border-b-0 transition-colors ${
-        comment.is_admin_reply
-          ? 'rounded-xl bg-gradient-to-r from-cyan-50/60 to-purple-50/40 dark:from-cyan-900/10 dark:to-purple-900/10 border-l-4 border-cyan-500 px-4 -mx-2 my-1'
-          : ''
-      }`}>
+      <div
+        key={comment.id}
+        className={`py-5 border-b border-slate-100 dark:border-slate-800 last:border-b-0 transition-colors ${
+          comment.is_admin_reply
+            ? 'rounded-xl bg-primary-50/35 dark:bg-primary-950/20 border-l-2 border-primary-500 px-4 -mx-2 my-1'
+            : ''
+        }`}
+      >
         <div className="flex gap-3">
-          {comment.user ? (
-            <Avatar name={getCommentDisplayName(comment)} avatarUrl={comment.user.avatar_url} className="w-10 h-10 text-lg" />
+          {comment.username ? (
+            <Link to={`/user/${encodeURIComponent(comment.username)}`} className="shrink-0">
+              <Avatar name={displayName} avatarUrl={getCleanCommentAvatar(comment)} className="w-9 h-9 text-sm ring-1 ring-slate-200 dark:ring-slate-700" />
+            </Link>
           ) : (
-            <img
-              src={getFileUrl(comment.avatar_url) || `https://api.dicebear.com/7.x/avataaars/svg?seed=${getCommentDisplayName(comment)}`}
-              alt={getCommentDisplayName(comment)}
-              className={`w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 transition-colors ${comment.is_admin_reply ? 'ring-2 ring-cyan-400/60' : ''}`}
-            />
+            <Avatar name={displayName} avatarUrl={getCleanCommentAvatar(comment)} className="w-9 h-9 text-sm ring-1 ring-slate-200 dark:ring-slate-700" />
           )}
+
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`font-medium transition-colors ${comment.is_admin_reply ? 'text-primary-600 dark:text-primary-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                {getCommentDisplayName(comment)}
-              </span>
-              {comment.is_admin_reply ? (
-                <span className="px-2 py-0.5 text-[10px] bg-gradient-to-r from-cyan-500 to-purple-500 text-white rounded-full font-medium transition-colors shadow-sm">作者</span>
-              ) : comment.user && (
-                <span className="px-2 py-0.5 text-[10px] bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 rounded-full font-medium border border-cyan-100 dark:border-cyan-800 transition-colors">用户</span>
-              )}
-              <span className="text-xs text-slate-400 dark:text-slate-500 transition-colors">{new Date(comment.created_at).toLocaleDateString('zh-CN')}</span>
-            </div>
-            {comment.content.length > COMMENT_MAX_LEN && !expandedTexts.has(comment.id) ? (
+            {renderCommentHeader(comment)}
+
+            {isEditing ? (
+              <div className="mt-2 space-y-2.5">
+                <textarea
+                  value={editingText}
+                  onChange={(e) => setEditingText(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="outline" onClick={() => { setEditingId(null); setEditingText(''); }}>
+                    取消
+                  </Button>
+                  <Button size="sm" disabled={savingEdit} onClick={() => handleSaveEdit(comment.id)}>
+                    {savingEdit ? '保存中...' : '保存修改'}
+                  </Button>
+                </div>
+              </div>
+            ) : comment.content.length > COMMENT_MAX_LEN && !expandedTexts.has(comment.id) ? (
               <div>
-                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 transition-colors">{comment.content.slice(0, COMMENT_MAX_LEN) + '...'}</MarkdownContent>
-                <button onClick={() => toggleText(comment.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">展开全文</button>
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 text-sm">
+                  {comment.content.slice(0, COMMENT_MAX_LEN) + '...'}
+                </MarkdownContent>
+                <button
+                  type="button"
+                  onClick={() => toggleText(comment.id)}
+                  className="text-xs text-primary-600 dark:text-primary-400 hover:underline mt-1"
+                >
+                  展开全文
+                </button>
               </div>
             ) : (
               <div>
-                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 transition-colors">{comment.content}</MarkdownContent>
-                {comment.content.length > COMMENT_MAX_LEN && <button onClick={() => toggleText(comment.id)} className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 mt-1">收起</button>}
+                <MarkdownContent compact enableMermaid={false} allowHtml={false} className="dark:text-slate-300 text-sm">
+                  {comment.content}
+                </MarkdownContent>
+                {comment.content.length > COMMENT_MAX_LEN && (
+                  <button
+                    type="button"
+                    onClick={() => toggleText(comment.id)}
+                    className="text-xs text-primary-600 dark:text-primary-400 hover:underline mt-1"
+                  >
+                    收起
+                  </button>
+                )}
               </div>
             )}
 
-            <div className="flex items-center gap-5 text-sm text-slate-400 dark:text-slate-500 transition-colors">
+            <div className="flex flex-wrap items-center gap-4 mt-2.5 text-xs text-slate-400 dark:text-slate-500">
               <button
+                type="button"
                 onClick={() => handleLike(comment.id)}
-                className={`flex items-center gap-1.5 hover:text-red-500 transition-colors ${likedComments.has(comment.id) ? 'text-red-500' : ''}`}
+                className={`flex items-center gap-1.5 hover:text-red-500 transition-colors cursor-pointer ${likedComments.has(comment.id) ? 'text-red-500' : ''}`}
               >
                 <Icons.Heart
                   key={`${comment.id}-${likedComments.has(comment.id)}`}
-                  className={`w-4 h-4 ${likedComments.has(comment.id) ? 'fill-red-500 like-pop' : ''}`}
+                  className={`w-3.5 h-3.5 ${likedComments.has(comment.id) ? 'fill-red-500 like-pop' : ''}`}
                 />
-                <span>{comment.like_count || 0}</span>
+                <span className="tabular-nums">{comment.like_count || 0}</span>
               </button>
               <button
+                type="button"
                 onClick={() => {
-                  // 检修补丁：切换回复目标时清掉旧框里的半截字
                   if (replyingTo !== comment.id) setReplyText('');
                   setReplyingTo(replyingTo === comment.id ? null : comment.id);
                   setReplyNickname(nickname);
                 }}
-                className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors cursor-pointer"
               >
                 回复
               </button>
-              {!comment.is_admin_reply && (
+
+              {canManage && !isEditing && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(comment.id);
+                      setEditingText(comment.content);
+                      setReplyingTo(null);
+                    }}
+                    className="hover:text-primary-600 dark:hover:text-primary-400 transition-colors cursor-pointer"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteComment(comment.id)}
+                    className="hover:text-red-500 transition-colors cursor-pointer"
+                  >
+                    删除
+                  </button>
+                </>
+              )}
+
+              {!comment.is_admin_reply && !isOwn && (
                 <button
+                  type="button"
                   onClick={() => setReportingComment(reportingComment === comment.id ? null : comment.id)}
-                  className="hover:text-red-500 dark:hover:text-red-400 transition-colors ml-auto"
+                  className="hover:text-red-500 dark:hover:text-red-400 transition-colors ml-auto cursor-pointer"
                 >
                   举报
                 </button>
               )}
             </div>
 
-            {/* 回复输入框（十三期 A6：改用共用的 renderReplyForm） */}
-            {replyingTo === comment.id && renderReplyForm(comment.id, getCommentDisplayName(comment))}
+            {replyingTo === comment.id && renderReplyForm(comment.id, displayName)}
 
-            {/* 举报表单 */}
             {reportingComment === comment.id && (
-              <div className="mt-4 bg-red-50 dark:bg-red-900/10 rounded-xl p-4 border border-red-100 dark:border-red-900/30 transition-colors">
-                <div className="text-sm font-medium text-red-700 dark:text-red-400 mb-3 transition-colors">举报原因</div>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {REPORT_REASONS.map(r => (
+              <div className="mt-4 bg-red-50/70 dark:bg-red-950/20 rounded-xl p-4 border border-red-200/70 dark:border-red-900/40">
+                <div className="text-xs font-semibold text-red-700 dark:text-red-400 mb-2.5">选择举报原因</div>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {REPORT_REASONS.map((r) => (
                     <button
                       key={r.value}
+                      type="button"
                       onClick={() => setReportReason(r.value)}
-                      className={`px-3 py-1.5 rounded-lg text-sm transition-all ${reportReason === r.value
-                        ? 'bg-red-500 text-white'
-                        : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-red-300 dark:hover:border-red-700'
-                        }`}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        reportReason === r.value
+                          ? 'bg-red-600 text-white'
+                          : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-red-300'
+                      }`}
                     >
                       {r.label}
                     </button>
@@ -643,27 +922,42 @@ const ArticleDetail: React.FC = () => {
                   placeholder="补充说明（可选）"
                   value={reportDescription}
                   onChange={(e) => setReportDescription(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-sm focus:outline-none resize-none h-16 dark:text-white transition-colors"
-                ></textarea>
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs focus:outline-none resize-none h-16 dark:text-white"
+                />
                 <div className="flex justify-end gap-2 mt-2">
-                  <button onClick={() => { setReportingComment(null); setReportReason(''); }} className="px-3 py-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">取消</button>
-                  <button onClick={() => handleReport(comment.id)} className="px-4 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">提交</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportingComment(null);
+                      setReportReason('');
+                    }}
+                    className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleReport(comment.id)}
+                    className="px-3.5 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors cursor-pointer"
+                  >
+                    提交举报
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* 回复列表 */}
             {replies.length > 0 && (
-              <div className="mt-4 pl-3 border-l-2 border-slate-200 dark:border-slate-700 transition-colors">
-                <div className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800 transition-colors">
-                  {visibleReplies.map(reply => renderReply(reply))}
+              <div className="mt-4 pl-3 border-l border-slate-200 dark:border-slate-800">
+                <div className="space-y-0 divide-y divide-slate-100 dark:divide-slate-800/80">
+                  {visibleReplies.map((reply) => renderReply(reply))}
                 </div>
                 {hasMoreReplies && (
                   <button
+                    type="button"
                     onClick={() => toggleReplies(comment.id)}
-                    className="mt-2 text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-medium transition-colors"
+                    className="mt-2 text-xs text-primary-600 dark:text-primary-400 hover:underline font-medium cursor-pointer"
                   >
-                    {isExpanded ? `收起 ↑` : `查看更多回复 (${replies.length - 2}条)`}
+                    {isExpanded ? '收起 ↑' : `查看更多回复 (${replies.length - 2}条)`}
                   </button>
                 )}
               </div>
@@ -674,26 +968,24 @@ const ArticleDetail: React.FC = () => {
     );
   };
 
-
   const handleScrollToComments = () => {
-    const commentsSection = document.getElementById('comments-section');
-    if (commentsSection) {
-      commentsSection.scrollIntoView({ behavior: 'smooth' });
-    }
+    document.getElementById('comments-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const authorName = article.author?.display_name || article.author?.username || '千禧';
+  const authorUsername = article.author?.username;
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-900 transition-colors duration-300">
+    <div className="relative min-h-screen bg-slate-50/40 dark:bg-slate-950 transition-colors">
       <div className="max-w-screen-2xl mx-auto flex gap-0">
-        {/* 侧边栏目录 */}
+        {/* 左侧粘性目录 */}
         {headings.length > 2 && (
-          <aside className="hidden xl:block w-64 flex-shrink-0 pt-12 ml-8">
-            <div className="sticky top-28 pl-4 border-l border-slate-200 dark:border-slate-800 transition-colors">
-              <div className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 pl-2 flex items-center gap-2 transition-colors">
-                <span className="text-xl">📑</span> 大纲
+          <aside className="hidden xl:block w-64 flex-shrink-0 pt-10 ml-8">
+            <div className="sticky top-20 pl-4 border-l border-slate-200/80 dark:border-slate-800">
+              <div className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 pl-2 flex items-center gap-1.5">
+                <Icons.BookOpen className="w-3.5 h-3.5 text-primary-500" /> 大纲目录
               </div>
-              <nav className="space-y-1 text-sm max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
+              <nav className="space-y-0.5 text-sm max-h-[72vh] overflow-y-auto pr-2 custom-scrollbar">
                 {headings.map((heading, idx) => (
                   <a
                     key={`${heading.id}-${idx}`}
@@ -702,11 +994,12 @@ const ArticleDetail: React.FC = () => {
                       e.preventDefault();
                       document.getElementById(heading.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }}
-                    className={`block py-1.5 px-3 rounded-lg transition-all border-l-2 -ml-[1px] text-sm ${activeHeading === heading.id
-                      ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400 font-semibold'
-                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:border-slate-300 dark:hover:border-slate-700'
-                      }`}
-                    style={{ paddingLeft: `${12 + (heading.level - 1) * 12}px` }}
+                    className={`block py-1.5 px-2.5 rounded-md transition-colors border-l-2 -ml-[1px] text-[13px] leading-snug ${
+                      activeHeading === heading.id
+                        ? 'border-primary-500 bg-primary-50/70 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 font-medium'
+                        : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                    style={{ paddingLeft: `${10 + (heading.level - 1) * 12}px` }}
                   >
                     {heading.text}
                   </a>
@@ -716,239 +1009,344 @@ const ArticleDetail: React.FC = () => {
           </aside>
         )}
 
-        {/* 主要内容 */}
+        {/* 主体内容 */}
         <main className="flex-1 min-w-0">
-          <div className="max-w-4xl mx-auto lg:mx-0 lg:ml-12 px-4 sm:px-6 py-10 sm:py-16 relative">
-
-            {/* 面包屑 */}
+          <div className="max-w-4xl mx-auto lg:mx-0 lg:ml-10 px-4 sm:px-6 py-8 sm:py-12 relative">
+            {/* 顶部导航与移动端目录按钮 */}
             <div className="mb-8">
-              {/* 返回 + 移动端目录胶囊：同一行的左右两端（xl 以下侧栏与悬浮条都隐藏的补救） */}
               <div className="flex items-center justify-between gap-3 mb-6">
                 <button
-                  onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/articles')}
-                  className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 group transition-colors"
+                  type="button"
+                  onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/articles'))}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 group transition-colors cursor-pointer"
                 >
-                  <Icons.ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                  <Icons.ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
                   返回
                 </button>
 
-                {headings.length > 2 && (
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setShowMobileTOC(true)}
-                    className="xl:hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 bg-white/70 dark:bg-slate-800/60 hover:border-cyan-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors"
+                    type="button"
+                    onClick={handleToggleBookmark}
+                    disabled={bookmarkLoading}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                      bookmarked
+                        ? 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300'
+                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
+                    }`}
                   >
-                    <span>📑</span> 目录
+                    <Icons.Bookmark className={`w-3.5 h-3.5 ${bookmarked ? 'fill-current' : ''}`} />
+                    {bookmarked ? '已收藏' : '收藏'}
                   </button>
-                )}
+
+                  {headings.length > 2 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMobileTOC(true)}
+                      className="xl:hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 hover:border-primary-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors cursor-pointer"
+                    >
+                      <Icons.BookOpen className="w-3.5 h-3.5" /> 目录
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <h1 className="text-3xl sm:text-4xl sm:leading-tight font-bold text-slate-900 dark:text-white mb-6 transition-colors">
-                {article.is_pinned && <span className="text-amber-500 mr-2" title="置顶文章">📌</span>}
+              {/* 分类标签与置顶标识 */}
+              {(article.category || article.is_pinned) && (
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  {article.category && <Badge color="primary">{article.category}</Badge>}
+                  {article.is_pinned && <Badge color="amber">置顶推荐</Badge>}
+                </div>
+              )}
+
+              <h1 className="text-2xl sm:text-4xl sm:leading-tight font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-5">
                 {article.title}
               </h1>
 
-              <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500 dark:text-slate-400 transition-colors">
+              {/* 作者与元数据行 */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
                 <div className="flex items-center gap-2">
-                  <img
-                    src={getFileUrl(article.author?.avatar_url) || `https://api.dicebear.com/7.x/notionists/svg?seed=${article.author?.username || 'admin'}`}
-                    className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700 transition-colors"
-                    alt="Author"
-                  />
-                  <span className="font-medium text-slate-700 dark:text-slate-200">{article.author?.display_name || article.author?.username || '管理员'}</span>
+                  {authorUsername ? (
+                    <Link to={`/user/${encodeURIComponent(authorUsername)}`} className="flex items-center gap-2 group">
+                      <Avatar name={authorName} avatarUrl={article.author?.avatar_url} className="w-7 h-7 text-xs ring-1 ring-slate-200 dark:ring-slate-700" />
+                      <span className="font-medium text-slate-800 dark:text-slate-200 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
+                        {authorName}
+                      </span>
+                    </Link>
+                  ) : (
+                    <>
+                      <Avatar name={authorName} avatarUrl={article.author?.avatar_url} className="w-7 h-7 text-xs ring-1 ring-slate-200 dark:ring-slate-700" />
+                      <span className="font-medium text-slate-800 dark:text-slate-200">{authorName}</span>
+                    </>
+                  )}
                 </div>
-                <span className="text-slate-300 dark:text-slate-700">|</span>
-                <span className="flex items-center gap-1">
+                <span className="text-slate-300 dark:text-slate-700">/</span>
+                <span className="flex items-center gap-1 tabular-nums">
                   <Icons.Calendar className="w-3.5 h-3.5" />
                   {article.published_at ? new Date(article.published_at).toLocaleDateString('zh-CN') : '未发布'}
                 </span>
-                <span className="text-slate-300 dark:text-slate-700">|</span>
-                <span className="flex items-center gap-1">
+                <span className="text-slate-300 dark:text-slate-700">/</span>
+                <span className="flex items-center gap-1 tabular-nums">
                   <Icons.Clock className="w-3.5 h-3.5" />
                   {article.read_time_minutes || 5} 分钟阅读
                 </span>
-                <span className="text-slate-300 dark:text-slate-700">|</span>
-                <span className="flex items-center gap-1" title="阅读量">
+                <span className="text-slate-300 dark:text-slate-700">/</span>
+                <span className="flex items-center gap-1 tabular-nums" title="阅读量">
                   <Icons.Eye className="w-3.5 h-3.5" />
                   {article.view_count}
                 </span>
               </div>
             </div>
 
-            {/* 文章内容 */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm p-6 sm:p-10 mb-8 transition-all hover:shadow-md">
+            {/* 正文卡片 */}
+            <div className="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 sm:p-10 mb-8 transition-colors">
               {article.summary && (
-                <div className="bg-slate-50 dark:bg-slate-900/50 border-l-4 border-cyan-500 rounded-r-lg p-5 mb-8 transition-colors">
-                  <div className="flex gap-3">
-                    <span className="text-2xl">💡</span>
-                    <p className="text-slate-700 dark:text-slate-300 leading-relaxed italic text-[15px] transition-colors">{article.summary}</p>
-                  </div>
+                <div className="bg-slate-50/80 dark:bg-slate-800/40 border-l-2 border-primary-500 rounded-r-lg px-5 py-4 mb-8">
+                  <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-sm sm:text-[15px]">{article.summary}</p>
                 </div>
               )}
 
-              {/* 十期 B3 可追问导读卡：站长采纳后才有的字段（后端未采纳一律返回 null）。
-                  三个问题点击后经 CustomEvent 唤起小魄罗并自动发送——她会带着站内检索答，
-                  问题前缀文章标题是为了让她优先命中本文，不做更重的"锁上下文"。 */}
+              {/* AI 可追问导读卡 */}
               {(() => {
                 try {
                   const intro = article.ai_intro ? JSON.parse(article.ai_intro) : null;
                   if (!intro?.summary || !Array.isArray(intro.questions) || intro.questions.length === 0) return null;
                   const askPoro = (q: string) => {
-                    window.dispatchEvent(new CustomEvent('poro-ask', {
-                      detail: { question: `关于《${article.title}》：${q}` },
-                    }));
+                    window.dispatchEvent(
+                      new CustomEvent('poro-ask', {
+                        detail: { question: `关于《${article.title}》：${q}` },
+                      }),
+                    );
                   };
                   return (
-                    <div className="mb-8 rounded-2xl border border-cyan-100 dark:border-cyan-900/50 bg-gradient-to-br from-cyan-50/70 via-white/40 to-purple-50/50 dark:from-cyan-900/15 dark:via-slate-800/40 dark:to-purple-900/10 p-5 transition-colors">
+                    <div className="mb-8 rounded-xl border border-primary-200/70 dark:border-primary-900/50 bg-primary-50/40 dark:bg-primary-950/20 p-5">
                       <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xl">🧭</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-100">太长不看</span>
+                        <Icons.Sparkles className="w-4 h-4 text-primary-600 dark:text-primary-400" />
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 核心导读 · 太长不看</span>
                       </div>
-                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed mb-3 text-[15px]">{intro.summary}</p>
-                      <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">想深入？点一下，小魄罗带你追问 ↓</div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed mb-3 text-sm">{intro.summary}</p>
+                      <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">点选下方问题，由小魄罗带读追问：</div>
                       <div className="flex flex-wrap gap-2">
                         {intro.questions.map((q: string, i: number) => (
                           <button
                             key={i}
                             type="button"
                             onClick={() => askPoro(q)}
-                            className="group inline-flex items-center gap-1.5 rounded-full border border-cyan-200 dark:border-cyan-800/60 bg-white/80 dark:bg-slate-800/70 px-3.5 py-1.5 text-xs font-medium text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-900/40 hover:-translate-y-0.5 transition-all"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-primary-200/80 dark:border-primary-800/60 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-primary-700 dark:text-primary-300 hover:border-primary-400 dark:hover:border-primary-600 transition-colors cursor-pointer"
                           >
-                            <span>💬 {q}</span>
+                            <Icons.MessageCircle className="w-3.5 h-3.5" />
+                            <span>{q}</span>
                           </button>
                         ))}
                       </div>
                     </div>
                   );
                 } catch {
-                  return null;  // ai_intro 解析失败就当没有，绝不阻塞正文渲染
+                  return null;
                 }
               })()}
 
-              <article className="prose prose-slate dark:prose-invert prose-lg max-w-none prose-headings:scroll-mt-24 prose-a:text-cyan-600 dark:prose-a:text-cyan-400 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl prose-img:shadow-md transition-colors">
+              <article className="prose prose-slate dark:prose-invert prose-lg max-w-none prose-headings:scroll-mt-24 prose-a:text-primary-600 dark:prose-a:text-primary-400 prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl">
                 {article.content_md ? (
-                  // 文章正文是管理员自己写的，可以开原始 HTML，但仍会过 rehypeSanitize
-                  <MarkdownContent allowHtml className="!max-w-none">{article.content_md}</MarkdownContent>
+                  <MarkdownContent allowHtml className="!max-w-none">
+                    {article.content_md}
+                  </MarkdownContent>
                 ) : (
-                  <p className="text-slate-400 dark:text-slate-500 text-center py-8 transition-colors">暂无内容</p>
+                  <p className="text-slate-400 dark:text-slate-500 text-center py-8">暂无内容</p>
                 )}
               </article>
             </div>
 
-            {/* 文章底部标签与分享 */}
-            <div className="border-t border-slate-100 dark:border-slate-800 pt-8 mb-10 transition-colors">
+            {/* 底部标签与互动操作 */}
+            <div className="border-t border-slate-200/80 dark:border-slate-800 pt-6 mb-8">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 {article.tags && article.tags.length > 0 ? (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Icons.Tags className="w-4 h-4 text-slate-400 dark:text-slate-500 transition-colors" />
-                    {article.tags.map(tag => (
-                      <Link key={tag.id} to={`/articles?tag=${encodeURIComponent(tag.name)}`}
-                        className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full text-sm hover:bg-cyan-50 dark:hover:bg-cyan-900/30 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">
+                    <Icons.Tags className="w-4 h-4 text-slate-400 dark:text-slate-500" />
+                    {article.tags.map((tag) => (
+                      <Link
+                        key={tag.id}
+                        to={`/articles?tag=${encodeURIComponent(tag.name)}`}
+                        className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 rounded-md text-xs font-medium hover:border-primary-300 dark:hover:border-primary-700 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
+                      >
                         #{tag.name}
                       </Link>
                     ))}
                   </div>
-                ) : <div></div>}
+                ) : (
+                  <div />
+                )}
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5">
                   <button
+                    type="button"
                     onClick={handleArticleLike}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium transition-all text-sm border ${articleLiked
-                      ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-900/30'
-                      : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-red-200 dark:hover:border-red-800 hover:text-red-500 dark:hover:text-red-400'
-                      }`}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-medium transition-colors text-xs border cursor-pointer ${
+                      articleLiked
+                        ? 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/60'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-red-300 hover:text-red-500'
+                    }`}
                   >
-                    <Icons.ThumbsUp className={`w-4 h-4 ${articleLiked ? 'fill-current' : ''}`} />
+                    <Icons.ThumbsUp className={`w-3.5 h-3.5 ${articleLiked ? 'fill-current' : ''}`} />
                     <span>{articleLiked ? '已赞' : '点赞'}</span>
-                    <span className="bg-black/5 dark:bg-white/5 px-1.5 rounded text-xs transition-colors">{articleLikeCount}</span>
+                    <span className="tabular-nums opacity-80">{articleLikeCount}</span>
                   </button>
+
                   <button
-                    onClick={() => { navigator.clipboard.writeText(window.location.href); alert('链接已复制'); }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-cyan-50 dark:hover:bg-cyan-900/30 hover:text-cyan-600 dark:hover:text-cyan-400 hover:border-cyan-200 dark:hover:border-cyan-800 transition-all text-sm"
+                    type="button"
+                    onClick={handleToggleBookmark}
+                    disabled={bookmarkLoading}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-medium transition-colors text-xs border cursor-pointer ${
+                      bookmarked
+                        ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-amber-300 hover:text-amber-600'
+                    }`}
                   >
-                    <Icons.Share2 className="w-4 h-4" />
+                    <Icons.Bookmark className={`w-3.5 h-3.5 ${bookmarked ? 'fill-current' : ''}`} />
+                    <span>{bookmarked ? '已收藏' : '收藏'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await copyToClipboard(window.location.href);
+                      showToast(ok ? '链接已复制到剪贴板' : '复制失败，请手动复制', ok ? 'success' : 'error');
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary-300 hover:text-primary-600 dark:hover:text-primary-400 transition-colors text-xs font-medium cursor-pointer"
+                  >
+                    <Icons.Share2 className="w-3.5 h-3.5" />
                     <span>分享</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* 上一篇/下一篇导航 */}
+            {/* 上一篇 / 下一篇 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
               {prevArticle ? (
-                <Link to={`/articles/${prevArticle.id}`} className="group p-5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-cyan-300 dark:hover:border-cyan-700 hover:shadow-sm transition-all bg-white dark:bg-slate-800 relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-1 h-full bg-slate-200 dark:bg-slate-700 group-hover:bg-cyan-400 transition-colors"></div>
-                  <div className="text-xs text-slate-400 dark:text-slate-500 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 mb-1 flex items-center gap-1 transition-colors">
+                <Link
+                  to={`/articles/${prevArticle.id}`}
+                  className="group p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-primary-300 dark:hover:border-primary-700 transition-colors bg-white dark:bg-slate-900/90"
+                >
+                  <div className="text-xs text-slate-400 dark:text-slate-500 group-hover:text-primary-600 dark:group-hover:text-primary-400 mb-1 flex items-center gap-1">
                     <Icons.ArrowLeft className="w-3 h-3" /> 上一篇
                   </div>
-                  <div className="text-base font-medium text-slate-800 dark:text-slate-200 group-hover:text-cyan-700 dark:group-hover:text-cyan-300 line-clamp-1 transition-colors">{prevArticle.title}</div>
+                  <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 group-hover:text-primary-600 dark:group-hover:text-primary-400 line-clamp-1">
+                    {prevArticle.title}
+                  </div>
                 </Link>
               ) : (
-                <div className="p-5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-400 dark:text-slate-500 flex items-center justify-center text-sm transition-colors">已是第一篇</div>
+                <div className="p-4 rounded-xl border border-slate-200/60 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 flex items-center justify-center text-xs">
+                  已是第一篇
+                </div>
               )}
 
               {nextArticle ? (
-                <Link to={`/articles/${nextArticle.id}`} className="group p-5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-cyan-300 dark:hover:border-cyan-700 hover:shadow-sm transition-all bg-white dark:bg-slate-800 relative overflow-hidden text-right">
-                  <div className="absolute top-0 right-0 w-1 h-full bg-slate-200 dark:bg-slate-700 group-hover:bg-cyan-400 transition-colors"></div>
-                  <div className="text-xs text-slate-400 dark:text-slate-500 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 mb-1 flex items-center gap-1 justify-end transition-colors">
+                <Link
+                  to={`/articles/${nextArticle.id}`}
+                  className="group p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-primary-300 dark:hover:border-primary-700 transition-colors bg-white dark:bg-slate-900/90 text-right"
+                >
+                  <div className="text-xs text-slate-400 dark:text-slate-500 group-hover:text-primary-600 dark:group-hover:text-primary-400 mb-1 flex items-center gap-1 justify-end">
                     下一篇 <Icons.ChevronRight className="w-3 h-3" />
                   </div>
-                  <div className="text-base font-medium text-slate-800 dark:text-slate-200 group-hover:text-cyan-700 dark:group-hover:text-cyan-300 line-clamp-1 transition-colors">{nextArticle.title}</div>
+                  <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 group-hover:text-primary-600 dark:group-hover:text-primary-400 line-clamp-1">
+                    {nextArticle.title}
+                  </div>
                 </Link>
               ) : (
-                <div className="p-5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-400 dark:text-slate-500 flex items-center justify-center text-sm transition-colors">已是最后一篇</div>
+                <div className="p-4 rounded-xl border border-slate-200/60 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 text-slate-400 dark:text-slate-500 flex items-center justify-center text-xs">
+                  已是最后一篇
+                </div>
               )}
             </div>
 
             {/* 评论区 */}
-            <div id="comments-section" className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm p-6 sm:p-8 transition-all">
-              <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2 transition-colors">
-                <Icons.MessageCircle className="w-6 h-6 text-cyan-500 dark:text-cyan-400" />
-                评论 <span className="text-slate-400 dark:text-slate-500 text-base font-normal transition-colors">({countAllComments(comments)})</span>
+            <section
+              id="comments-section"
+              className="bg-white dark:bg-slate-900/90 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 sm:p-8"
+            >
+              <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-5 flex items-center gap-2">
+                <Icons.MessageCircle className="w-4 h-4 text-primary-500" />
+                <span>文章评论</span>
+                <span className="text-xs font-normal text-slate-400 dark:text-slate-500 tabular-nums">
+                  ({countAllComments(comments)})
+                </span>
               </h3>
 
-              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-5 mb-8 border border-slate-100 dark:border-slate-800 transition-colors">
-                <div className="flex gap-4 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xl flex-shrink-0 dark:text-white transition-colors">
-                    {nickname ? nickname[0].toUpperCase() : '👤'}
+              {/* 评论输入区 */}
+              <div className="bg-slate-50/80 dark:bg-slate-900/60 rounded-xl p-4 sm:p-5 mb-7 border border-slate-200/70 dark:border-slate-800 space-y-3">
+                {isAuthenticated && user ? (
+                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <Avatar name={user.display_name || user.username} avatarUrl={user.avatar_url} className="w-6 h-6 text-xs" />
+                      <span>
+                        以 <strong className="text-slate-800 dark:text-slate-200">{user.display_name || user.username}</strong> 身份发表
+                      </span>
+                    </div>
+                    <Link to={`/user/${encodeURIComponent(user.username)}`} className="text-primary-600 dark:text-primary-400 hover:underline">
+                      我的主页
+                    </Link>
                   </div>
-                  <div className="flex-1 space-y-3">
+                ) : (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span>无需登录即可评论，登录后可管理历史评论与接收回复通知</span>
+                      <Link
+                        to={`/login?redirect=${encodeURIComponent(`/articles/${article.id}`)}`}
+                        className="font-medium text-primary-600 dark:text-primary-400 hover:underline shrink-0"
+                      >
+                        登录 &rarr;
+                      </Link>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <input type="text" placeholder="你的昵称（可选）" value={nickname} onChange={(e) => setNickname(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-400 focus:outline-none dark:text-white transition-all shadow-sm" />
-                      <input type="email" placeholder="邮箱（可选）"
-                        className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-400 focus:outline-none dark:text-white transition-all shadow-sm" />
-                    </div>
-                    <textarea
-                      className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 text-sm focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-400 focus:outline-none resize-none h-28 dark:text-white transition-all shadow-sm"
-                      placeholder="写下你的想法..."
-                      value={commentText}
-                      onChange={(e) => setCommentText(e.target.value)}
-                    ></textarea>
-                    <div className="flex justify-end">
-                      <Button onClick={handleSubmitComment} disabled={submitting} className="bg-cyan-600 dark:bg-cyan-500 hover:bg-cyan-700 dark:hover:bg-cyan-600 text-white px-6">
-                        {submitting ? '发布中...' : (
-                          <span className="flex items-center gap-2"><Icons.Send className="w-4 h-4" /> 发布评论</span>
-                        )}
-                      </Button>
+                      <input
+                        type="text"
+                        placeholder="你的昵称（可选）"
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 focus:outline-none dark:text-white"
+                      />
+                      <input
+                        type="email"
+                        placeholder="邮箱（可选）"
+                        value={guestEmail}
+                        onChange={(e) => setGuestEmail(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 focus:outline-none dark:text-white"
+                      />
                     </div>
                   </div>
+                )}
+
+                <textarea
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3.5 text-sm focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 focus:outline-none resize-none h-24 dark:text-white"
+                  placeholder="写下你的想法（支持基础 Markdown）..."
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                />
+
+                <div className="flex justify-end">
+                  <Button size="sm" onClick={handleSubmitComment} disabled={submitting}>
+                    <Icons.Send className="w-3.5 h-3.5" />
+                    {submitting ? '发布中...' : '发布评论'}
+                  </Button>
                 </div>
               </div>
 
               {comments.length === 0 ? (
-                <div className="text-center text-slate-400 dark:text-slate-500 py-12 bg-slate-50/50 dark:bg-slate-900/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 transition-colors">
-                  <div className="text-4xl mb-3 opacity-50">💭</div>
-                  <p>还没有评论，来抢沙发吧！</p>
-                </div>
+                <EmptyState
+                  icon={<Icons.MessageCircle className="w-5 h-5" />}
+                  title="还没有评论"
+                  description="来分享你的阅读想法或补充问题吧。"
+                />
               ) : (
-                <div className="space-y-6">{comments.map(comment => renderComment(comment))}</div>
+                <div className="space-y-1">{comments.map((comment) => renderComment(comment))}</div>
               )}
-            </div>
+            </section>
           </div>
         </main>
 
         {/* 右侧边栏 */}
-        <div className="pt-12">
+        <div className="pt-10">
           <ArticleSidebar article={article} relatedArticles={relatedArticles} />
         </div>
       </div>
@@ -957,23 +1355,28 @@ const ArticleDetail: React.FC = () => {
       <FloatingActions
         likeCount={articleLikeCount}
         liked={articleLiked}
-        commentCount={comments.length}
+        bookmarked={bookmarked}
+        commentCount={countAllComments(comments)}
         onLike={handleArticleLike}
+        onBookmark={handleToggleBookmark}
         onScrollToComments={handleScrollToComments}
       />
 
-      {/* 移动端目录抽屉（xl 以下才有）：遮罩 + 底部 sheet */}
+      {/* 移动端目录抽屉 */}
       {showMobileTOC && (
         <div className="fixed inset-0 z-50 xl:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowMobileTOC(false)} />
-          <div className="absolute bottom-0 inset-x-0 rounded-t-3xl bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shadow-2xl max-h-[70vh] flex flex-col overflow-hidden animate-fade-in-down">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 shrink-0">
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">📑 目录</span>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-xs" onClick={() => setShowMobileTOC(false)} />
+          <div className="absolute bottom-0 inset-x-0 rounded-t-2xl bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-2xl max-h-[70vh] flex flex-col overflow-hidden animate-fade-in-down">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <Icons.BookOpen className="w-4 h-4 text-primary-500" /> 目录大纲
+              </span>
               <button
+                type="button"
                 onClick={() => setShowMobileTOC(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
-                ✕
+                <Icons.X className="w-4 h-4" />
               </button>
             </div>
             <nav className="overflow-y-auto px-3 py-3 space-y-0.5 flex-1">
@@ -985,10 +1388,11 @@ const ArticleDetail: React.FC = () => {
                     document.getElementById(heading.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     setShowMobileTOC(false);
                   }}
-                  className={`w-full text-left py-2 px-3 rounded-lg text-sm transition-colors ${activeHeading === heading.id
-                    ? 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400 font-semibold'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                    }`}
+                  className={`w-full text-left py-2 px-3 rounded-lg text-sm transition-colors ${
+                    activeHeading === heading.id
+                      ? 'bg-primary-50 dark:bg-primary-950/60 text-primary-700 dark:text-primary-300 font-semibold'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
                   style={{ paddingLeft: `${12 + (heading.level - 1) * 12}px` }}
                 >
                   {heading.text}
@@ -998,6 +1402,8 @@ const ArticleDetail: React.FC = () => {
           </div>
         </div>
       )}
+
+      {confirmDialog}
     </div>
   );
 };

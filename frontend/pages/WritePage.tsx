@@ -1,7 +1,6 @@
 /**
  * 用户投稿编辑器（需登录）
- * 表单：title/category/summary/tags/cover_image/content_md
- * 通过 /write?article_id= 编辑已有草稿/被驳回文章；管理员仍用 /admin/posts/new
+ * 保留 MDEditor（GFM + KaTeX + remarkDisableIndentedCodeBlock）、CoverCropper、草稿与提交审核工作流
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -10,409 +9,419 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Icons } from '../components/Icons';
-import { Button } from '../components/Shared';
+import { Button, Input, Textarea } from '../components/Shared';
+import { ListSkeleton } from '../components/Skeleton';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { useToast } from '../components/Toast';
 import {
-    UserArticle,
-    createMyArticle,
-    updateMyArticle,
-    submitMyArticle,
-    getMyArticle,
+  UserArticle,
+  createMyArticle,
+  updateMyArticle,
+  submitMyArticle,
+  getMyArticle,
 } from '../api/users';
 import { uploadImage } from '../api/upload';
 import { getFileUrl } from '../api/config';
 import { remarkDisableIndentedCodeBlock } from '../utils/remark-plugins';
+import { errorText } from '../utils/errors';
 import CoverCropper from '../components/CoverCropper';
 
 const WritePage: React.FC = () => {
-    const { isAuthenticated, isLoading } = useAuth();
-    const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
-    const articleIdParam = searchParams.get('article_id');
-    const isEdit = !!articleIdParam;
+  const { isAuthenticated, isLoading } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const articleIdParam = searchParams.get('article_id');
+  const parsedId = articleIdParam ? parseInt(articleIdParam, 10) : NaN;
+  const articleId = Number.isFinite(parsedId) ? parsedId : null;
 
-    // 登录守卫
-    if (isLoading) {
-        return (
-            <div className="max-w-6xl mx-auto px-4 py-20 text-center text-slate-400 dark:text-slate-500">
-                <div className="animate-pulse">加载中...</div>
-            </div>
-        );
-    }
-    if (!isAuthenticated) {
-        return <Navigate to="/login" replace />;
-    }
+  if (isLoading) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12">
+        <ListSkeleton rows={4} />
+      </div>
+    );
+  }
+  if (!isAuthenticated) {
+    const target = articleId
+      ? `/login?redirect=${encodeURIComponent(`/write?article_id=${articleId}`)}`
+      : '/login?redirect=%2Fwrite';
+    return <Navigate to={target} replace />;
+  }
 
-    return <WriteForm navigate={navigate} articleId={isEdit ? parseInt(articleIdParam!) : null} />;
+  return <WriteForm navigate={navigate} articleId={articleId} />;
 };
 
-const WriteForm: React.FC<{ navigate: (to: string) => void; articleId: number | null }> = ({ navigate, articleId }) => {
-    const [loading, setLoading] = useState(!!articleId);
-    const [saving, setSaving] = useState(false);
-    const [submitting, setSubmitting] = useState(false);
-    const [uploading, setUploading] = useState(false);
+const WriteForm: React.FC<{ navigate: (to: string) => void; articleId: number | null }> = ({
+  navigate,
+  articleId,
+}) => {
+  const { theme } = useTheme();
+  const { showToast } = useToast();
 
-    // Form state
-    const [title, setTitle] = useState('');
-    const [summary, setSummary] = useState('');
-    const [content, setContent] = useState('');
-    const [category, setCategory] = useState('');
-    const [coverImage, setCoverImage] = useState('');
-    const [selectedTagNames, setSelectedTagNames] = useState<string[]>([]);
-    const [newTagInput, setNewTagInput] = useState('');
+  const [loading, setLoading] = useState(!!articleId);
+  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
 
-    // 封面裁剪相关状态
-    const [cropperImageSrc, setCropperImageSrc] = useState<string>('');
-    const coverFileRef = useRef<HTMLInputElement>(null);
+  const [title, setTitle] = useState('');
+  const [summary, setSummary] = useState('');
+  const [content, setContent] = useState('');
+  const [category, setCategory] = useState('');
+  const [coverImage, setCoverImage] = useState('');
+  const [selectedTagNames, setSelectedTagNames] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState('');
 
-    // 401/403 时跳登录页
-    const handleAuthError = (error: any): boolean => {
-        const status = error?.response?.status;
-        if (status === 401 || status === 403) {
-            navigate('/login');
-            return true;
-        }
-        return false;
-    };
+  const [cropperImageSrc, setCropperImageSrc] = useState('');
+  const coverFileRef = useRef<HTMLInputElement>(null);
 
-    // 编辑模式：从「我的文章」列表中加载指定草稿（status 为空返回全部状态）
-    useEffect(() => {
-        if (!articleId) return;
-        const fetchArticle = async () => {
-            setLoading(true);
-            try {
-                // 单篇接口才有 content_md（列表接口是简化模型）——以前走列表导致正文恒空、编辑功能实际不可用
-                const article: UserArticle = await getMyArticle(articleId);
-                if (article.status !== 'draft' && article.status !== 'rejected') {
-                    alert('仅草稿/已驳回的文章可以编辑');
-                    navigate('/user');
-                    return;
-                }
-                setTitle(article.title);
-                setSummary(article.summary || '');
-                setContent(article.content_md || '');
-                setCategory(article.category || '');
-                setCoverImage(article.cover_image || '');
-                // 后端 tags 是对象数组，直接渲染对象会抛错并白屏；这里统一归一化成名字
-                setSelectedTagNames((article.tags || []).map((t) => (typeof t === 'string' ? t : t.name)));
-            } catch (error: any) {
-                if (!handleAuthError(error)) {
-                    alert('加载文章失败');
-                    navigate('/user');
-                }
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchArticle();
-    }, [articleId]);
-
-    const handleContentChange = useCallback((val?: string) => {
-        setContent(val || '');
-    }, []);
-
-    const buildPayload = () => ({
-        title,
-        content_md: content,
-        summary: summary || undefined,
-        category: category || undefined,
-        cover_image: coverImage || undefined,
-        tags: selectedTagNames,
-    });
-
-    // 保存草稿
-    const handleSaveDraft = async () => {
-        if (!title.trim() || !content.trim()) {
-            alert('请填写标题和内容');
-            return;
-        }
-        setSaving(true);
-        try {
-            if (articleId) {
-                await updateMyArticle(articleId, buildPayload());
-            } else {
-                await createMyArticle(buildPayload());
-            }
-            alert('草稿已保存');
-            navigate('/user');
-        } catch (error: any) {
-            if (!handleAuthError(error)) {
-                const detail = error.response?.data?.detail;
-                const message = typeof detail === 'string' ? detail : (detail?.msg || JSON.stringify(detail) || '保存失败');
-                alert(message);
-            }
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    // 提交审核（先保存当前内容，再进入待审核）
-    const handleSubmitReview = async () => {
-        if (!title.trim() || !content.trim()) {
-            alert('请填写标题和内容');
-            return;
-        }
-        setSubmitting(true);
-        try {
-            const payload = buildPayload();
-            const article: UserArticle = articleId
-                ? await updateMyArticle(articleId, payload)
-                : await createMyArticle(payload);
-            await submitMyArticle(article.id);
-            alert('已提交审核，请耐心等待管理员处理');
-            navigate('/user');
-        } catch (error: any) {
-            if (!handleAuthError(error)) {
-                const detail = error.response?.data?.detail;
-                const message = typeof detail === 'string' ? detail : (detail?.msg || JSON.stringify(detail) || '提交失败');
-                alert(message);
-            }
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    // 选择封面图片后，先读取为 data URL 再打开裁剪器
-    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = () => {
-            setCropperImageSrc(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-        if (coverFileRef.current) coverFileRef.current.value = '';
-    };
-
-    // 裁剪完成后上传到后端
-    const handleCropComplete = async (croppedBlob: Blob) => {
-        setCropperImageSrc('');
-        try {
-            const file = new File([croppedBlob], 'cover.jpg', { type: 'image/jpeg' });
-            const result = await uploadImage(file);
-            setCoverImage(result.url);
-        } catch (error: any) {
-            if (!handleAuthError(error)) {
-                alert('封面上传失败');
-            }
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="max-w-6xl mx-auto px-4 py-20 text-center text-slate-400 dark:text-slate-500">
-                <div className="animate-pulse">加载中...</div>
-            </div>
-        );
+  const handleAuthError = (error: any): boolean => {
+    const status = error?.response?.status;
+    if (status === 401 || status === 403) {
+      navigate('/login?redirect=%2Fwrite');
+      return true;
     }
+    return false;
+  };
 
+  useEffect(() => {
+    if (!articleId) return;
+    const fetchArticle = async () => {
+      setLoading(true);
+      try {
+        const article: UserArticle = await getMyArticle(articleId);
+        if (article.status !== 'draft' && article.status !== 'rejected') {
+          showToast('仅草稿或已驳回的文章可以编辑', 'info');
+          navigate('/user?tab=content');
+          return;
+        }
+        setTitle(article.title);
+        setSummary(article.summary || '');
+        setContent(article.content_md || '');
+        setCategory(article.category || '');
+        setCoverImage(article.cover_image || '');
+        setSelectedTagNames(
+          (article.tags || []).map((t) => (typeof t === 'string' ? t : t.name))
+        );
+      } catch (error: any) {
+        if (!handleAuthError(error)) {
+          showToast(errorText(error, '加载文章失败'), 'error');
+          navigate('/user?tab=content');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchArticle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [articleId]);
+
+  const handleContentChange = useCallback((val?: string) => {
+    setContent(val || '');
+  }, []);
+
+  const buildPayload = () => ({
+    title: title.trim(),
+    content_md: content,
+    summary: summary.trim() || undefined,
+    category: category.trim() || undefined,
+    cover_image: coverImage || undefined,
+    tags: selectedTagNames,
+  });
+
+  const handleSaveDraft = async () => {
+    if (!title.trim() || !content.trim()) {
+      showToast('请填写标题和正文内容', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (articleId) {
+        await updateMyArticle(articleId, buildPayload());
+      } else {
+        await createMyArticle(buildPayload());
+      }
+      showToast('草稿已保存', 'success');
+      navigate('/user?tab=content');
+    } catch (error: any) {
+      if (!handleAuthError(error)) {
+        showToast(errorText(error, '保存草稿失败'), 'error');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!title.trim() || !content.trim()) {
+      showToast('请填写标题和正文内容', 'error');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload = buildPayload();
+      const article: UserArticle = articleId
+        ? await updateMyArticle(articleId, payload)
+        : await createMyArticle(payload);
+      await submitMyArticle(article.id);
+      showToast('已提交审核，站长审核通过后将公开发布', 'success');
+      navigate('/user?tab=content');
+    } catch (error: any) {
+      if (!handleAuthError(error)) {
+        showToast(errorText(error, '提交审核失败'), 'error');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setCropperImageSrc(reader.result as string);
+    reader.readAsDataURL(file);
+    if (coverFileRef.current) coverFileRef.current.value = '';
+  };
+
+  const handleCropComplete = async (croppedBlob: Blob) => {
+    setCropperImageSrc('');
+    setUploadingCover(true);
+    try {
+      const file = new File([croppedBlob], 'cover.jpg', { type: 'image/jpeg' });
+      const result = await uploadImage(file, articleId ?? undefined, 'images');
+      setCoverImage(result.url);
+      showToast('封面上传成功', 'success');
+    } catch (error: any) {
+      if (!handleAuthError(error)) {
+        showToast(errorText(error, '封面上传失败'), 'error');
+      }
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
+  const addTag = () => {
+    const tag = newTagInput.trim();
+    if (!tag) return;
+    if (!selectedTagNames.includes(tag)) {
+      setSelectedTagNames((prev) => [...prev, tag]);
+    }
+    setNewTagInput('');
+  };
+
+  if (loading) {
     return (
-        <>
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-6" data-color-mode="light">
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                    <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
-                        {articleId ? '编辑投稿' : '写新文章'}
-                    </h1>
-                    <div className="flex gap-3">
-                        <Button variant="outline" onClick={() => navigate('/user')}>
-                            取消
-                        </Button>
-                        <Button variant="secondary" onClick={handleSaveDraft} disabled={saving || submitting}>
-                            {saving ? '保存中...' : '保存草稿'}
-                        </Button>
-                        <Button onClick={handleSubmitReview} disabled={saving || submitting}>
-                            {submitting ? '提交中...' : '提交审核'}
-                        </Button>
-                    </div>
-                </div>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12">
+        <ListSkeleton rows={4} />
+      </div>
+    );
+  }
 
-                {/* 笔记成稿叙事：投稿能力的重新包装——渲染/摘要/审核/署名主页全是现成的，
-                    这块只讲清楚"你粘笔记进来，剩下的管线替你做"。 */}
-                {!articleId && (
-                    <div className="rounded-xl border border-cyan-100 dark:border-cyan-900/40 bg-gradient-to-r from-cyan-50/80 to-purple-50/60 dark:from-cyan-900/20 dark:to-purple-900/10 px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
-                        <div className="font-semibold text-slate-800 dark:text-slate-100 mb-1">📋 有一段吃灰的笔记？粘进来，三步成稿</div>
-                        <ol className="list-decimal ml-5 space-y-0.5">
-                            <li><span className="font-medium">粘入 Markdown 笔记</span> —— mermaid 图、LaTeX 公式、代码块、Xmind 思维导图全部照常渲染，编辑器即预览</li>
-                            <li><span className="font-medium">一键生成摘要</span> —— 站长同款 LLM 摘要管线帮你把"随手记"整理成"能读的文章"</li>
-                            <li><span className="font-medium">提交审核，过审即发布</span> —— 署你自己的名字，挂在你的公开主页 <code className="px-1 rounded bg-slate-100 dark:bg-slate-700 text-[12px]">/#/你的用户名</code> 上</li>
-                        </ol>
-                        <div className="mt-1.5 text-slate-500 dark:text-slate-400">
-                            这不是投稿给一个平台，是投稿给一个有品味的人——每一篇都会被认真读过。
-                        </div>
-                    </div>
-                )}
+  return (
+    <>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-6">
+        {/* Top Action Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-4">
+          <div className="space-y-0.5">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
+              {articleId ? '编辑投稿' : '创作新文章'}
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              支持标准 Markdown、KaTeX 公式、Mermaid 图表与代码高亮
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => navigate('/user?tab=content')}>
+              取消
+            </Button>
+            <Button variant="secondary" onClick={handleSaveDraft} disabled={saving || submitting}>
+              {saving ? '保存中...' : '保存草稿'}
+            </Button>
+            <Button onClick={handleSubmitReview} disabled={saving || submitting}>
+              {submitting ? '提交中...' : '提交审核'}
+            </Button>
+          </div>
+        </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                    {/* Main Editor */}
-                    <div className="lg:col-span-3 space-y-6">
-                        {/* Title */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm">
-                            <input
-                                type="text"
-                                value={title}
-                                onChange={(e) => setTitle(e.target.value)}
-                                placeholder="文章标题"
-                                className="w-full text-2xl font-bold bg-transparent border-none text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-0"
-                            />
-                        </div>
+        {/* Compact Editorial Guide */}
+        {!articleId && (
+          <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-5 py-4 text-xs text-slate-600 dark:text-slate-300 space-y-1.5">
+            <p className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <Icons.Sparkles className="w-3.5 h-3.5 text-primary-500" />
+              <span>三步成稿投稿流程</span>
+            </p>
+            <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
+              1. 粘入你的 Markdown 笔记（编辑器实时双栏预览） · 2. 设置分类与摘要 · 3. 提交审核，通过后将自动署你的名字并归档到你的公开主页{' '}
+              <code className="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono">
+                /#/user/你的用户名
+              </code>
+              。
+            </p>
+          </div>
+        )}
 
-                        {/* Content Editor */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-                            <div className="flex items-center justify-between p-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50">
-                                <span className="text-sm text-slate-600 dark:text-slate-300 font-medium">Markdown 编辑器</span>
-                            </div>
-                            {uploading && (
-                                <div className="px-4 py-2 bg-blue-50 text-blue-600 text-sm">
-                                    正在上传封面，请稍后...
-                                </div>
-                            )}
-                            <MDEditor
-                                value={content}
-                                onChange={handleContentChange}
-                                height={500}
-                                preview="live"
-                                previewOptions={{
-                                    remarkPlugins: [remarkGfm, remarkMath, remarkDisableIndentedCodeBlock],
-                                    rehypePlugins: [rehypeKatex],
-                                }}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Sidebar */}
-                    <div className="space-y-6">
-                        {/* Meta */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-                            <h3 className="font-bold text-slate-800 dark:text-slate-100 border-b border-slate-100 dark:border-slate-700 pb-2">文章设置</h3>
-
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">分类</label>
-                                <input
-                                    type="text"
-                                    value={category}
-                                    onChange={(e) => setCategory(e.target.value)}
-                                    placeholder="如：Frontend, AI, System"
-                                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-200 text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">摘要</label>
-                                <textarea
-                                    value={summary}
-                                    onChange={(e) => setSummary(e.target.value)}
-                                    placeholder="文章简短描述（最多150字）"
-                                    rows={3}
-                                    maxLength={150}
-                                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-200 text-sm resize-none focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Cover Image */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-                            <h3 className="font-bold text-slate-800 dark:text-slate-100 border-b border-slate-100 dark:border-slate-700 pb-2">封面图片</h3>
-
-                            {coverImage ? (
-                                <div className="relative">
-                                    <img src={getFileUrl(coverImage)} alt="Cover" className="w-full rounded-lg" />
-                                    <button
-                                        onClick={() => setCoverImage('')}
-                                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full"
-                                    >
-                                        <Icons.X className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            ) : (
-                                <label className="block cursor-pointer">
-                                    <div className="border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl p-8 text-center hover:border-cyan-500 hover:bg-cyan-50/50 dark:hover:bg-cyan-900/10 transition-all group">
-                                        <Icons.Image className="w-10 h-10 text-slate-300 dark:text-slate-500 mx-auto mb-3 group-hover:text-cyan-500 transition-colors" />
-                                        <span className="text-sm font-medium text-slate-500 dark:text-slate-400 group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">点击上传封面</span>
-                                        <span className="block text-xs text-slate-400 dark:text-slate-500 mt-1">支持缩放与裁剪</span>
-                                    </div>
-                                    <input
-                                        ref={coverFileRef}
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={handleImageSelect}
-                                        className="hidden"
-                                    />
-                                </label>
-                            )}
-                        </div>
-
-                        {/* Tags */}
-                        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
-                            <h3 className="font-bold text-slate-800 dark:text-slate-100 border-b border-slate-100 dark:border-slate-700 pb-2">标签</h3>
-
-                            {selectedTagNames.length > 0 && (
-                                <div className="flex flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-slate-700">
-                                    {selectedTagNames.map((tagName) => (
-                                        <span
-                                            key={tagName}
-                                            className="px-3 py-1.5 rounded-full text-xs font-semibold bg-cyan-500 text-white flex items-center gap-1"
-                                        >
-                                            {tagName}
-                                            <button
-                                                onClick={() => setSelectedTagNames(prev => prev.filter(t => t !== tagName))}
-                                                className="hover:bg-cyan-600 rounded-full p-0.5"
-                                            >
-                                                <Icons.X className="w-3 h-3" />
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={newTagInput}
-                                    onChange={(e) => setNewTagInput(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && newTagInput.trim()) {
-                                            e.preventDefault();
-                                            const tag = newTagInput.trim();
-                                            if (!selectedTagNames.includes(tag)) {
-                                                setSelectedTagNames(prev => [...prev, tag]);
-                                            }
-                                            setNewTagInput('');
-                                        }
-                                    }}
-                                    placeholder="输入标签名，回车添加"
-                                    className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-200 text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none"
-                                />
-                                <button
-                                    onClick={() => {
-                                        if (newTagInput.trim() && !selectedTagNames.includes(newTagInput.trim())) {
-                                            setSelectedTagNames(prev => [...prev, newTagInput.trim()]);
-                                            setNewTagInput('');
-                                        }
-                                    }}
-                                    className="px-3 py-2 bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 text-sm font-medium"
-                                >
-                                    添加
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+          {/* Main Editor */}
+          <div className="lg:col-span-3 space-y-4">
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-5 py-4">
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="输入文章标题..."
+                className="w-full text-xl sm:text-2xl font-semibold bg-transparent border-none text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-0"
+              />
             </div>
 
-            {/* 封面裁剪弹窗 */}
-            {
-                cropperImageSrc && (
-                    <CoverCropper
-                        imageSrc={cropperImageSrc}
-                        onCropComplete={handleCropComplete}
-                        onCancel={() => setCropperImageSrc('')}
-                    />
-                )
-            }
-        </>
-    );
+            <div
+              className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden"
+              data-color-mode={theme}
+            >
+              <MDEditor
+                value={content}
+                onChange={handleContentChange}
+                height={540}
+                preview="live"
+                previewOptions={{
+                  remarkPlugins: [remarkGfm, remarkMath, remarkDisableIndentedCodeBlock],
+                  rehypePlugins: [rehypeKatex],
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Sidebar Metadata */}
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 space-y-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800 pb-2">
+                文章属性
+              </h3>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  分类
+                </label>
+                <Input
+                  type="text"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  placeholder="例如 AI、Frontend、System"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  摘要（最多 150 字）
+                </label>
+                <Textarea
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  placeholder="简要概括核心结论或阅读收获..."
+                  rows={3}
+                  maxLength={150}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800 pb-2">
+                封面图片
+              </h3>
+
+              {coverImage ? (
+                <div className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800">
+                  <img src={getFileUrl(coverImage)} alt="Cover" className="w-full aspect-video object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setCoverImage('')}
+                    title="移除封面"
+                    className="absolute top-2 right-2 p-1 rounded-full bg-slate-900/80 text-white hover:bg-rose-600 transition-colors"
+                  >
+                    <Icons.X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <label className="block cursor-pointer">
+                  <div className="border border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-6 text-center hover:border-primary-500 hover:bg-primary-50/40 dark:hover:bg-primary-950/20 transition-colors">
+                    <Icons.Image className="w-7 h-7 text-slate-400 mx-auto mb-2" />
+                    <span className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                      {uploadingCover ? '上传中...' : '点击上传并裁剪封面'}
+                    </span>
+                    <span className="block text-[11px] text-slate-400 mt-0.5">推荐 16:9 比例</span>
+                  </div>
+                  <input
+                    ref={coverFileRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    disabled={uploadingCover}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800 pb-2">
+                标签
+              </h3>
+
+              {selectedTagNames.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedTagNames.map((tagName) => (
+                    <span
+                      key={tagName}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-mono bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                    >
+                      #{tagName}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedTagNames((prev) => prev.filter((t) => t !== tagName))
+                        }
+                        className="text-slate-400 hover:text-rose-500"
+                        aria-label={`移除标签 ${tagName}`}
+                      >
+                        <Icons.X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addTag();
+                    }
+                  }}
+                  placeholder="输入标签回车"
+                />
+                <Button type="button" size="sm" variant="outline" onClick={addTag} className="shrink-0">
+                  添加
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {cropperImageSrc && (
+        <CoverCropper
+          imageSrc={cropperImageSrc}
+          title="裁剪文章封面"
+          onCropComplete={handleCropComplete}
+          onCancel={() => setCropperImageSrc('')}
+        />
+      )}
+    </>
+  );
 };
 
 export default WritePage;

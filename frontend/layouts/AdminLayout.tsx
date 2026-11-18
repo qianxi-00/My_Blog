@@ -6,6 +6,21 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { getFileUrl } from '../api/config';
 import { getStatsOverview } from '../api/stats';
+import { getForumReports } from '../api/forum';
+
+const resolveSectionTitle = (pathname: string): string => {
+  const exact = SIDEBAR_ITEMS.find((i) => i.path === pathname);
+  if (exact) return exact.label;
+  if (pathname.startsWith('/admin/posts/new')) return '新建文章';
+  if (pathname.startsWith('/admin/posts/') && pathname.endsWith('/edit')) return '编辑文章';
+  if (pathname.startsWith('/admin/hotspots/upload')) return '上传热点';
+  if (pathname.startsWith('/admin/hotspots/')) return '编辑热点';
+  if (pathname.startsWith('/admin/profile')) return '个人资料';
+  const prefix = SIDEBAR_ITEMS.slice()
+    .reverse()
+    .find((i) => i.path !== '/admin' && pathname.startsWith(i.path));
+  return prefix?.label || '概览';
+};
 
 const AdminLayout: React.FC = () => {
   const location = useLocation();
@@ -14,36 +29,39 @@ const AdminLayout: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingComments, setPendingComments] = useState(0);
+  const [pendingForumReports, setPendingForumReports] = useState(0);
 
   // 路由变化时自动收起移动端侧栏
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
 
-  // 侧栏「评论审核」待办徽标：鉴权就绪后拉一次概览（非管理员不打这个接口）
+  // 侧栏待办徽标：评论审核 + 社区举报队列
   useEffect(() => {
     if (!isAuthenticated || !isAdmin) return;
     getStatsOverview()
       .then((res) => setPendingComments(res.pending_comments || 0))
       .catch(() => {});
-  }, [isAuthenticated, isAdmin]);
+    getForumReports()
+      .then((res) => setPendingForumReports(Array.isArray(res) ? res.length : 0))
+      .catch(() => {});
+  }, [isAuthenticated, isAdmin, location.pathname]);
 
-  // 加载中显示
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center transition-colors">
-        <div className="text-cyan-600 dark:text-cyan-400 font-medium animate-pulse">加载中...</div>
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
+        <div className="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+          <span className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
+          <span>正在加载管理后台...</span>
+        </div>
       </div>
     );
   }
 
-  // 未登录重定向到登录页
   if (!isAuthenticated) {
     return <Navigate to="/admin/login" replace />;
   }
 
-  // 已登录但不是管理员（role=user）：后台整站不可见，回用户中心
-  // 后端每个管理接口都有 get_current_admin，这里只是别让普通用户看到后台框架
   if (!isAdmin) {
     return <Navigate to="/user" replace />;
   }
@@ -52,57 +70,94 @@ const AdminLayout: React.FC = () => {
     await logout();
   };
 
+  const sectionTitle = resolveSectionTitle(location.pathname);
+
   return (
-    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors">
-      {/* 移动端遮罩：侧栏打开时点击关闭 */}
+    <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 sm:hidden"
+          className="fixed inset-0 bg-slate-950/40 backdrop-blur-[1px] z-40 sm:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden
         />
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} sm:translate-x-0`}>
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-950 border-r border-slate-200/80 dark:border-slate-800 transition-transform duration-200 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        } sm:translate-x-0`}
+      >
         <div className="flex flex-col h-full">
-          {/* Header —— 品牌区：hover 时图标轻旋 6°，不浮夸 */}
-          <div className="h-20 flex items-center px-6 border-b border-slate-100 dark:border-slate-700">
-            <div className="group flex items-center">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-200 dark:shadow-cyan-900/30 mr-3 transition-transform duration-300 group-hover:rotate-6">
-                <Icons.Bot className="w-6 h-6 text-white" />
+          {/* Header */}
+          <div className="h-16 flex items-center justify-between px-5 border-b border-slate-200/80 dark:border-slate-800">
+            <Link to="/admin" className="flex items-center gap-2.5 group">
+              <div className="w-8 h-8 rounded-lg bg-slate-900 dark:bg-slate-100 flex items-center justify-center">
+                <Icons.Terminal className="w-4 h-4 text-white dark:text-slate-900" />
               </div>
               <div className="leading-tight">
-                <span className="text-xl font-black text-slate-800 dark:text-white tracking-tight block">DevLog</span>
-                <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-widest">Admin Console</span>
+                <span className="text-base font-semibold tracking-tight text-slate-900 dark:text-white block">
+                  DevLog
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                  Console
+                </span>
               </div>
-            </div>
+            </Link>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              className="sm:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              aria-label="关闭侧栏"
+            >
+              <Icons.X className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 px-4 py-8 space-y-2 overflow-y-auto">
+          <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
             {SIDEBAR_ITEMS.map((item) => {
               const Icon = Icons[item.icon as IconName];
-              const isActive = location.pathname === item.path;
+              const isActive =
+                item.path === '/admin'
+                  ? location.pathname === '/admin'
+                  : location.pathname === item.path ||
+                    location.pathname.startsWith(`${item.path}/`);
+
+              const badgeCount =
+                item.path === '/admin/comments'
+                  ? pendingComments
+                  : item.path === '/admin/forum'
+                  ? pendingForumReports
+                  : 0;
+
               return (
                 <Link
                   key={item.path}
                   to={item.path}
-                  className={`relative flex items-center px-4 py-3.5 text-sm font-semibold rounded-2xl transition-all duration-200 group ${isActive
-                    ? 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 shadow-sm shadow-cyan-100/50 dark:shadow-none'
-                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
-                    }`}
+                  className={`relative flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors group ${
+                    isActive
+                      ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-900 dark:text-white'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
                 >
-                  {/* 十一期美化：激活态左侧指示条 —— 亮色高 2px 渐变竖条 */}
                   {isActive && (
-                    <span aria-hidden className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-full bg-gradient-to-b from-cyan-400 to-blue-600 shadow-[0_0_8px_rgba(6,182,212,0.5)]" />
+                    <span
+                      aria-hidden
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r bg-primary-500"
+                    />
                   )}
-                  <Icon className={`w-5 h-5 mr-3.5 transition-colors ${isActive ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'}`} />
-                  {item.label}
-                  {/* 待审评论徽标：0 时不渲染 */}
-                  {item.path === '/admin/comments' && pendingComments > 0 && (
-                    <span className="min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center ml-auto">
-                      {pendingComments}
+                  <Icon
+                    className={`w-4 h-4 mr-3 shrink-0 transition-colors ${
+                      isActive
+                        ? 'text-primary-600 dark:text-primary-400'
+                        : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300'
+                    }`}
+                  />
+                  <span className="truncate">{item.label}</span>
+                  {badgeCount > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1.5 bg-rose-500 text-white text-[10px] font-semibold rounded-full flex items-center justify-center ml-auto">
+                      {badgeCount > 99 ? '99+' : badgeCount}
                     </span>
                   )}
                 </Link>
@@ -111,36 +166,42 @@ const AdminLayout: React.FC = () => {
           </nav>
 
           {/* Footer User */}
-          <div className="p-4 border-t border-slate-200 dark:border-slate-700">
+          <div className="p-3 border-t border-slate-200/80 dark:border-slate-800">
             <div
-              className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group"
+              className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-100/80 dark:hover:bg-slate-900 transition-colors cursor-pointer group"
               onClick={() => navigate('/admin/profile')}
               title="编辑个人资料"
             >
-              <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-600 flex-shrink-0 overflow-hidden border border-slate-200 dark:border-slate-600 shadow-sm group-hover:shadow-md transition-shadow">
+              <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 shrink-0 overflow-hidden border border-slate-200 dark:border-slate-700">
                 {admin?.avatar_url ? (
-                  <img src={getFileUrl(admin.avatar_url)} alt="Av" className="w-full h-full object-cover" />
+                  <img
+                    src={getFileUrl(admin.avatar_url)}
+                    alt="avatar"
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
-                  <div className="w-full h-full bg-gradient-to-r from-cyan-500 to-purple-600 flex items-center justify-center text-white font-bold">
+                  <div className="w-full h-full bg-slate-900 dark:bg-slate-700 flex items-center justify-center text-white text-xs font-semibold">
                     {admin?.display_name?.[0] || admin?.username?.[0]?.toUpperCase() || 'A'}
                   </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">
+                <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                   {admin?.display_name || admin?.username}
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
                   {admin?.role === 'super_admin' ? '超级管理员' : '管理员'}
                 </p>
               </div>
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleLogout();
                 }}
                 title="退出登录"
-                className="p-2 text-slate-400 hover:text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
+                aria-label="退出登录"
+                className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-md"
               >
                 <Icons.LogOut className="w-4 h-4" />
               </button>
@@ -150,42 +211,53 @@ const AdminLayout: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 sm:ml-64 flex flex-col min-h-screen">
-        <header className="h-16 bg-white/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-40 backdrop-blur-sm transition-colors">
-          <div className="flex items-center gap-3">
-            {/* 移动端汉堡钮：窄屏打开侧栏（sm 以上侧栏常驻隐藏此钮） */}
+      <div className="flex-1 sm:ml-64 flex flex-col min-w-0 min-h-screen">
+        <header className="h-16 bg-white/85 dark:bg-slate-950/85 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-30 backdrop-blur-md transition-colors">
+          <div className="flex items-center gap-3 min-w-0">
             <button
+              type="button"
               onClick={() => setSidebarOpen(true)}
-              className="sm:hidden p-2 -ml-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              className="sm:hidden p-2 -ml-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               title="打开导航"
               aria-label="打开导航菜单"
             >
               <Icons.Menu className="w-5 h-5" />
             </button>
-            <h2 className="text-lg font-bold text-slate-800 dark:text-white">
-              {SIDEBAR_ITEMS.find(i => i.path === location.pathname)?.label || '概览'}
-            </h2>
+            <div className="flex items-center gap-2 text-sm min-w-0">
+              <span className="text-slate-400 dark:text-slate-500 hidden sm:inline">管理后台</span>
+              <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">/</span>
+              <h2 className="text-base font-semibold text-slate-900 dark:text-white truncate">
+                {sectionTitle}
+              </h2>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Theme Toggle */}
+          <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={toggleTheme}
-              className="p-2 rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-amber-500 dark:hover:text-amber-400 transition-all duration-200"
+              className="flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
               title={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
+              aria-label={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
             >
               {theme === 'dark' ? (
-                <Icons.Sun className="w-5 h-5" />
+                <Icons.Sun className="w-4 h-4" />
               ) : (
-                <Icons.Moon className="w-5 h-5" />
+                <Icons.Moon className="w-4 h-4" />
               )}
             </button>
-            <Link to="/" className="text-sm text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-colors">
-              访问网站 →
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+            >
+              <span>返回前台</span>
+              <Icons.ExternalLink className="w-3.5 h-3.5" />
             </Link>
           </div>
         </header>
-        <main className="p-4 sm:p-8 flex-1 overflow-auto">
-          <Outlet />
+        <main className="p-4 sm:p-8 flex-1 min-w-0">
+          <div className="max-w-7xl mx-auto">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

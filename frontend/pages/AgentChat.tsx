@@ -1,20 +1,16 @@
 /**
- * 后台 AI 助手（Cherry Studio 风格）
+ * 后台 AI 助手（Cherry Studio 风格 + 极简工程台样式）
  *
- * 与旧版的关键差异：思考过程与工具调用**绑定到消息轮次（Turn）**，
- * 而不是放在全局 state 里 —— 否则多轮对话时新一轮的思考会覆盖上一轮，
- * 且无法像聊天软件那样内联显示在回答上方。
- *
- * 2026-09-30 重写：会话搜索/重命名/时间分组、空状态引导、Enter 发送、
- * 停止生成、流式光标、工具卡片内联。
- * 2026-09-30 二次美化：消息排版（标题/列表/表格/代码/引用）改为助手专用样式，
- * 工具结果不再直出裸 JSON，而是「关键指标 + 条数」摘要、原始数据收进折叠区。
+ * 思考过程与工具调用绑定到消息轮次（Turn），支持会话搜索、重命名、
+ * 时间分组、流式输出、停止生成与工具结果摘要。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MarkdownContent from '../components/MarkdownContent';
 import { Icons } from '../components/Icons';
+import { Button, StatusPill } from '../components/Shared';
 import { useToast } from '../components/Toast';
 import { errorText } from '../utils/errors';
+import { copyToClipboard } from '../utils/helpers';
 import {
   AgentMessage,
   AgentSession,
@@ -108,9 +104,7 @@ const SKILL_LABELS: Record<string, string> = {
 
 const SKILL_NAME_SET = new Set(Object.keys(SKILL_LABELS));
 
-/** 工具入参 / 统计指标的可读名（别把 article_id、today_views 这类内部字段直接甩给用户看） */
 const ARG_LABELS: Record<string, string> = {
-  // 入参
   article_id: '文章 ID',
   comment_id: '评论 ID',
   prompt_id: '提示词 ID',
@@ -131,7 +125,6 @@ const ARG_LABELS: Record<string, string> = {
   summary: '摘要',
   reason: '原因',
   action: '操作',
-  // 站点统计
   today_views: '今日访问',
   today_visitors: '今日访客',
   total_articles: '文章总数',
@@ -147,7 +140,6 @@ const ARG_LABELS: Record<string, string> = {
   pending_articles: '待发文章',
   published_articles: '已发文章',
   total_comments_pending: '待审评论',
-  // 每日统计
   date: '日期',
   total_views_daily: '访问量',
   unique_visitors: '独立访客',
@@ -156,21 +148,14 @@ const ARG_LABELS: Record<string, string> = {
   ai_api_calls: 'AI 调用',
 };
 
-/** snake_case → 可读中文（找不到映射时的兜底，别直接把字段名甩给用户） */
 const humanizeKey = (key: string): string => {
   if (ARG_LABELS[key]) return ARG_LABELS[key];
   const spaced = key.replace(/_/g, ' ').trim();
-  // 纯数字/日期类字段名翻成人话
   if (/^\d+$/.test(key)) return '序号';
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 };
 
-/**
- * 助手专用排版：不动通用 MarkdownContent（它服务全站文章页，改了会波及全站），
- * 这里只给消息区注入聊天场景的规则。
- * 关键取舍：代码块在亮色模式下也用深色底（Cherry Studio 就是这样，代码就该像代码），
- * 表格加斑马纹和横向滚动。
- */
+/** 助手消息排版规则 */
 const PROSE: string = [
   '[&>*]:first:mt-0 [&>*]:last:mb-0',
   'text-[14.5px] leading-[1.75] text-slate-700 dark:text-slate-200',
@@ -183,27 +168,26 @@ const PROSE: string = [
   '[&_h2]:mt-6 [&_h2]:mb-2.5 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-slate-900 [&_h2]:dark:text-white',
   '[&_h3]:mt-5 [&_h3]:mb-2 [&_h3]:text-[15px] [&_h3]:font-semibold [&_h3]:text-slate-900 [&_h3]:dark:text-white',
   '[&_h4]:mt-4 [&_h4]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:text-slate-800 [&_h4]:dark:text-slate-100',
-  '[&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px]',
+  '[&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:dark:bg-slate-800 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[13px]',
   '[&_code]:font-mono [&_code]:text-rose-600 [&_code]:dark:text-rose-300',
   '[&_code]:before:content-none [&_code]:after:content-none',
   '[&_pre]:my-4 [&_pre]:rounded-xl [&_pre]:bg-[#0f172a] [&_pre]:p-4 [&_pre]:overflow-x-auto',
-  '[&_pre]:text-[12.5px] [&_pre]:leading-relaxed [&_pre]:shadow-sm',
+  '[&_pre]:text-[12.5px] [&_pre]:leading-relaxed [&_pre]:border [&_pre]:border-slate-800',
   '[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-slate-100 [&_pre_code]:text-[12.5px]',
   '[&_table]:my-4 [&_table]:w-full [&_table]:text-[13px] [&_table]:block [&_table]:overflow-x-auto',
   '[&_th]:px-3 [&_th]:py-2 [&_th]:bg-slate-100 [&_th]:dark:bg-slate-800',
   '[&_th]:font-semibold [&_th]:text-slate-700 [&_th]:dark:text-slate-200 [&_th]:text-left [&_th]:whitespace-nowrap',
   '[&_td]:px-3 [&_td]:py-2 [&_td]:border-t [&_td]:border-slate-100 [&_td]:dark:border-slate-800 [&_td]:whitespace-nowrap',
   '[&_tr:nth-child(even)]:bg-slate-50/70 [&_tr:nth-child(even)]:dark:bg-slate-800/40',
-  '[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-cyan-400',
+  '[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-primary-400',
   '[&_blockquote]:pl-4 [&_blockquote]:text-slate-600 [&_blockquote]:dark:text-slate-400 [&_blockquote]:italic',
   '[&_blockquote_p]:my-1',
   '[&_hr]:my-5 [&_hr]:border-slate-200 [&_hr]:dark:border-slate-700',
-  '[&_a]:text-cyan-600 [&_a]:dark:text-cyan-400 [&_a]:underline [&_a]:underline-offset-2',
+  '[&_a]:text-primary-600 [&_a]:dark:text-primary-400 [&_a]:underline [&_a]:underline-offset-2',
   '[&_strong]:font-semibold [&_strong]:text-slate-900 [&_strong]:dark:text-slate-100',
   '[&_img]:my-4 [&_img]:rounded-xl',
 ].join(' ');
 
-/** 统计对象里的记录条数 */
 const countRows = (data: any): number | null => {
   if (Array.isArray(data)) return data.length;
   if (data && typeof data === 'object') {
@@ -214,7 +198,6 @@ const countRows = (data: any): number | null => {
   return null;
 };
 
-/** 挑出值得直接展示的标量指标（只展示数字/布尔，文字和 id 交给展开看） */
 const pickHighlights = (data: any): { key: string; label: string; value: string }[] => {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
   const out: { key: string; label: string; value: string }[] = [];
@@ -234,7 +217,6 @@ const EMPTY_STARTERS = [
   '有哪些订阅者已经很久没收到推送了？',
 ];
 
-/** 会话按时间分组（Cherry Studio 侧栏的分组方式） */
 const groupSessions = (sessions: AgentSession[]) => {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -280,11 +262,10 @@ const AgentChat: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingText, setRenamingText] = useState('');
-  // 十二期补：会话栏可收起——后台里 AdminLayout 导航(256px)+会话栏(256px) 两栏相叠，
-  // 聊天区被挤成中间一条（用户点名"聊天界面太小"）。默认收起成窄条，偏好记 localStorage。
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem('agentchat-sidebar') === 'open'
   );
+
   const toggleSidebar = () => {
     setSidebarOpen((v) => {
       localStorage.setItem('agentchat-sidebar', v ? 'collapsed' : 'open');
@@ -330,12 +311,9 @@ const AgentChat: React.FC = () => {
   }, []);
 
   const copy = async (text: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast(`${label}已复制`, 'success');
-    } catch {
-      showToast('复制失败，请手动选中', 'error');
-    }
+    const ok = await copyToClipboard(text);
+    if (ok) showToast(`${label}已复制`, 'success');
+    else showToast('复制失败，请手动选中', 'error');
   };
 
   /** 把后端保存的消息还原成 turns（thinking / tools / answer 按轮次归位） */
@@ -368,7 +346,6 @@ const AgentChat: React.FC = () => {
       if (m.role === 'assistant') {
         const calls = Array.isArray(m.tool_calls) ? m.tool_calls : [];
         if (calls.length > 0) {
-          // 工具调用轮：content 是思考，正文留给最后一轮
           current.thinking += m.content || '';
           for (const tc of calls) {
             const name = tc.function?.name || '';
@@ -412,7 +389,6 @@ const AgentChat: React.FC = () => {
     [buildTurns, scrollToBottom, showToast]
   );
 
-  // 初始：拉会话列表并自动选中最近一条
   useEffect(() => {
     (async () => {
       try {
@@ -460,7 +436,6 @@ const AgentChat: React.FC = () => {
         (event: AgentStreamEvent) => {
           switch (event.type) {
             case 'ready':
-              // 新会话的首个 ready 会带回真实 id，替换临时会话绑定
               if (!sessionId && event.data?.session_id) {
                 setActiveId(event.data.session_id as string);
               }
@@ -495,15 +470,15 @@ const AgentChat: React.FC = () => {
               setTurns((prev) =>
                 prev.map((t) =>
                   t.key === key
-                        ? {
-                            ...t,
-                            tools: t.tools.map((item) =>
-                              item.id === event.data?.tool_call_id
-                                ? { ...item, result: event.data?.result }
-                                : item
-                            ),
-                          }
-                        : t
+                    ? {
+                        ...t,
+                        tools: t.tools.map((item) =>
+                          item.id === event.data?.tool_call_id
+                            ? { ...item, result: event.data?.result }
+                            : item
+                        ),
+                      }
+                    : t
                 )
               );
               break;
@@ -545,7 +520,6 @@ const AgentChat: React.FC = () => {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter 发送，Shift+Enter 换行（Cherry Studio 的习惯）
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void handleSend();
@@ -584,15 +558,11 @@ const AgentChat: React.FC = () => {
     }
   };
 
-  /* ------------------------------ 渲染片段 ------------------------------ */
-
-  /** 解析入参，失败就原样展示（不让坏 JSON 把卡片搞崩）；无参数的技能返回空对象不显示 */
   const parseArgs = (raw?: string): [Record<string, any>, string] => {
     if (!raw) return [{}, ''];
     try {
       const parsed = JSON.parse(raw);
       const obj = parsed && typeof parsed === 'object' ? parsed : { value: parsed };
-      // `{}` 等于没传参，直接当作无参，别显示一个空花括号
       const empty = Object.keys(obj).length === 0;
       return [empty ? {} : obj, empty ? '' : raw];
     } catch {
@@ -600,10 +570,6 @@ const AgentChat: React.FC = () => {
     }
   };
 
-  /**
-   * 工具结果：成功时给人话摘要（关键指标 + 条数），原始 JSON 收进「原始数据」折叠区；
-   * 失败时才把后端错误摊开，并把 127.0.0.1:7860 这类内部地址显示成「本机」。
-   */
   const renderResult = (tool: ToolEvent) => {
     const result = tool.result;
     if (result === undefined) return null;
@@ -645,7 +611,7 @@ const AgentChat: React.FC = () => {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
           {rows !== null && (
             <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-semibold text-slate-900 dark:text-white tabular-nums leading-none">
+              <span className="text-base font-semibold text-slate-900 dark:text-white tabular-nums leading-none">
                 {rows}
               </span>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">条记录</span>
@@ -665,7 +631,7 @@ const AgentChat: React.FC = () => {
             <Icons.ChevronRight className="w-3 h-3 transition-transform group-open/raw:rotate-90" />
             原始数据
           </summary>
-          <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-slate-50 dark:bg-slate-900/70 p-3 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all">
+          <pre className="mt-1.5 max-h-64 overflow-auto rounded-lg bg-slate-50 dark:bg-slate-950 p-3 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-all border border-slate-200/70 dark:border-slate-800">
             {JSON.stringify(payload, null, 2)}
           </pre>
         </details>
@@ -681,47 +647,43 @@ const AgentChat: React.FC = () => {
     const argEntries = Object.entries(args);
     const failed = !!tool.result && typeof tool.result === 'object' && tool.result.ok === false;
 
-    const tone = failed
-      ? 'border-red-200 dark:border-red-900/60'
-      : isSkill
-        ? 'border-cyan-200/70 dark:border-cyan-900/50'
-        : 'border-violet-200/70 dark:border-violet-900/50';
-    const chip = failed
-      ? 'bg-red-100 dark:bg-red-950 text-red-600 dark:text-red-300'
-      : isSkill
-        ? 'bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300'
-        : 'bg-violet-100 dark:bg-violet-950 text-violet-700 dark:text-violet-300';
+    const borderTone = failed
+      ? 'border-red-200/80 dark:border-red-900/60'
+      : 'border-slate-200/80 dark:border-slate-800';
 
     return (
       <details
         key={tool.id}
-        className={`group rounded-xl border ${tone} bg-white/60 dark:bg-slate-900/40 overflow-hidden`}
+        className={`group rounded-lg border ${borderTone} bg-slate-50/60 dark:bg-slate-950/50 overflow-hidden`}
       >
-        <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors">
+        <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none hover:bg-slate-100/70 dark:hover:bg-slate-800/50 transition-colors">
           <Icons.ChevronRight className="w-3.5 h-3.5 text-slate-400 transition-transform group-open:rotate-90 shrink-0" />
-          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide ${chip}`}>
+          <StatusPill
+            tone={failed ? 'red' : isSkill ? 'primary' : 'slate'}
+            className="text-[10px] py-0 px-1.5 rounded"
+          >
             {failed ? '失败' : isSkill ? '技能' : '工具'}
-          </span>
-          <span className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">
+          </StatusPill>
+          <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
             {label}
           </span>
           <span className="ml-auto shrink-0">
             {running ? (
               <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse" />
                 执行中
               </span>
             ) : failed ? (
               <span className="text-[11px] text-red-500">查看原因</span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
-                <Icons.Check className="w-3.5 h-3.5" />
+                <Icons.Check className="w-3 h-3" />
                 完成
               </span>
             )}
           </span>
         </summary>
-        <div className="px-3 pb-3 space-y-2.5 border-t border-slate-100 dark:border-slate-800">
+        <div className="px-3 pb-3 space-y-2.5 border-t border-slate-200/70 dark:border-slate-800">
           {argEntries.length > 0 && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2.5">
               {argEntries.map(([k, v]) => (
@@ -747,33 +709,33 @@ const AgentChat: React.FC = () => {
 
   const renderTurn = (turn: Turn) => (
     <div key={turn.key} className="group/turn space-y-5">
-      {/* 用户消息：中性浅底气泡 + 渐变描边点缀，右对齐 */}
+      {/* 用户消息 */}
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-white dark:bg-slate-800 px-4 py-2.5 border border-slate-200 dark:border-slate-700 shadow-sm">
-          <div className="text-[14px] leading-relaxed text-slate-800 dark:text-slate-100 whitespace-pre-wrap break-words">
-            {turn.user}
-          </div>
+        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-2.5">
+          <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">{turn.user}</div>
         </div>
       </div>
 
-      {/* 助手消息：头像 + 白卡内容流（原来无卡片底白字贴白页零层次，十二期重排） */}
+      {/* 助手消息 */}
       <div className="flex gap-3">
-        <div className="shrink-0 w-8 h-8 mt-1 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-md shadow-cyan-500/25 ring-2 ring-white dark:ring-slate-800">
-          <Icons.Sparkles className="w-4 h-4 text-white" />
+        <div className="shrink-0 w-7 h-7 mt-0.5 rounded-lg bg-slate-900 dark:bg-slate-800 border border-slate-800 dark:border-slate-700 flex items-center justify-center">
+          <Icons.Sparkles className="w-3.5 h-3.5 text-primary-400" />
         </div>
-        <div className="flex-1 min-w-0 rounded-2xl bg-white dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60 shadow-sm px-4 py-3.5 space-y-3">
+        <div className="flex-1 min-w-0 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 px-4 py-3.5 space-y-3">
           {turn.tools.length > 0 && (
             <div className="space-y-1.5">{turn.tools.map(renderToolCard)}</div>
           )}
 
           {turn.thinking && (
-            <details className="group rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-slate-50/70 dark:bg-slate-900/40">
-              <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none text-xs text-slate-500 dark:text-slate-400 hover:brightness-95 transition">
+            <details className="group rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
+              <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none list-none text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors">
                 <Icons.ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
                 <span>思考过程</span>
-                <span className="ml-auto text-[11px] text-slate-400">{turn.thinking.length} 字</span>
+                <span className="ml-auto text-[11px] text-slate-400 tabular-nums">
+                  {turn.thinking.length} 字
+                </span>
               </summary>
-              <div className="px-3 pb-2.5 pt-1 text-[12.5px] leading-relaxed text-slate-600 dark:text-slate-400 whitespace-pre-wrap border-t border-slate-200/60 dark:border-slate-800">
+              <div className="px-3 pb-2.5 pt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400 whitespace-pre-wrap border-t border-slate-200/70 dark:border-slate-800">
                 {turn.thinking}
               </div>
             </details>
@@ -785,13 +747,14 @@ const AgentChat: React.FC = () => {
                 {turn.answer}
               </MarkdownContent>
               {turn.streaming ? (
-                <span className="inline-block w-[2px] h-4 bg-cyan-500 animate-pulse align-middle ml-0.5" />
+                <span className="inline-block w-[2px] h-4 bg-primary-500 animate-pulse align-middle ml-0.5" />
               ) : (
-                <div className="mt-3 flex items-center gap-1 opacity-0 group-hover/turn:opacity-100 focus-within:opacity-100 transition-opacity">
+                <div className="mt-2.5 flex items-center gap-1 opacity-0 group-hover/turn:opacity-100 focus-within:opacity-100 transition-opacity">
                   <button
+                    type="button"
                     onClick={() => void copy(turn.answer, '回答')}
                     title="复制回答"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    className="p-1.5 rounded-md text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     <Icons.Copy className="w-3.5 h-3.5" />
                   </button>
@@ -801,16 +764,16 @@ const AgentChat: React.FC = () => {
           ) : (
             turn.streaming && (
               <div className="flex items-center gap-1.5 py-1">
-                <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce" />
-                <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-bounce [animation-delay:300ms]" />
-                <span className="ml-1.5 text-[13px] text-slate-400">正在思考</span>
+                <span className="w-1.5 h-1.5 bg-primary-500 rounded-full animate-bounce" />
+                <span className="w-1.5 h-1.5 bg-primary-500 rounded-full animate-bounce [animation-delay:150ms]" />
+                <span className="w-1.5 h-1.5 bg-primary-500 rounded-full animate-bounce [animation-delay:300ms]" />
+                <span className="ml-1.5 text-xs text-slate-400">正在思考...</span>
               </div>
             )
           )}
 
           {turn.error && (
-            <div className="rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+            <div className="rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-600 dark:text-red-300">
               {turn.error}
             </div>
           )}
@@ -819,224 +782,223 @@ const AgentChat: React.FC = () => {
     </div>
   );
 
-  /* ------------------------------ 主渲染 ------------------------------ */
-
   return (
-    <div className="h-[calc(100vh-80px)] relative bg-white dark:bg-slate-900 overflow-hidden flex">
-      {/* 十二期重排版：极淡渐变氛围层（与登录页同语言，工具区克制版） */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-0
-        bg-[radial-gradient(ellipse_45%_40%_at_85%_8%,rgba(6,182,212,0.06),transparent_70%)]
-        dark:bg-[radial-gradient(ellipse_45%_40%_at_85%_8%,rgba(6,182,212,0.10),transparent_70%)]" />
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-0
-        bg-[radial-gradient(ellipse_40%_35%_at_8%_92%,rgba(139,92,246,0.05),transparent_70%)]
-        dark:bg-[radial-gradient(ellipse_40%_35%_at_8%_92%,rgba(139,92,246,0.09),transparent_70%)]" />
-
-      {/* ---------------- 左侧会话栏（可收起：收起 56px / 展开 256px） ---------------- */}
+    <div className="h-[calc(100vh-6.5rem)] sm:h-[calc(100vh-8.5rem)] rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden flex shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+      {/* 左侧会话栏（可收起：收起 56px / 展开 256px） */}
       <aside
-        className={`${sidebarOpen ? 'w-64' : 'w-14'} shrink-0 relative z-10 border-r border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm flex flex-col transition-all duration-300 overflow-hidden`}
+        className={`${
+          sidebarOpen ? 'w-64' : 'w-14'
+        } shrink-0 border-r border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col transition-all duration-200 overflow-hidden`}
       >
         {sidebarOpen ? (
-        <>
-        <div className="p-3 space-y-2.5 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-2">
+          <>
+            <div className="p-3 space-y-2.5 border-b border-slate-200/80 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={startNew} className="flex-1">
+                  <Icons.Plus className="w-3.5 h-3.5" />
+                  新建对话
+                </Button>
+                <button
+                  type="button"
+                  onClick={toggleSidebar}
+                  title="收起会话栏（扩大聊天区）"
+                  aria-label="收起会话栏"
+                  className="shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <Icons.ChevronLeft className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="relative">
+                <Icons.Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="搜索会话..."
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 transition-colors"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-2 py-2">
+              {groups.length === 0 && (
+                <div className="text-center text-xs text-slate-400 py-8 px-2">
+                  {keyword ? '没有匹配的会话' : '还没有对话记录'}
+                </div>
+              )}
+              {groups.map((group) => (
+                <div key={group.label} className="mb-3">
+                  <div className="px-2 py-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                    {group.label}
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.items.map((session) => {
+                      const isActive = session.id === activeId;
+                      return (
+                        <div
+                          key={session.id}
+                          className={`group relative rounded-lg transition-colors ${
+                            isActive
+                              ? 'bg-slate-100 dark:bg-slate-800/80 ring-1 ring-slate-200/80 dark:ring-slate-700'
+                              : 'hover:bg-slate-100/70 dark:hover:bg-slate-900'
+                          }`}
+                        >
+                          {renamingId === session.id ? (
+                            <input
+                              autoFocus
+                              value={renamingText}
+                              onChange={(e) => setRenamingText(e.target.value)}
+                              onBlur={() => void commitRename(session.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void commitRename(session.id);
+                                if (e.key === 'Escape') setRenamingId(null);
+                              }}
+                              className="w-full px-2 py-2 text-xs bg-white dark:bg-slate-900 rounded-lg border border-primary-500 outline-none"
+                            />
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void loadSession(session.id)}
+                                className="w-full text-left px-2.5 py-2 block"
+                              >
+                                <div
+                                  className={`text-xs truncate pr-12 ${
+                                    isActive
+                                      ? 'font-medium text-slate-900 dark:text-white'
+                                      : 'text-slate-600 dark:text-slate-300'
+                                  }`}
+                                >
+                                  {session.title || '新对话'}
+                                </div>
+                                <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 tabular-nums">
+                                  {relTime(session.updated_at || session.created_at)}
+                                  {session.message_count ? ` · ${session.message_count} 条` : ''}
+                                </div>
+                              </button>
+                              <div className="absolute right-1.5 top-1.5 hidden group-hover:flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRenamingId(session.id);
+                                    setRenamingText(session.title || '');
+                                  }}
+                                  title="重命名"
+                                  className="p-1 rounded text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-white dark:hover:bg-slate-800 transition-colors"
+                                >
+                                  <Icons.Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDelete(session.id)}
+                                  title="删除"
+                                  className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-white dark:hover:bg-slate-800 transition-colors"
+                                >
+                                  <Icons.Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="p-2 flex flex-col items-center gap-2 border-b border-slate-200/80 dark:border-slate-800">
             <button
+              type="button"
+              onClick={toggleSidebar}
+              title="展开会话栏"
+              aria-label="展开会话栏"
+              className="w-9 h-9 flex items-center justify-center rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:opacity-90 transition-opacity"
+            >
+              <Icons.ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
               onClick={startNew}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-violet-600 text-white text-sm font-medium transition-all hover:opacity-90 hover:shadow-lg hover:shadow-cyan-500/20 active:scale-[.99] shadow-sm"
+              title="新建对话"
+              aria-label="新建对话"
+              className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-300 hover:border-primary-500 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
             >
               <Icons.Plus className="w-4 h-4" />
-              新建对话
-            </button>
-            <button
-              onClick={toggleSidebar}
-              title="收起会话栏（聊天区变大）"
-              className="shrink-0 p-2.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-              <Icons.ChevronLeft className="w-4 h-4" />
             </button>
           </div>
-          <div className="relative">
-            <Icons.Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索会话…"
-              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[13px] outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/15 transition-all"
-            />
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-2 py-2">
-          {groups.length === 0 && (
-            <div className="text-center text-xs text-slate-400 py-8 px-2">
-              {keyword ? '没有匹配的会话' : '还没有对话记录'}
-            </div>
-          )}
-          {groups.map((group) => (
-            <div key={group.label} className="mb-3">
-              <div className="px-2 py-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                {group.label}
-              </div>
-              <div className="space-y-0.5">
-                {group.items.map((session) => {
-                  const isActive = session.id === activeId;
-                  return (
-                    <div
-                      key={session.id}
-                      className={`group relative rounded-lg transition-colors ${
-                        isActive
-                          ? 'bg-white dark:bg-slate-800 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700'
-                          : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/50'
-                      }`}
-                    >
-                      {renamingId === session.id ? (
-                        <input
-                          autoFocus
-                          value={renamingText}
-                          onChange={(e) => setRenamingText(e.target.value)}
-                          onBlur={() => void commitRename(session.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') void commitRename(session.id);
-                            if (e.key === 'Escape') setRenamingId(null);
-                          }}
-                          className="w-full px-2 py-2 text-sm bg-white dark:bg-slate-900 rounded-lg border border-cyan-400 outline-none"
-                        />
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => void loadSession(session.id)}
-                            className="w-full text-left px-2.5 py-2 block"
-                          >
-                            <div
-                              className={`text-[13px] truncate pr-12 ${
-                                isActive
-                                  ? 'font-medium text-slate-900 dark:text-white'
-                                  : 'text-slate-600 dark:text-slate-300'
-                              }`}
-                            >
-                              {session.title || '新对话'}
-                            </div>
-                            <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                              {relTime(session.updated_at || session.created_at)}
-                              {session.message_count ? ` · ${session.message_count} 条` : ''}
-                            </div>
-                          </button>
-                          {/* hover 操作 */}
-                          <div className="absolute right-1.5 top-1.5 hidden group-hover:flex items-center gap-0.5">
-                            <button
-                              onClick={() => {
-                                setRenamingId(session.id);
-                                setRenamingText(session.title || '');
-                              }}
-                              title="重命名"
-                              className="p-1 rounded text-slate-400 hover:text-cyan-600 hover:bg-white dark:hover:bg-slate-800 transition"
-                            >
-                              <Icons.Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => void handleDelete(session.id)}
-                              title="删除"
-                              className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-white dark:hover:bg-slate-800 transition"
-                            >
-                              <Icons.Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-        </>
-        ) : (
-        /* 收起态：56px 窄条——展开钮 + 快捷新建 */
-        <div className="p-2 flex flex-col items-center gap-2 border-b border-slate-200 dark:border-slate-800">
-          <button
-            onClick={toggleSidebar}
-            title="展开会话栏"
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 text-white shadow-md shadow-cyan-500/25 hover:opacity-90 transition-all"
-          >
-            <Icons.ChevronRight className="w-4 h-4" />
-          </button>
-          <button
-            onClick={startNew}
-            title="新建对话"
-            className="w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:border-cyan-400 hover:text-cyan-600 dark:hover:text-cyan-400 transition-all"
-          >
-            <Icons.Plus className="w-4 h-4" />
-          </button>
-        </div>
         )}
       </aside>
 
-      {/* ---------------- 右侧主区 ---------------- */}
-      <main className="flex-1 flex flex-col min-w-0 relative z-10">
-        {/* 顶栏：毛玻璃 + 渐变标题（与 AdminLayout 同语言） */}
-        <header className="h-14 px-5 flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800/80 shrink-0 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-md shadow-cyan-500/20 shrink-0">
-            <Icons.Sparkles className="w-4 h-4 text-white" />
+      {/* 右侧主区 */}
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* 顶栏 */}
+        <header className="h-14 px-5 flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800 shrink-0 bg-white/90 dark:bg-slate-950/90 backdrop-blur-sm">
+          <div className="w-8 h-8 rounded-lg bg-slate-900 dark:bg-slate-800 border border-slate-800 dark:border-slate-700 flex items-center justify-center shrink-0">
+            <Icons.Sparkles className="w-4 h-4 text-primary-400" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold bg-gradient-to-r from-cyan-600 to-violet-600 dark:from-cyan-400 dark:to-violet-400 bg-clip-text text-transparent truncate">
-              {activeSession?.title || (turns.length ? '新对话' : 'AI 助手')}
+            <div className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+              {activeSession?.title || (turns.length ? '新对话' : 'AI 运维助手')}
             </div>
-            <div className="text-[11px] text-slate-400 dark:text-slate-500">
-              {turns.length ? `${turns.length} 轮对话` : '站点管理助手'}
+            <div className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+              {turns.length ? `${turns.length} 轮对话` : '站点管理与数据分析助手'}
             </div>
           </div>
           {activeSession && (
             <button
+              type="button"
               onClick={() => void handleDelete(activeSession.id)}
               title="删除当前会话"
-              className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              aria-label="删除当前会话"
+              className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
             >
               <Icons.Trash2 className="w-4 h-4" />
             </button>
           )}
         </header>
 
-        {/* 消息区：淡灰底让助手白卡浮起（原来是白底白字零层次——十二期用户点名重排） */}
-        <div ref={listRef} className="flex-1 overflow-y-auto bg-slate-50/60 dark:bg-slate-950/40">
+        {/* 消息区 */}
+        <div ref={listRef} className="flex-1 overflow-y-auto bg-slate-50/70 dark:bg-slate-950/60">
           {turns.length === 0 ? (
-            /* 空状态引导 */
             <div className="h-full flex flex-col items-center justify-center px-6 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center mb-5 shadow-xl shadow-cyan-500/25">
-                <Icons.Sparkles className="w-8 h-8 text-white" />
+              <div className="w-12 h-12 rounded-xl bg-slate-900 dark:bg-slate-800 border border-slate-800 dark:border-slate-700 flex items-center justify-center mb-4">
+                <Icons.Sparkles className="w-6 h-6 text-primary-400" />
               </div>
-              <h2 className="text-xl font-bold bg-gradient-to-r from-cyan-600 to-violet-600 dark:from-cyan-400 dark:to-violet-400 bg-clip-text text-transparent mb-2">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1.5 tracking-tight">
                 今天想对站点做什么？
               </h2>
-              <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-7 max-w-md leading-relaxed">
-                我可以帮你查数据、审评论、管文章和订阅者。涉及写操作时我会先跟你确认。
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 max-w-md leading-relaxed">
+                我可以帮你查询站点数据、审核评论与投稿、管理社区与订阅者。涉及写操作时我会先跟你确认。
               </p>
               <div className="grid sm:grid-cols-2 gap-2.5 max-w-xl w-full">
                 {EMPTY_STARTERS.map((q) => (
                   <button
                     key={q}
+                    type="button"
                     onClick={() => {
                       setInput(q);
                       requestAnimationFrame(() => textareaRef.current?.focus());
                     }}
-                    className="group/st text-left px-4 py-3.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-800/60 hover:border-cyan-300 dark:hover:border-cyan-700 hover:shadow-md hover:shadow-cyan-500/5 hover:-translate-y-0.5 transition-all text-[13px] text-slate-600 dark:text-slate-300 leading-relaxed"
+                    className="group/st text-left px-4 py-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-primary-300 dark:hover:border-primary-700 transition-colors text-xs text-slate-600 dark:text-slate-300 leading-relaxed flex items-start gap-2"
                   >
-                    <span className="mr-1.5 text-cyan-500/60 group-hover/st:text-cyan-500 transition-colors">◆</span>
-                    {q}
+                    <Icons.Terminal className="w-3.5 h-3.5 mt-0.5 text-slate-400 group-hover/st:text-primary-500 shrink-0 transition-colors" />
+                    <span>{q}</span>
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            /* 收窄正文宽度：太长的一行读起来很累 */
-            <div className="px-6 py-7 space-y-8 max-w-4xl mx-auto">{turns.map(renderTurn)}</div>
+            <div className="px-5 sm:px-6 py-6 space-y-7 max-w-4xl mx-auto">
+              {turns.map(renderTurn)}
+            </div>
           )}
         </div>
 
-        {/* 输入区：与顶栏同语言的毛玻璃收边 */}
-        <div className="border-t border-slate-200/80 dark:border-slate-800/80 px-6 py-4 shrink-0 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md">
+        {/* 输入区 */}
+        <div className="border-t border-slate-200/80 dark:border-slate-800 px-5 sm:px-6 py-3.5 shrink-0 bg-white dark:bg-slate-950">
           <div className="max-w-4xl mx-auto">
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 focus-within:border-cyan-400 focus-within:ring-2 focus-within:ring-cyan-400/15 transition-all">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900 focus-within:border-primary-500 focus-within:ring-2 focus-within:ring-primary-500/15 transition-all">
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -1046,30 +1008,28 @@ const AgentChat: React.FC = () => {
                 }}
                 onKeyDown={onKeyDown}
                 rows={1}
-                placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"
-                className="w-full px-4 pt-3.5 pb-1 bg-transparent text-sm leading-relaxed text-slate-800 dark:text-slate-100 placeholder-slate-400 outline-none resize-none max-h-[200px]"
+                placeholder="问点什么...（Enter 发送，Shift+Enter 换行）"
+                className="w-full px-4 pt-3 pb-1 bg-transparent text-sm leading-relaxed text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none resize-none max-h-[200px]"
               />
-              <div className="flex items-center justify-between px-2.5 pb-2.5 pl-4">
-                <span className="text-[11px] text-slate-400">
-                  助手可能出错，删除/修改类操作请确认后再执行
+              <div className="flex items-center justify-between px-3 pb-2.5">
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                  助手可能出错，删除或批量修改前请先核对结果
                 </span>
                 {sending ? (
-                  <button
-                    onClick={stop}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium transition-colors"
-                  >
-                    <span className="w-2 h-2 rounded-sm bg-current" />
+                  <Button size="sm" variant="outline" onClick={stop} type="button">
+                    <span className="w-2 h-2 rounded-xs bg-current" />
                     停止生成
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
+                    size="sm"
                     onClick={() => void handleSend()}
                     disabled={!input.trim()}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-all active:scale-[.98]"
+                    type="button"
                   >
                     发送
                     <Icons.Send className="w-3.5 h-3.5" />
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>

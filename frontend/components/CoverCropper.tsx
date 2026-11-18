@@ -5,6 +5,7 @@
 import React, { useState, useCallback } from 'react';
 import Cropper, { Area } from 'react-easy-crop';
 import { Icons } from './Icons';
+import { useToast } from './Toast';
 
 interface CoverCropperProps {
   /** 原始图片的 object URL 或 base64 */
@@ -15,6 +16,8 @@ interface CoverCropperProps {
   onCancel: () => void;
   /** 目标宽高比，默认 16:9 */
   aspect?: number;
+  /** 弹窗标题 */
+  title?: string;
 }
 
 /**
@@ -68,7 +71,9 @@ const CoverCropper: React.FC<CoverCropperProps> = ({
   onCropComplete,
   onCancel,
   aspect = 16 / 9,
+  title = '裁剪图片',
 }) => {
+  const { showToast } = useToast();
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
@@ -86,28 +91,30 @@ const CoverCropper: React.FC<CoverCropperProps> = ({
       onCropComplete(blob);
     } catch (error) {
       console.error('裁剪失败:', error);
-      alert('裁剪失败，请重试');
+      showToast('裁剪失败，请重试', 'error');
     } finally {
       setProcessing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex flex-col backdrop-blur-sm">
+    <div className="fixed inset-0 bg-slate-950/85 z-50 flex flex-col backdrop-blur-sm">
       {/* 顶部操作栏 */}
-      <div className="flex items-center justify-between px-6 py-4 bg-slate-900/90 border-b border-slate-700">
-        <h3 className="text-white font-bold text-lg">裁剪封面图片</h3>
+      <div className="flex items-center justify-between px-6 py-4 bg-slate-900 border-b border-slate-800">
+        <h3 className="text-white font-semibold text-base">{title}</h3>
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition-colors font-medium"
+            className="px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors font-medium"
           >
             取消
           </button>
           <button
+            type="button"
             onClick={handleConfirm}
             disabled={processing}
-            className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:from-cyan-600 hover:to-blue-700 transition-all disabled:opacity-50 font-medium shadow-lg shadow-cyan-500/20"
+            className="px-5 py-2 text-sm bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors disabled:opacity-50 font-medium"
           >
             {processing ? '处理中...' : '确认裁剪'}
           </button>

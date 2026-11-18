@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Badge, Button, Card, EmptyState, StatusPill } from '../components/Shared';
 import { ListSkeleton } from '../components/Skeleton';
 import { Icons } from '../components/Icons';
 import { AiPeriodPayload, AiPeriodReport, AiPeriodSection, getAiMonthly, getAiWeekly } from '../api/aiExtras';
+import { safeExternalUrl } from '../utils/urls';
 
 type PeriodKind = 'weekly' | 'monthly';
 
@@ -14,12 +16,7 @@ const KIND_META: Record<
     title: string;
     hint: string;
     empty: string;
-    activeCard: string;
-    idleCard: string;
-    chipActive: string;
-    badge: string;
-    accent: string;
-    bar: string;
+    tone: 'primary' | 'amber';
   }
 > = {
   weekly: {
@@ -27,26 +24,14 @@ const KIND_META: Record<
     title: 'AI 周报',
     hint: '每周重点回顾',
     empty: '本周报暂未生成',
-    activeCard:
-      'border-cyan-300 ring-2 ring-cyan-100 bg-gradient-to-br from-cyan-50 to-white dark:border-cyan-700 dark:ring-cyan-900/40 dark:from-cyan-900/20 dark:to-slate-900',
-    idleCard: 'border-slate-200 bg-white hover:border-cyan-200 dark:border-slate-700 dark:bg-slate-800/60',
-    chipActive: 'bg-cyan-600 text-white border-cyan-600 shadow-sm shadow-cyan-200/60',
-    badge: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-200',
-    accent: 'text-cyan-600 dark:text-cyan-300',
-    bar: 'bg-cyan-500',
+    tone: 'primary',
   },
   monthly: {
     label: '月报',
     title: 'AI 月报',
     hint: '每月重点回顾',
     empty: '本月报暂未生成',
-    activeCard:
-      'border-violet-300 ring-2 ring-violet-100 bg-gradient-to-br from-violet-50 to-white dark:border-violet-700 dark:ring-violet-900/40 dark:from-violet-900/20 dark:to-slate-900',
-    idleCard: 'border-slate-200 bg-white hover:border-violet-200 dark:border-slate-700 dark:bg-slate-800/60',
-    chipActive: 'bg-violet-600 text-white border-violet-600 shadow-sm shadow-violet-200/60',
-    badge: 'bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200',
-    accent: 'text-violet-600 dark:text-violet-300',
-    bar: 'bg-violet-500',
+    tone: 'amber',
   },
 };
 
@@ -148,6 +133,7 @@ export default function AiWeekly() {
   const selectIssue = async (key: string) => {
     setSelected((prev) => ({ ...prev, [kind]: key }));
     if (reports[key] || !payload) return;
+    if (!/^[a-zA-Z0-9_-]+$/.test(key)) return;
     try {
       const response = await fetch(`/data/ai-${kind}/${key}.json`, { cache: 'no-store' });
       if (response.ok) {
@@ -164,34 +150,39 @@ export default function AiWeekly() {
     if (target >= 0) setPageIndex(target);
   };
 
+  const aihotReportHref = safeExternalUrl(report?.links?.aihot);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10">
-      <section className="relative overflow-hidden rounded-3xl border border-slate-100 dark:border-slate-700 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 p-6 md:p-8 mb-6 shadow-sm">
-        <div className="absolute -top-24 right-0 w-72 h-72 rounded-full bg-indigo-200/30 blur-3xl" />
-        <div className="relative max-w-3xl space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/80 dark:bg-slate-800/80 px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            <Icons.BookOpen className="w-3.5 h-3.5" /> AIHOT · 周期回顾
-          </div>
-          <h1 className="text-3xl md:text-5xl font-black tracking-tight text-slate-900 dark:text-white">
-            AI 周报 <span className="text-slate-300 dark:text-slate-600">/</span> <span className="text-violet-500">月报</span>
-          </h1>
-          <p className="text-sm md:text-base text-slate-600 dark:text-slate-300 leading-7">
-            按周与按月汇总 AIHOT 编辑精选，分节分页阅读；每类保留最近 12 期，点期次即可回看。
-          </p>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <header className="pb-8 mb-8 border-b border-slate-200/80 dark:border-slate-800 space-y-3">
+        <div className="inline-flex items-center gap-2 text-xs font-medium tracking-wider uppercase text-primary-600 dark:text-primary-400">
+          <Icons.BookOpen className="w-3.5 h-3.5" /> AIHOT &middot; 周期回顾
         </div>
-      </section>
+        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          AI 周报 <span className="text-slate-300 dark:text-slate-600">/</span> 月报
+        </h1>
+        <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
+          按周与按月汇总 AIHOT 编辑精选，分节分页阅读；每类保留最近 12 期，点期次即可回看历史回顾。
+        </p>
+      </header>
 
       {loading && (
-        <div className="py-10">
+        <div className="py-6">
           <ListSkeleton rows={3} />
         </div>
       )}
 
       {!loading && error && (
-        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 py-16 text-center">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">内容暂时不可用</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{error}</p>
-        </div>
+        <EmptyState
+          icon={<Icons.BookOpen className="w-5 h-5" />}
+          title="内容暂时不可用"
+          description={error}
+          action={
+            <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+              重新加载
+            </Button>
+          }
+        />
       )}
 
       {!loading && !error && (
@@ -206,28 +197,35 @@ export default function AiWeekly() {
                   key={item}
                   type="button"
                   onClick={() => setKind(item)}
-                  className={`group relative overflow-hidden rounded-2xl border p-5 text-left transition-all ${active ? itemMeta.activeCard : itemMeta.idleCard}`}
+                  className={`group rounded-xl border p-5 text-left transition-colors cursor-pointer ${
+                    active
+                      ? 'border-primary-400 dark:border-primary-600 bg-primary-50/40 dark:bg-primary-950/20'
+                      : 'border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider ${active ? itemMeta.accent : 'text-slate-400'}`}>
-                      <Icons.BookOpen className="w-4 h-4" /> {itemMeta.hint}
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <Icons.BookOpen className="w-3.5 h-3.5 text-primary-500" /> {itemMeta.hint}
                     </span>
                     {active ? (
-                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${itemMeta.badge}`}>当前</span>
+                      <StatusPill tone={itemMeta.tone} dot>
+                        当前浏览
+                      </StatusPill>
                     ) : (
-                      <Icons.ChevronRight className="w-4 h-4 text-slate-300 transition-transform group-hover:translate-x-0.5 dark:text-slate-600" />
+                      <Icons.ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:translate-x-0.5 transition-transform" />
                     )}
                   </div>
-                  <div className="mt-2 flex items-end justify-between gap-3">
+                  <div className="mt-2.5 flex items-end justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-2xl font-black text-slate-900 dark:text-white">{itemMeta.label}</div>
-                      <div className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+                      <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{itemMeta.label}</div>
+                      <div className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                         {itemPayload ? `${itemPayload.latest.key} · ${formatRange(itemPayload.latest)}` : '暂无数据'}
                       </div>
                     </div>
-                    <div className="shrink-0 text-right text-[11px] text-slate-400 dark:text-slate-500">
-                      <div className="font-bold text-slate-500 dark:text-slate-300">{itemPayload ? `${itemPayload.issues.length} 期` : '—'}</div>
-                      <div>可回看</div>
+                    <div className="shrink-0 text-right text-xs text-slate-400 tabular-nums">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">
+                        {itemPayload ? `${itemPayload.issues.length} 期` : '—'}
+                      </span>
                     </div>
                   </div>
                 </button>
@@ -238,10 +236,10 @@ export default function AiWeekly() {
           {report && (
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
               <aside className="order-2 lg:order-1 lg:col-span-1">
-                <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-3">
-                  <div className="flex items-center justify-between px-1 pb-2">
-                    <span className="text-xs font-bold text-slate-400 dark:text-slate-500">最近 {issues.length} 期</span>
-                    <span className={`text-[11px] font-bold ${meta.accent}`}>{meta.label}</span>
+                <Card className="p-3">
+                  <div className="flex items-center justify-between px-2 pb-2.5 mb-2 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500">最近 {issues.length} 期</span>
+                    <Badge color={meta.tone}>{meta.label}</Badge>
                   </div>
                   <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:max-h-[560px] lg:space-y-1 lg:overflow-y-auto lg:pb-0">
                     {issues.map((issue) => {
@@ -251,62 +249,64 @@ export default function AiWeekly() {
                           key={issue.key}
                           type="button"
                           onClick={() => selectIssue(issue.key)}
-                          className={`w-40 shrink-0 rounded-xl px-3 py-2 text-left transition-colors lg:w-full ${
+                          className={`w-40 shrink-0 rounded-lg px-3 py-2 text-left transition-colors lg:w-full cursor-pointer ${
                             active
-                              ? `${meta.badge} font-bold`
-                              : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/50'
+                              ? 'bg-primary-50 dark:bg-primary-950/50 text-primary-700 dark:text-primary-300 font-semibold'
+                              : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800/60'
                           }`}
                         >
-                          <div className="text-sm font-semibold">{issue.key}</div>
-                          <div className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                          <div className="text-xs font-semibold">{issue.key}</div>
+                          <div className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
                             {issue.periodStart && issue.periodEnd ? `${issue.periodStart} ~ ${issue.periodEnd}` : '—'}
                           </div>
                         </button>
                       );
                     })}
                   </div>
-                </div>
+                </Card>
               </aside>
 
-              <article className="order-1 lg:order-2 lg:col-span-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-5 md:p-7">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
-                  <span className={`rounded-full px-2.5 py-1 font-bold ${meta.badge}`}>{report.key}</span>
+              <Card className="order-1 lg:order-2 lg:col-span-3 p-6 md:p-7">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+                  <Badge color={meta.tone}>{report.key}</Badge>
                   {formatRange(report) && <span>{formatRange(report)}</span>}
                   {report.generatedAt && <span className="hidden sm:inline">生成于 {formatTime(report.generatedAt)}</span>}
-                  {report.links?.aihot && (
+                  {aihotReportHref && (
                     <a
-                      href={report.links.aihot}
+                      href={aihotReportHref}
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="ml-auto inline-flex items-center gap-1 font-semibold text-primary-600 hover:underline dark:text-primary-400"
+                      className="ml-auto inline-flex items-center gap-1 font-medium text-primary-600 hover:underline dark:text-primary-400"
                     >
-                      在 AIHOT 查看 <Icons.ExternalLink className="w-3.5 h-3.5" />
+                      在 AIHOT 查看 <Icons.ExternalLink className="w-3 h-3" />
                     </a>
                   )}
                 </div>
 
                 {report.headline && (
-                  <h2 className="mt-3 text-2xl md:text-3xl font-black leading-tight text-slate-900 dark:text-white">{report.headline}</h2>
+                  <h2 className="mt-3 text-xl md:text-2xl font-bold leading-snug text-slate-900 dark:text-slate-100">
+                    {report.headline}
+                  </h2>
                 )}
                 {report.overview && (
-                  <p className="mt-3 text-sm md:text-base text-slate-600 dark:text-slate-300 leading-7 whitespace-pre-line">{report.overview}</p>
+                  <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-7 whitespace-pre-line">{report.overview}</p>
                 )}
 
                 {pages.length > 0 && page ? (
                   <>
-                    <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-700">
+                    <div className="mt-6 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-5 dark:border-slate-800">
                       {sections.map((item, index) => (
                         <button
                           key={`${item.label}-${index}`}
                           type="button"
                           onClick={() => jumpToSection(index)}
-                          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+                          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
                             index === page.sectionIndex
-                              ? meta.chipActive
-                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500'
+                              ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 dark:border-slate-100'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600'
                           }`}
                         >
-                          <span className="mr-1 opacity-70">{index + 1}</span>
+                          <span className="mr-1 opacity-70 tabular-nums">{index + 1}</span>
                           {item.label}
                         </button>
                       ))}
@@ -314,82 +314,80 @@ export default function AiWeekly() {
 
                     <div className="mt-5">
                       <div className="flex items-start gap-3">
-                        <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${meta.badge}`}>
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 text-sm font-bold tabular-nums">
                           {page.sectionIndex + 1}
                         </span>
                         <div className="min-w-0">
-                          <h3 className="text-xl font-black text-slate-900 dark:text-white">{page.label}</h3>
-                          {page.summary && <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{page.summary}</p>}
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">{page.label}</h3>
+                          {page.summary && (
+                            <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">{page.summary}</p>
+                          )}
                         </div>
-                        <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                        <span className="ml-auto shrink-0 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-500 dark:text-slate-300 tabular-nums">
                           {page.parts > 1 ? `${page.part}/${page.parts} 页` : `${page.items.length} 条`}
                         </span>
                       </div>
 
-                      <ul className="mt-4 space-y-3">
-                        {page.items.map((item, itemIndex) => (
-                          <li
-                            key={`${item.title}-${itemIndex}`}
-                            className="rounded-xl border border-slate-100 bg-slate-50/60 p-3.5 transition-colors hover:border-slate-200 hover:bg-white dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-600"
-                          >
-                            <div className="flex items-start gap-2.5">
-                              <Icons.Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary-500" />
-                              <div className="min-w-0">
-                                <a
-                                  href={item.sourceUrl || item.aihotUrl || '#'}
-                                  target="_blank"
-                                  rel="noreferrer noopener"
-                                  className="font-semibold text-slate-900 hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
-                                >
-                                  {item.title}
-                                </a>
-                                {item.summary && (
-                                  <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{item.summary}</p>
-                                )}
-                                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500">
-                                  {item.sourceName && <span className="max-w-[22rem] truncate">{item.sourceName}</span>}
-                                  {item.publishedAt && <span>{formatTime(item.publishedAt)}</span>}
+                      <ul className="mt-4 space-y-2.5">
+                        {page.items.map((item, itemIndex) => {
+                          const itemHref = safeExternalUrl(item.sourceUrl) || safeExternalUrl(item.aihotUrl);
+                          return (
+                            <li
+                              key={`${item.title}-${itemIndex}`}
+                              className="rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 p-4 transition-colors hover:border-slate-300 dark:hover:border-slate-700"
+                            >
+                              <div className="flex items-start gap-2.5">
+                                <Icons.Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-500" />
+                                <div className="min-w-0 flex-1">
+                                  {itemHref ? (
+                                    <a
+                                      href={itemHref}
+                                      target="_blank"
+                                      rel="noreferrer noopener"
+                                      className="text-sm font-semibold text-slate-900 hover:text-primary-600 dark:text-slate-100 dark:hover:text-primary-400 transition-colors"
+                                    >
+                                      {item.title}
+                                    </a>
+                                  ) : (
+                                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{item.title}</span>
+                                  )}
+                                  {item.summary && (
+                                    <p className="mt-1 text-xs leading-6 text-slate-600 dark:text-slate-300">{item.summary}</p>
+                                  )}
+                                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500 tabular-nums">
+                                    {item.sourceName && <span className="max-w-[22rem] truncate">{item.sourceName}</span>}
+                                    {item.publishedAt && <span>{formatTime(item.publishedAt)}</span>}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </li>
-                        ))}
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
 
-                    <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-700">
-                      <button
+                    <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
+                      <Button
                         type="button"
+                        size="sm"
+                        variant="outline"
                         disabled={safeIndex === 0}
                         onClick={() => setPageIndex(Math.max(0, safeIndex - 1))}
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
                       >
                         <Icons.ChevronLeft className="h-3.5 w-3.5" /> 上一页
-                      </button>
-                      <div className="flex items-center gap-1.5">
-                        {pages.map((_, index) => (
-                          <button
-                            key={index}
-                            type="button"
-                            aria-label={`第 ${index + 1} 页`}
-                            onClick={() => setPageIndex(index)}
-                            className={`h-1.5 rounded-full transition-all ${
-                              index === safeIndex ? `w-6 ${meta.bar}` : 'w-1.5 bg-slate-200 dark:bg-slate-600'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                      <button
+                      </Button>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+                        第 {safeIndex + 1} / {pages.length} 页 &middot; 每页最多 {ITEMS_PER_PAGE} 条
+                      </span>
+                      <Button
                         type="button"
+                        size="sm"
+                        variant="outline"
                         disabled={safeIndex >= pages.length - 1}
                         onClick={() => setPageIndex(Math.min(pages.length - 1, safeIndex + 1))}
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300"
                       >
                         下一页 <Icons.ChevronRight className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <div className="mt-2 text-center text-[11px] text-slate-400 dark:text-slate-500">
-                      第 {safeIndex + 1} / {pages.length} 页 · 每页最多 {ITEMS_PER_PAGE} 条
+                      </Button>
                     </div>
                   </>
                 ) : (
@@ -406,9 +404,9 @@ export default function AiWeekly() {
                   >
                     AIHOT
                   </a>
-                  {payload?.updatedAt && <span className="ml-2">· 更新于 {formatTime(payload.updatedAt)}</span>}
+                  {payload?.updatedAt && <span className="ml-2">&middot; 更新于 {formatTime(payload.updatedAt)}</span>}
                 </p>
-              </article>
+              </Card>
             </div>
           )}
         </>

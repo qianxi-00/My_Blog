@@ -51,7 +51,7 @@ export function useConfirm() {
       aria-label={state.title}
     >
       <div
-        className="w-full max-w-sm mx-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl p-6"
+        className="w-full max-w-sm mx-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3">

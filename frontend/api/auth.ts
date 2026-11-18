@@ -12,6 +12,7 @@ export interface LoginResponse {
     access_token: string;
     token_type: string;
     expires_in?: number;
+    is_new_user?: boolean;
     /** 登录响应附带当前用户对象（后端 AdminLoginResponse.admin，字段与 AdminInfo 一致，role 放宽） */
     admin?: LoginUserInfo;
 }
@@ -31,11 +32,15 @@ export interface AdminInfo {
     bio?: string;
     role: 'super_admin' | 'admin';
     is_active: boolean;
+    email_verified?: boolean;
+    has_password?: boolean;
+    username_customized?: boolean;
     created_at: string;
     qq?: string;
     wechat?: string;
     github?: string;
     bilibili?: string;
+    website?: string;
 }
 
 // 登录
@@ -95,9 +100,33 @@ export const isLoggedIn = (): boolean => {
 
 // ===== 2026-09-26 二期：邮箱认证 =====
 
-// 发送注册验证码
-export const sendRegisterCode = async (email: string): Promise<{ message: string; expires_in: number }> => {
-    const response = await api.post('/auth/register/code', { email });
+// 发送注册验证码（可选预检用户名）
+export const sendRegisterCode = async (
+    email: string,
+    username?: string
+): Promise<{ message: string; expires_in: number }> => {
+    const payload: { email: string; username?: string } = { email };
+    if (username && username.trim()) {
+        payload.username = username.trim();
+    }
+    const response = await api.post('/auth/register/code', payload);
+    return response.data;
+};
+
+// 发送免密登录 / 自动注册验证码
+export const sendLoginCode = async (
+    email: string
+): Promise<{ message: string; expires_in: number }> => {
+    const response = await api.post('/auth/login/code', { email });
+    return response.data;
+};
+
+// 校验免密登录验证码（未注册邮箱开放注册时自动建号）
+export const verifyLoginCode = async (
+    email: string,
+    code: string
+): Promise<LoginResponse> => {
+    const response = await api.post<LoginResponse>('/auth/login/code/verify', { email, code });
     return response.data;
 };
 

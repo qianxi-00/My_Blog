@@ -21,7 +21,7 @@ const TextLines: React.FC<{ lines?: number; className?: string }> = ({ lines = 4
 );
 
 export const CardSkeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
-    <div className={`rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 space-y-3 ${className}`}>
+    <div className={`rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 space-y-3 ${className}`}>
         <Skeleton className="h-5 w-2/3" />
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-4/5" />

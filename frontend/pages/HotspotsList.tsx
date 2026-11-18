@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
+import { Badge, Button, EmptyState, StatusPill } from '../components/Shared';
+import { ListSkeleton } from '../components/Skeleton';
 import AiHotRankCard from '../components/AiHotRankCard';
 import {
   getHotspots,
@@ -23,10 +25,7 @@ type StackOption = {
   count: number;
 };
 
-// 三十六期：分类归一后只剩 5 个规范值（后端 writer._normalize_primary_category
-// 白名单 + 419 行历史数据归一）。这张表原先列的是"技术栈"归组，用的是
-// AI多模态 / Agent工程 / 具身智能 这些**已不存在的分类值**——分组全部落空。
-// 现在按规范值对齐，每组只含自己（保留结构，方便将来再合并同义项）。
+// 三十六期：分类归一后只剩 5 个规范值（后端 writer._normalize_primary_category 白名单）
 const PRIMARY_CATEGORY_GROUPS: Record<string, string[]> = {
   'AI模型': ['AI模型'],
   'AI基础设施': ['AI基础设施'],
@@ -73,8 +72,6 @@ interface HotspotArchiveSidebarProps {
 }
 
 const PAGE_SIZE = 10;
-// 十八期：20→100——快照链路删除后页面走 API 全量拉取（558 条），
-// 20/页要串行 28 次请求（3-5 秒），100/页 6 次秒级。
 const HOTSPOT_FETCH_PAGE_SIZE = 100;
 const MAX_ARCHIVE_MONTHS = 12;
 const ARCHIVE_MIN_MONTH = '2026-03';
@@ -86,7 +83,8 @@ const parsePositiveInt = (value: string | null, fallback = 1) => {
 };
 
 const isSortMode = (value: string | null): value is HotspotSort => value === 'latest' || value === 'hottest';
-const isTimeRange = (value: string | null): value is TimeRange => value === 'all' || value === 'today' || value === 'week' || value === 'month';
+const isTimeRange = (value: string | null): value is TimeRange =>
+  value === 'all' || value === 'today' || value === 'week' || value === 'month';
 
 const formatMonthLabel = (month: string) => {
   const [year, mon] = month.split('-');
@@ -126,9 +124,6 @@ const getHeatScore = (item: HotTopicListItem) => Number(item.heat_score || 0);
 
 const dedupeHotspots = (items: HotTopicListItem[]) => Array.from(new Map(items.map((item) => [item.id, item])).values());
 
-// 十八期：fetchHotspotSnapshot 与 HOTSPOT_SNAPSHOT_PATH 已删除（陈旧快照
-// 是"热点页看不到 DB 更新"的根因，且无生成链路）。数据源 = API 全量分页拉取。
-
 const fetchHotspotsFromApi = async (): Promise<HotTopicListItem[]> => {
   let currentPage = 1;
   let totalPages = 1;
@@ -152,14 +147,7 @@ const fetchHotspotsFromApi = async (): Promise<HotTopicListItem[]> => {
 
 const getPublishedDate = (item: HotTopicListItem) => normalizeDate(item.published_at || item.topic_date || item.created_at);
 
-// 三十四期：'最新优先'排序改用 **created_at**（真实写作时间）。
-// 十八期的 redate 均摊脚本把老文章的 published_at 改到**未来日期**
-// （10-28 ~ 10-31），按 published_at 排等于按未来日期排——'最新'列表被
-// 23 篇 7 月的老文章占满，刚写的文章反被挤到第 23~31 位。
-// 后端 list_hot_topics 已同步改 created_at（见 hot_topic_service.py），
-// 前端这里不改就会出现"接口返回新文章、页面显示老文章"的两边不一致。
-// 注意：展示日期与月份归档仍用 getPublishedDate（published_at 是十八期
-// 刻意 redate 的编辑日期，展示上要保留）。
+// 三十四期：'最新优先' 与时间过滤均使用 created_at（真实写作时间），展示与月份归档仍用 published_at
 const getCreatedDate = (item: HotTopicListItem) => normalizeDate(item.created_at || item.published_at || item.topic_date);
 
 const getArchiveKey = (item: HotTopicListItem) => {
@@ -245,19 +233,17 @@ const HotspotTop3Carousel: React.FC<HotspotTop3CarouselProps> = ({ items }) => {
   const activeItem = slides[Math.min(activeIndex, slides.length - 1)];
 
   return (
-    <section className="rounded-[28px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
-      <div className="border-b border-slate-100 dark:border-slate-700 px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
-            <Icons.TrendingUp className="w-4 h-4 text-cyan-500" />
-            本周焦点
-          </div>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            最近 7 天发布的新文章，快速进入重点内容。
-          </p>
+    <section className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-hidden">
+      <div className="border-b border-slate-100 dark:border-slate-800 px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <Icons.Flame className="w-4 h-4 text-primary-500" />
+          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">本周焦点</span>
+          <span className="hidden sm:inline text-xs text-slate-400 dark:text-slate-500">
+            最近 7 天重点技术动态
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {slides.map((item, index) => (
             <button
               key={item.id}
@@ -266,73 +252,75 @@ const HotspotTop3Carousel: React.FC<HotspotTop3CarouselProps> = ({ items }) => {
                 setDirection(index > activeIndex ? 'next' : 'prev');
                 setActiveIndex(index);
               }}
-              className={`h-2.5 rounded-full transition-all ${activeIndex === index ? 'w-8 bg-cyan-500' : 'w-2.5 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500'}`}
+              className={`h-2 rounded-full transition-all cursor-pointer ${
+                activeIndex === index
+                  ? 'w-7 bg-primary-500'
+                  : 'w-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600'
+              }`}
               aria-label={`切换到第 ${index + 1} 条焦点`}
             />
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] gap-0">
-        <div className="relative overflow-hidden p-6 md:p-7 bg-gradient-to-br from-slate-50 via-white to-cyan-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.10),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(99,102,241,0.08),transparent_26%)]" />
-          <div className={`pointer-events-none absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-white/55 to-transparent dark:from-slate-900/55 ${direction === 'next' ? 'animate-fade-in-down' : 'opacity-0'}`} />
-          <div className={`pointer-events-none absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-white/55 to-transparent dark:from-slate-900/55 ${direction === 'prev' ? 'animate-fade-in-down' : 'opacity-0'}`} />
-
-          <div key={`${activeItem.id}-${direction}`} className={`relative space-y-5 ${direction === 'next' ? 'animate-[slide-in-right_420ms_ease]' : 'animate-[slide-in-left_420ms_ease]'}`}>
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_290px]">
+        <div className="p-6 md:p-7">
+          <div
+            key={`${activeItem.id}-${direction}`}
+            className={`space-y-4 ${
+              direction === 'next' ? 'animate-[slide-in-right_360ms_ease]' : 'animate-[slide-in-left_360ms_ease]'
+            }`}
+          >
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="inline-flex items-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300 px-2.5 py-1 font-medium">
+              <StatusPill tone="amber" dot>
                 焦点 {activeIndex + 1}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2.5 py-1 font-medium">
-                {activeItem.primary_category || '未分类'}
-              </span>
-              <span className="inline-flex items-center rounded-full bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 px-2.5 py-1 font-medium">
-                热度 {getHeatScore(activeItem)}
-              </span>
+              </StatusPill>
+              <Badge color="slate">{activeItem.primary_category || '未分类'}</Badge>
+              <Badge color="primary">热度 {getHeatScore(activeItem)}</Badge>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <Link
                 to={`/hotspots/${activeItem.id}`}
-                className="block text-2xl md:text-3xl font-black tracking-tight text-slate-900 dark:text-white hover:text-cyan-600 transition-colors"
+                className="block text-xl md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
               >
                 {activeItem.title}
               </Link>
-              <p className="text-sm md:text-[15px] leading-7 text-slate-600 dark:text-slate-300 max-w-3xl">
+              <p className="text-sm leading-7 text-slate-600 dark:text-slate-300 max-w-3xl line-clamp-3">
                 {activeItem.summary || '这条热点暂无摘要，点击进入详情页查看完整内容。'}
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {(activeItem.tags || []).slice(0, 5).map((tag) => (
                 <span
                   key={tag}
-                  className="rounded-full border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 px-3 py-1 text-xs text-slate-600 dark:text-slate-300"
+                  className="rounded-md border border-slate-200/80 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/70 px-2.5 py-0.5 text-xs text-slate-600 dark:text-slate-300"
                 >
                   #{tag}
                 </span>
               ))}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
-              <span className="inline-flex items-center gap-1.5">
-                <Icons.Calendar className="w-4 h-4" />
+            <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-slate-500 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1.5 tabular-nums">
+                <Icons.Calendar className="w-3.5 h-3.5" />
                 {formatDisplayDate(activeItem.published_at || activeItem.topic_date)}
               </span>
               <Link
                 to={`/hotspots/${activeItem.id}`}
-                className="inline-flex items-center gap-1.5 font-semibold text-cyan-600 dark:text-cyan-300 hover:text-cyan-700 dark:hover:text-cyan-200"
+                className="inline-flex items-center gap-1 font-semibold text-primary-600 dark:text-primary-400 hover:underline"
               >
-                查看详情
-                <Icons.ArrowRight className="w-4 h-4" />
+                阅读全文 <Icons.ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
           </div>
         </div>
 
-        <div className="border-t xl:border-t-0 xl:border-l border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 md:p-5 space-y-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">焦点导航</div>
+        <div className="border-t xl:border-t-0 xl:border-l border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-4 space-y-2.5">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
+            焦点切换
+          </div>
           {slides.map((item, index) => {
             const isActive = index === activeIndex;
             return (
@@ -343,22 +331,26 @@ const HotspotTop3Carousel: React.FC<HotspotTop3CarouselProps> = ({ items }) => {
                   setDirection(index > activeIndex ? 'next' : 'prev');
                   setActiveIndex(index);
                 }}
-                className={`w-full text-left rounded-2xl border px-4 py-3 transition-all ${isActive
-                  ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-500/10 dark:border-cyan-500 shadow-sm'
-                  : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900'
+                className={`w-full text-left rounded-lg border px-3.5 py-2.5 transition-colors cursor-pointer ${
+                  isActive
+                    ? 'border-primary-400/70 bg-white dark:bg-slate-800 dark:border-primary-600/70 shadow-xs'
+                    : 'border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-700'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-2.5">
                   <div className="min-w-0">
-                    <div className="text-xs text-slate-400 mb-1">第 {index + 1} 条</div>
-                    <div className={`text-sm font-semibold line-clamp-2 ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-200'}`}>
+                    <div className="text-[11px] text-slate-400 mb-0.5 tabular-nums">0{index + 1}</div>
+                    <div
+                      className={`text-xs font-semibold line-clamp-2 ${
+                        isActive ? 'text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
                       {item.title}
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <div className="text-xs text-slate-400">热度</div>
-                    <div className="text-sm font-bold text-slate-800 dark:text-slate-100">{getHeatScore(item)}</div>
-                  </div>
+                  <span className="shrink-0 text-[11px] font-semibold tabular-nums text-primary-600 dark:text-primary-400">
+                    {getHeatScore(item)}
+                  </span>
                 </div>
               </button>
             );
@@ -386,51 +378,63 @@ const HotspotFilters: React.FC<HotspotFiltersProps> = ({
   onReset,
 }) => {
   return (
-    <section id="hotspot-filters" className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 md:p-5 shadow-sm space-y-4">
+    <section
+      id="hotspot-filters"
+      className="bg-white dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 space-y-4 scroll-mt-24"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">筛选条件</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">可按关键词、分类、来源、时间与排序方式快速缩小范围。</p>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Icons.Sliders className="w-4 h-4 text-primary-500" />
+            筛选条件
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            按关键词、分类、来源、时间范围与排序方式快速检索
+          </p>
         </div>
 
         <button
           type="button"
           onClick={onReset}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
         >
+          <Icons.RefreshCw className="w-3.5 h-3.5" />
           清空筛选
         </button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-slate-500 dark:text-slate-400">时间：</span>
-        {([
-          { value: 'all', label: '全部' },
-          { value: 'today', label: '今天' },
-          { value: 'week', label: '近 7 天' },
-          { value: 'month', label: '近 30 天' },
-        ] as Array<{ value: TimeRange; label: string }>).map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onTimeRangeChange(option.value)}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition ${timeRange === option.value
-              ? 'bg-primary-500 border-primary-500 text-white'
-              : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
+        <span className="text-xs text-slate-500 dark:text-slate-400">时段：</span>
+        <div className="inline-flex p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-lg border border-slate-200/70 dark:border-slate-700/70">
+          {([
+            { value: 'all', label: '全部' },
+            { value: 'today', label: '今天' },
+            { value: 'week', label: '近 7 天' },
+            { value: 'month', label: '近 30 天' },
+          ] as Array<{ value: TimeRange; label: string }>).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onTimeRangeChange(option.value)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                timeRange === option.value
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-sm text-slate-500 dark:text-slate-400">排序：</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">排序：</span>
           <button
             type="button"
             onClick={() => onSortChange(sort === 'latest' ? 'hottest' : 'latest')}
-            className="px-3 py-1.5 rounded-lg text-sm border bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-1"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-600 inline-flex items-center gap-1.5 cursor-pointer"
           >
-            <Icons.ArrowUpDown className="w-4 h-4" />
+            <Icons.ArrowUpDown className="w-3.5 h-3.5" />
             {sort === 'latest' ? '最新优先' : '热度优先'}
           </button>
         </div>
@@ -443,14 +447,14 @@ const HotspotFilters: React.FC<HotspotFiltersProps> = ({
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="搜索标题、摘要、标签..."
-            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
           />
         </form>
 
         <select
           value={selectedCategory}
           onChange={(event) => onCategoryChange(event.target.value)}
-          className="xl:col-span-3 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm"
+          className="xl:col-span-3 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
         >
           <option value="all">全部分类</option>
           {categoryStats.map((item) => (
@@ -463,7 +467,7 @@ const HotspotFilters: React.FC<HotspotFiltersProps> = ({
         <select
           value={selectedSource}
           onChange={(event) => onSourceChange(event.target.value)}
-          className="xl:col-span-3 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm"
+          className="xl:col-span-3 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
         >
           <option value="all">全部来源</option>
           {sourceStats.map((item) => (
@@ -474,29 +478,27 @@ const HotspotFilters: React.FC<HotspotFiltersProps> = ({
         </select>
 
         <div className="xl:col-span-1 flex items-center justify-end">
-          <button
-            type="submit"
-            className="w-full xl:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors"
-          >
-            <Icons.Search className="w-4 h-4" />
+          <Button type="submit" variant="secondary" className="w-full xl:w-auto">
+            <Icons.Search className="w-3.5 h-3.5" />
             搜索
-          </button>
+          </Button>
         </div>
       </div>
 
       {(categoryStats.length > 0 || sourceStats.length > 0) && (
-        <div className="space-y-3 pt-1">
+        <div className="space-y-2.5 pt-1 border-t border-slate-100 dark:border-slate-800">
           {categoryStats.length > 0 && (
-            <div className="flex flex-wrap items-start gap-2">
-              <span className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 min-w-fit py-1">
-                <Icons.Folder className="w-4 h-4" /> 分类：
+            <div className="flex flex-wrap items-center gap-1.5 pt-2">
+              <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 mr-1">
+                <Icons.Folder className="w-3.5 h-3.5" /> 分类
               </span>
               <button
                 type="button"
                 onClick={() => onCategoryChange('all')}
-                className={`px-3 py-1.5 rounded-full text-sm border transition ${selectedCategory === 'all'
-                  ? 'bg-primary-500 border-primary-500 text-white'
-                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                className={`px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
+                  selectedCategory === 'all'
+                    ? 'bg-slate-900 dark:bg-slate-100 border-slate-900 dark:border-slate-100 text-white dark:text-slate-900 font-medium'
+                    : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300'
                 }`}
               >
                 全部
@@ -506,28 +508,30 @@ const HotspotFilters: React.FC<HotspotFiltersProps> = ({
                   key={item.value}
                   type="button"
                   onClick={() => onCategoryChange(item.value)}
-                  className={`px-3 py-1.5 rounded-full text-sm border transition ${selectedCategory === item.value
-                    ? 'bg-primary-500 border-primary-500 text-white'
-                    : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary-200'
+                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
+                    selectedCategory === item.value
+                      ? 'bg-primary-600 border-primary-600 text-white font-medium'
+                      : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary-300 dark:hover:border-primary-700'
                   }`}
                 >
-                  {item.value} <span className="opacity-70">{item.count}</span>
+                  {item.value} <span className="opacity-70 tabular-nums">{item.count}</span>
                 </button>
               ))}
             </div>
           )}
 
           {sourceStats.length > 0 && (
-            <div className="flex flex-wrap items-start gap-2">
-              <span className="inline-flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 min-w-fit py-1">
-                <Icons.Link className="w-4 h-4" /> 来源：
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-slate-500 mr-1">
+                <Icons.Link className="w-3.5 h-3.5" /> 来源
               </span>
               <button
                 type="button"
                 onClick={() => onSourceChange('all')}
-                className={`px-3 py-1.5 rounded-full text-sm border transition ${selectedSource === 'all'
-                  ? 'bg-primary-500 border-primary-500 text-white'
-                  : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                className={`px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
+                  selectedSource === 'all'
+                    ? 'bg-slate-900 dark:bg-slate-100 border-slate-900 dark:border-slate-100 text-white dark:text-slate-900 font-medium'
+                    : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300'
                 }`}
               >
                 全部
@@ -537,12 +541,13 @@ const HotspotFilters: React.FC<HotspotFiltersProps> = ({
                   key={item.value}
                   type="button"
                   onClick={() => onSourceChange(item.value)}
-                  className={`px-3 py-1.5 rounded-full text-sm border transition ${selectedSource === item.value
-                    ? 'bg-primary-500 border-primary-500 text-white'
-                    : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary-200'
+                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer ${
+                    selectedSource === item.value
+                      ? 'bg-primary-600 border-primary-600 text-white font-medium'
+                      : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary-300 dark:hover:border-primary-700'
                   }`}
                 >
-                  {item.value} <span className="opacity-70">{item.count}</span>
+                  {item.value} <span className="opacity-70 tabular-nums">{item.count}</span>
                 </button>
               ))}
             </div>
@@ -569,85 +574,92 @@ const HotspotArchiveSidebar: React.FC<HotspotArchiveSidebarProps> = ({
   const hasMoreStacks = stackOptions.length > STACK_COLLAPSED_LIMIT;
 
   return (
-    <div id="hotspot-archive" className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl p-4 shadow-sm sticky top-24 space-y-5">
+    <div
+      id="hotspot-archive"
+      className="bg-white dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 rounded-xl p-5 sticky top-24 space-y-6 scroll-mt-24"
+    >
       <div>
-        <h3 className="font-bold text-slate-900 dark:text-white mb-1 inline-flex items-center gap-2">
-          <Icons.Archive className="w-4 h-4" />
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1 inline-flex items-center gap-2">
+          <Icons.Archive className="w-4 h-4 text-primary-500" />
           时间归档
         </h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          按月份快速回看历史热点。
-        </p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">按月份快速回看历史热点</p>
+
+        <div className="space-y-1">
+          <button
+            type="button"
+            onClick={() => onArchiveChange('all')}
+            className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              selectedArchive === 'all'
+                ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/50 dark:text-primary-300'
+                : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            全部时段
+          </button>
+
+          {filteredMonths.map((month) => {
+            const count = archiveCounts.get(month.value) || 0;
+            return (
+              <button
+                key={month.value}
+                type="button"
+                onClick={() => onArchiveChange(month.value)}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                  selectedArchive === month.value
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/50 dark:text-primary-300'
+                    : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <span>{month.label}</span>
+                <span className="text-[11px] opacity-70 tabular-nums">{count > 0 ? count : '—'}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="space-y-1">
-        <button
-          type="button"
-          onClick={() => onArchiveChange('all')}
-          className={`w-full text-left px-3 py-2 rounded-lg text-sm ${selectedArchive === 'all'
-            ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-            : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300'
-          }`}
-        >
-          全部时段
-        </button>
-
-        {filteredMonths.map((month) => {
-          const count = archiveCounts.get(month.value) || 0;
-          return (
-            <button
-              key={month.value}
-              type="button"
-              onClick={() => onArchiveChange(month.value)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between ${selectedArchive === month.value
-                ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <span>{month.label}</span>
-              <span className="text-xs opacity-70">{count > 0 ? count : '—'}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="pt-1">
-        <h3 className="font-bold text-slate-900 dark:text-white mb-1 inline-flex items-center gap-2">
-          <Icons.Folder className="w-4 h-4" />
-          技术栈分类
+      <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1 inline-flex items-center gap-2">
+          <Icons.Folder className="w-4 h-4 text-primary-500" />
+          技术方向
         </h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 leading-6">
-          这里仅保留一级技术方向，避免目录过长、层级过深。您可以先按大方向筛选，再回到左侧主列表逐条挑选真正想看的文章。
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-3 leading-5">
+          按一级技术方向快速过滤左侧热点列表
         </p>
 
         <div className="space-y-1">
           <button
             type="button"
             onClick={() => onStackChange('all')}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm ${selectedStack === 'all'
-              ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
-              : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300'
+            className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              selectedStack === 'all'
+                ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/50 dark:text-primary-300'
+                : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
             }`}
           >
-            全部技术栈
+            全部方向
           </button>
 
-          {stackOptions.length > 0 ? visibleStackOptions.map((item) => (
-            <button
-              key={item.value}
-              type="button"
-              onClick={() => onStackChange(item.value)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between ${selectedStack === item.value
-                ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300'
-                : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <span>{item.label}</span>
-              <span className="text-xs opacity-70">{item.count}</span>
-            </button>
-          )) : (
-            <div className="rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
-              当前暂无可识别的技术栈标签
+          {stackOptions.length > 0 ? (
+            visibleStackOptions.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => onStackChange(item.value)}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                  selectedStack === item.value
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/50 dark:text-primary-300'
+                    : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <span>{item.label}</span>
+                <span className="text-[11px] opacity-70 tabular-nums">{item.count}</span>
+              </button>
+            ))
+          ) : (
+            <div className="rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700 px-3 py-2 text-xs text-slate-400">
+              当前暂无可识别的技术方向
             </div>
           )}
 
@@ -655,7 +667,7 @@ const HotspotArchiveSidebar: React.FC<HotspotArchiveSidebarProps> = ({
             <button
               type="button"
               onClick={() => setStackExpanded((prev) => !prev)}
-              className="w-full text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
+              className="w-full text-left px-3 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               {stackExpanded ? '收起' : `展开更多（${stackOptions.length - STACK_COLLAPSED_LIMIT}）`}
             </button>
@@ -693,9 +705,6 @@ const HotspotsList: React.FC = () => {
     const fetchAllPublished = async () => {
       setLoading(true);
       try {
-        // 十八期：静态快照链路删除——它是 2026-07-09 的一次性陈旧产物（无生成链路），
-        // 页面一直吃旧数据看不到 DB 更新；且文件缺失时 nginx SPA fallback 返回 200+HTML，
-        // fetch(cache:'default') 在浏览器缓存命中时照样吃到旧 JSON。数据源直连 API。
         const deduped = await fetchHotspotsFromApi();
         if (alive) {
           setAllItems(deduped);
@@ -751,9 +760,6 @@ const HotspotsList: React.FC = () => {
 
     const now = new Date();
     return allItems.filter((item) => {
-      // 三十四期：时间筛选（今天/近7天/近30天）也改用 created_at——
-      // published_at 被 redate 改到未来，'今天' 过滤会把刚写的文章
-      // （published_at 还在未来）排除掉，'近30天' 则把老文章全收进来。
       const date = getCreatedDate(item);
       if (!date) return false;
 
@@ -768,10 +774,6 @@ const HotspotsList: React.FC = () => {
     });
   }, [allItems, selectedArchive, timeRange]);
 
-  // 四十二期：'本周焦点' 原来从 dateScopedItems 里按热度取前 3，结果永远不动——
-  // heat_score 是死数据（流水线发布一律写 60，542 篇老文章一律 95），按热度排
-  // 等于按「谁在 95 那批里最后写入」排。现在固定取最近 7 天（按 created_at），
-  // 热度只做组内次序；也不再跟随下方时间筛选——它是筛选条件之上的编辑位。
   const featuredItems = useMemo(() => {
     const now = new Date();
     const recent = allItems.filter((item) => {
@@ -781,7 +783,6 @@ const HotspotsList: React.FC = () => {
       return diffDays >= 0 && diffDays <= 7;
     });
 
-    // 近 7 天不足 3 篇时（长空窗）回退到全量，避免焦点卡片空着
     const pool = recent.length >= 3 ? recent : allItems;
     return [...pool]
       .sort((a, b) => {
@@ -900,7 +901,7 @@ const HotspotsList: React.FC = () => {
       avgHeat,
       totalSources: sourceTotal,
     };
-  }, [dateScopedItems.length, filteredItems, allItems.length]);
+  }, [dateScopedItems.length, filteredItems]);
 
   const dateRangeLabel = useMemo(() => {
     if (selectedArchive !== 'all') {
@@ -926,92 +927,67 @@ const HotspotsList: React.FC = () => {
 
   const hasActiveFilters = Boolean(
     search.trim() ||
-    selectedCategory !== 'all' ||
-    selectedSource !== 'all' ||
-    selectedArchive !== 'all' ||
-    selectedStack !== 'all' ||
-    timeRange !== 'all' ||
-    sort !== 'latest'
+      selectedCategory !== 'all' ||
+      selectedSource !== 'all' ||
+      selectedArchive !== 'all' ||
+      selectedStack !== 'all' ||
+      timeRange !== 'all' ||
+      sort !== 'latest',
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10">
-      <section className="relative overflow-hidden rounded-3xl border border-slate-100 dark:border-slate-700 bg-gradient-to-br from-sky-50 via-cyan-50 to-indigo-50 text-slate-900 p-6 md:p-8 mb-6 shadow-lg">
-        <div className="absolute -top-20 -right-16 w-64 h-64 bg-cyan-200/40 rounded-full blur-3xl" />
-        <div className="absolute -bottom-24 left-10 w-72 h-72 bg-indigo-200/40 rounded-full blur-3xl" />
-
-        <div className="relative max-w-5xl mx-auto">
-          <div className="rounded-[28px] border border-white/60 bg-white/78 backdrop-blur-sm shadow-sm px-5 md:px-6 py-4 md:py-5 space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 text-xs font-semibold tracking-wide text-slate-700 border border-white/70">
-                <Icons.TrendingUp className="w-3.5 h-3.5" /> 热点频道
-              </div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 text-xs font-semibold tracking-wide text-slate-700 border border-white/70">
-                <Icons.Calendar className="w-3.5 h-3.5" /> {dateRangeLabel}
-              </div>
-            </div>
-
-            <div className="space-y-3 max-w-4xl">
-              <h1 className="text-3xl md:text-5xl font-black leading-tight tracking-tight">每日精选技术热点</h1>
-              <p className="text-sm md:text-base text-slate-600 leading-7">
-                聚合优质博客、社区讨论与技术动态，提供结构化摘要与更顺手的阅读入口。
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-4xl">
-              <div className="rounded-xl bg-white/80 border border-slate-200 px-3 py-2.5">
-                <div className="text-xs text-slate-500">已发布总数</div>
-                <div className="text-xl font-black">{allItems.length}</div>
-              </div>
-              <div className="rounded-xl bg-white/80 border border-slate-200 px-3 py-2.5">
-                <div className="text-xs text-slate-500">当前结果</div>
-                <div className="text-xl font-black">{stats.visibleCount}</div>
-              </div>
-              <div className="rounded-xl bg-white/80 border border-slate-200 px-3 py-2.5">
-                <div className="text-xs text-slate-500">平均热度</div>
-                <div className="text-xl font-black">{stats.avgHeat}</div>
-              </div>
-              <div className="rounded-xl bg-white/80 border border-slate-200 px-3 py-2.5">
-                <div className="text-xs text-slate-500">累计来源</div>
-                <div className="text-xl font-black">{stats.totalSources}</div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200/80 bg-white/75 px-4 py-3 max-w-4xl">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5 border border-slate-200 text-slate-600">
-                    <Icons.Calendar className="w-3.5 h-3.5" /> 当前范围：{dateRangeLabel}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5 border border-slate-200 text-slate-600">
-                    <Icons.Folder className="w-3.5 h-3.5" /> 分类数 {categoryStats.length}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-3 py-1.5 border border-slate-200 text-slate-600">
-                    <Icons.Link className="w-3.5 h-3.5" /> 来源类型 {sourceStats.length}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => document.getElementById('hotspot-filters')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors"
-                  >
-                    <Icons.Search className="w-4 h-4" /> 快速筛选
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => document.getElementById('hotspot-archive')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors"
-                  >
-                    <Icons.Archive className="w-4 h-4" /> 查看归档
-                  </button>
-                </div>
-              </div>
-            </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      {/* 极简编辑部页头 */}
+      <header className="pb-8 mb-8 border-b border-slate-200/80 dark:border-slate-800 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+        <div className="space-y-3">
+          <div className="inline-flex items-center gap-2 text-xs font-medium tracking-wider uppercase text-primary-600 dark:text-primary-400">
+            <Icons.TrendingUp className="w-3.5 h-3.5" />
+            <span>AI Hotspots / {dateRangeLabel}</span>
           </div>
-
+          <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+            每日精选技术热点
+          </h1>
+          <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
+            聚合多源技术论文、工程博客与行业动态，提供结构化深度解读与可追溯来源。
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => document.getElementById('hotspot-filters')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            >
+              <Icons.Search className="w-3.5 h-3.5" /> 快速筛选
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => document.getElementById('hotspot-archive')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            >
+              <Icons.Archive className="w-3.5 h-3.5" /> 查看归档
+            </Button>
+          </div>
         </div>
-      </section>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+          {[
+            { label: '已发布总数', value: allItems.length, icon: Icons.FileText },
+            { label: '当前结果', value: stats.visibleCount, icon: Icons.Filter },
+            { label: '平均热度', value: stats.avgHeat, icon: Icons.Flame },
+            { label: '累计来源', value: stats.totalSources, icon: Icons.Link },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-4 py-3 min-w-[104px]"
+            >
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                <item.icon className="w-3.5 h-3.5 text-primary-500" />
+                {item.label}
+              </div>
+              <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums">{item.value}</div>
+            </div>
+          ))}
+        </div>
+      </header>
 
       <div className="space-y-6">
         <AiHotRankCard />
@@ -1029,113 +1005,117 @@ const HotspotsList: React.FC = () => {
           selectedCategory={selectedCategory}
           onCategoryChange={(value) => updateQuery({ category: value === 'all' ? null : value, page: null })}
           selectedSource={selectedSource}
-          onSourceChange={(value) => updateQuery({ source: value === 'all' ? null : value, source_type: value === 'all' ? null : value, page: null })}
+          onSourceChange={(value) =>
+            updateQuery({ source: value === 'all' ? null : value, source_type: value === 'all' ? null : value, page: null })
+          }
           categoryStats={categoryStats}
           sourceStats={sourceStats}
           onReset={handleReset}
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mt-8 items-start">
         <section className="lg:col-span-3 space-y-4">
           {loading ? (
-            <div className="text-center py-16 text-slate-400">加载中...</div>
+            <ListSkeleton rows={4} />
           ) : paginatedItems.length === 0 ? (
-            <div className="text-center py-16 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
-              当前筛选条件下暂无热点
-            </div>
+            <EmptyState
+              icon={<Icons.Search className="w-5 h-5" />}
+              title="当前筛选条件下暂无热点"
+              description="尝试放宽时间范围或清除部分筛选条件。"
+              action={
+                hasActiveFilters ? (
+                  <Button size="sm" variant="outline" onClick={handleReset}>
+                    重置全部筛选
+                  </Button>
+                ) : undefined
+              }
+            />
           ) : (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div className="text-sm text-slate-500 dark:text-slate-400">
-                  当前页展示 <span className="font-semibold text-slate-900 dark:text-white">{paginatedItems.length}</span> 条，本次筛选共 <span className="font-semibold text-slate-900 dark:text-white">{stats.visibleCount}</span> 条，范围：{dateRangeLabel}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                  本页展示 <span className="font-semibold text-slate-900 dark:text-slate-100">{paginatedItems.length}</span> 条 &middot; 共{' '}
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{stats.visibleCount}</span> 条 &middot; {dateRangeLabel}
                 </div>
                 {hasActiveFilters && (
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    {selectedArchive !== 'all' && (
-                      <span className="px-2.5 py-1 rounded-full bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-                        归档：{formatMonthLabel(selectedArchive)}
-                      </span>
-                    )}
-                    {selectedCategory !== 'all' && (
-                      <span className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                        分类：{selectedCategory}
-                      </span>
-                    )}
-                    {selectedSource !== 'all' && (
-                      <span className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                        来源：{selectedSource}
-                      </span>
-                    )}
-                    {selectedStack !== 'all' && (
-                      <span className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
-                        技术栈：{selectedStack}
-                      </span>
-                    )}
-                    {search.trim() && (
-                      <span className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                        搜索：{search.trim()}
-                      </span>
-                    )}
+                  <div className="flex flex-wrap gap-1.5 text-xs">
+                    {selectedArchive !== 'all' && <Badge color="primary">归档：{formatMonthLabel(selectedArchive)}</Badge>}
+                    {selectedCategory !== 'all' && <Badge color="slate">分类：{selectedCategory}</Badge>}
+                    {selectedSource !== 'all' && <Badge color="slate">来源：{selectedSource}</Badge>}
+                    {selectedStack !== 'all' && <Badge color="primary">方向：{selectedStack}</Badge>}
+                    {search.trim() && <Badge color="slate">搜索：{search.trim()}</Badge>}
                   </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-in">
                 {paginatedItems.map((item, index) => {
                   const sourceBadges = getSourceValues(item).slice(0, 3);
                   return (
-                    <article key={item.id} className="group card-lift bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm hover:shadow-lg">
-                      <div className="h-2 bg-gradient-to-r from-indigo-500 via-primary-500 to-cyan-400" />
-                      <div className="p-5 space-y-3">
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <div className="flex gap-2 flex-wrap">
-                            {index < 3 && (
-                              <span className="px-2 py-1 rounded-md bg-rose-50 text-rose-600 border border-rose-200">
-                                NO.{index + 1}
-                              </span>
+                    <article
+                      key={item.id}
+                      className="group card-lift bg-white dark:bg-slate-900/90 rounded-xl border border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 p-5 flex flex-col justify-between transition-colors"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="flex gap-1.5 flex-wrap items-center">
+                            {page === 1 && index < 3 && (
+                              <StatusPill tone="amber">NO.{index + 1}</StatusPill>
                             )}
-                            <span className="px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                              {item.primary_category || '未分类'}
-                            </span>
-                            <span className="px-2 py-1 rounded-md bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-300">
-                              热度 {getHeatScore(item)}
-                            </span>
+                            <Badge color="slate">{item.primary_category || '未分类'}</Badge>
+                            <Badge color="primary">热度 {getHeatScore(item)}</Badge>
                           </div>
-                          <span className="text-slate-400 shrink-0">{formatDisplayDate(item.published_at || item.topic_date)}</span>
+                          <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0 tabular-nums">
+                            {formatDisplayDate(item.published_at || item.topic_date)}
+                          </span>
                         </div>
 
-                        <h2 className="text-lg font-bold text-slate-900 dark:text-white line-clamp-2">{item.title}</h2>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 min-h-[60px]">
+                        <Link to={`/hotspots/${item.id}`} className="block">
+                          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors line-clamp-2 leading-snug">
+                            {item.title}
+                          </h2>
+                        </Link>
+
+                        <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 min-h-[60px] leading-relaxed">
                           {item.summary || '暂无摘要'}
                         </p>
 
-                        <div className="flex flex-wrap gap-2 min-h-[26px]">
+                        <div className="flex flex-wrap gap-1.5 min-h-[24px]">
                           {(item.tags || []).slice(0, 5).map((tag) => (
-                            <span key={tag} className="text-xs px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300">
+                            <span
+                              key={tag}
+                              className="text-[11px] px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70 text-slate-500 dark:text-slate-400"
+                            >
                               #{tag}
                             </span>
                           ))}
                         </div>
+                      </div>
 
-                        <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
-                          {sourceBadges.length > 0 ? sourceBadges.map((source) => (
-                            <span key={source} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                              <Icons.Link className="w-3.5 h-3.5" /> {source}
-                            </span>
-                          )) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                              <Icons.Link className="w-3.5 h-3.5" /> 暂无来源信息
+                      <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          {sourceBadges.length > 0 ? (
+                            sourceBadges.map((source) => (
+                              <span
+                                key={source}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400"
+                              >
+                                <Icons.Link className="w-3 h-3" /> {source}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                              来源 {Number(item.source_count || 0)}
                             </span>
                           )}
                         </div>
-
-                        <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-                          <span>来源 {Number(item.source_count || 0)}</span>
-                          <Link to={`/hotspots/${item.id}`} className="font-bold text-primary-600 dark:text-primary-400 group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-1">
-                            查看详情 <Icons.ArrowRight className="w-3.5 h-3.5" />
-                          </Link>
-                        </div>
+                        <Link
+                          to={`/hotspots/${item.id}`}
+                          className="shrink-0 font-semibold text-primary-600 dark:text-primary-400 inline-flex items-center gap-1 group-hover:translate-x-0.5 transition-transform"
+                        >
+                          查看详情 <Icons.ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
                       </div>
                     </article>
                   );
@@ -1146,26 +1126,30 @@ const HotspotsList: React.FC = () => {
 
           {totalPages > 1 && (
             <div className="flex flex-wrap justify-center items-center gap-2 mt-6">
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={page <= 1}
                 onClick={() => updateQuery({ page: String(Math.max(1, page - 1)) })}
-                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm disabled:opacity-40"
               >
-                上一页
-              </button>
-              <span className="text-sm text-slate-500 dark:text-slate-400 px-2">第 {page} / {totalPages} 页</span>
-              <button
+                <Icons.ChevronLeft className="w-3.5 h-3.5" /> 上一页
+              </Button>
+              <span className="text-xs text-slate-500 dark:text-slate-400 px-3 tabular-nums">
+                第 {page} / {totalPages} 页
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={page >= totalPages}
                 onClick={() => updateQuery({ page: String(Math.min(totalPages, page + 1)) })}
-                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm disabled:opacity-40"
               >
-                下一页
-              </button>
+                下一页 <Icons.ChevronRight className="w-3.5 h-3.5" />
+              </Button>
             </div>
           )}
         </section>
 
-        <aside className="space-y-4">
+        <aside>
           <HotspotArchiveSidebar
             monthOptions={monthOptions}
             archiveCounts={archiveCounts}

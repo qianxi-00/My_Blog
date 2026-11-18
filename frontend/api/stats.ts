@@ -51,7 +51,22 @@ export interface PublicSettings {
     admin_avatar?: string;
     admin_bio?: string;
     contact: ContactInfo;
+    registration_enabled?: boolean;
+    email_verification_required?: boolean;
 }
+
+export interface PublicSiteOverview {
+    articles_count: number;
+    hotspots_count: number;
+    prompts_count: number;
+    threads_count: number;
+}
+
+// 获取首页公开核心指标统计
+export const getPublicSiteOverview = async (): Promise<PublicSiteOverview> => {
+    const response = await api.get('/stats/public-overview');
+    return response.data;
+};
 
 // 记录页面访问
 export const recordPageView = async (data: {
@@ -98,8 +113,8 @@ export const updateSetting = async (key: string, value: string): Promise<SiteSet
     return response.data;
 };
 
-// 批量更新设置
-export const batchUpdateSettings = async (settings: Record<string, string>): Promise<SiteSetting[]> => {
-    const response = await api.put('/settings/batch', { settings });
+// 批量更新设置（后端 PUT /settings/batch 直接接收扁平字典）
+export const batchUpdateSettings = async (settings: Record<string, string>): Promise<{ message: string; updated_keys: string[] }> => {
+    const response = await api.put('/settings/batch', settings);
     return response.data;
 };

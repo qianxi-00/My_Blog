@@ -50,6 +50,7 @@ const HotspotManager = lazyWithRetry(() => import('./pages/HotspotManager'));
 const HotspotEditor = lazyWithRetry(() => import('./pages/HotspotEditor'));
 const HotspotUploadPage = lazyWithRetry(() => import('./pages/HotspotUploadPage'));
 const AdminAccounts = lazyWithRetry(() => import('./pages/AdminAccounts'));
+const ForumManager = lazyWithRetry(() => import('./pages/ForumManager'));
 
 // 路由切换 / 首次进入页面时的轻量占位：整页文字"加载中..."闪白难看，
 // 十三期改成居中 mini spinner（不占满屏，和 page-enter 淡入衔接）
@@ -97,6 +98,7 @@ const App: React.FC = () => {
                 <Route path="forum" element={<ForumHome />} />
                 <Route path="forum/new" element={<ForumNewThread />} />
                 <Route path="forum/threads/:id" element={<ForumThreadDetail />} />
+                <Route path="forum/thread/:id" element={<ForumThreadDetail />} />
                 <Route path="hotspots" element={<HotspotsList />} />
                 <Route path="ai-daily" element={<AiDaily />} />
                 <Route path="ai-weekly" element={<AiWeekly />} />
@@ -128,6 +130,7 @@ const App: React.FC = () => {
                 <Route path="posts/new" element={<ArticleEditor />} />
                 <Route path="posts/:id/edit" element={<ArticleEditor />} />
                 <Route path="comments" element={<CommentManager />} />
+                <Route path="forum" element={<ForumManager />} />
                 <Route path="users" element={<AdminAccounts />} />
                 <Route path="prompts" element={<PromptManager />} />
                 <Route path="subscribers" element={<SubscriberManager />} />

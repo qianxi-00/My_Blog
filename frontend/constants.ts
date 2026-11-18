@@ -1,8 +1,8 @@
 import { Article, Prompt, Comment } from './types';
 
-// 表格密度令牌（后台管理表格统一引用，配合 tbody 行斑马纹使用）
-export const TH = "px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap";
-export const TD = "px-3 py-2.5 align-top";
+// 表格密度令牌（后台管理表格统一引用，配合 hairline 边界使用）
+export const TH = "px-4 py-3 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap";
+export const TD = "px-4 py-3 align-middle text-sm";
 
 export const ARTICLES: Article[] = [
   {
@@ -111,6 +111,7 @@ export const SIDEBAR_ITEMS = [
   { label: '仪表盘', path: '/admin', icon: 'LayoutDashboard' },
   { label: '文章管理', path: '/admin/posts', icon: 'FileText' },
   { label: '评论审核', path: '/admin/comments', icon: 'MessageCircle' },
+  { label: '社区管理', path: '/admin/forum', icon: 'MessagesSquare' },
   { label: '用户与权限', path: '/admin/users', icon: 'Users' },
   { label: '热点管理', path: '/admin/hotspots', icon: 'TrendingUp' },
   { label: 'Prompt 管理', path: '/admin/prompts', icon: 'Bot' },
