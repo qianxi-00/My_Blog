@@ -1,18 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { DetailSkeleton } from '../components/Skeleton';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
-import { Button, EmptyState, StatusPill } from '../components/Shared';
-import { DetailSkeleton } from '../components/Skeleton';
 import MarkdownContent from '../components/MarkdownContent';
 import { extractHeadingsFromMarkdown } from '../components/MarkdownRenderer';
 import HotspotFloatingToolbar from '../components/HotspotFloatingToolbar';
 import HotspotComments from '../components/HotspotComments';
-import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '../components/Toast';
-import { getBookmarkStatus, toggleBookmark } from '../api/users';
-import { copyToClipboard, formatCompactNumber } from '../utils/helpers';
-import { safeExternalUrl } from '../utils/urls';
-import { errorText } from '../utils/errors';
+import { formatCompactNumber } from '../utils/helpers';
 import {
   getAdjacentPublishedHotspots,
   getHotspotDetail,
@@ -29,12 +23,15 @@ const formatDateTime = (value?: string) => {
   return date.toLocaleString('zh-CN');
 };
 
-// 三十七期：详情页头部日期只显示到「日」
+// 三十七期：详情页头部日期只显示到「日」。这里用字符串截取而不是 new Date()——
+// 后端返回的 ISO 串不带时区后缀，new Date() 会按本地时间解析（见 formatDateTime 的既有偏差）。
 const formatDateOnly = (value?: string) => {
   if (!value) return '';
   const datePart = value.slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart.replace(/-/g, '/') : value;
 };
+
+// 热度会到几万且带小数（53632.82），压成 53.6K 避免溢出（千禧要求）
 
 const stripFrontmatter = (markdown?: string) => {
   if (!markdown) return '';
@@ -44,16 +41,12 @@ const stripFrontmatter = (markdown?: string) => {
 const HotspotDetail: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
-  const { showToast } = useToast();
 
   const [hotspot, setHotspot] = useState<HotTopicDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sources, setSources] = useState<HotTopicSource[]>([]);
   const [copied, setCopied] = useState(false);
-  const [bookmarked, setBookmarked] = useState(false);
-  const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [activeHeading, setActiveHeading] = useState('');
   const [previousItem, setPreviousItem] = useState<HotTopicListItem | null>(null);
   const [nextItem, setNextItem] = useState<HotTopicListItem | null>(null);
@@ -101,25 +94,6 @@ const HotspotDetail: React.FC = () => {
     window.scrollTo(0, 0);
   }, [id]);
 
-  // 同步收藏状态
-  useEffect(() => {
-    let alive = true;
-    if (!hotspot || !isAuthenticated) {
-      setBookmarked(false);
-      return;
-    }
-    getBookmarkStatus('hotspot', hotspot.id)
-      .then((res) => {
-        if (alive) setBookmarked(Boolean(res.bookmarked));
-      })
-      .catch(() => {
-        // ignore
-      });
-    return () => {
-      alive = false;
-    };
-  }, [hotspot?.id, isAuthenticated]);
-
   const articleMarkdown = useMemo(() => stripFrontmatter(hotspot?.analysis_md), [hotspot?.analysis_md]);
 
   const headingItems = useMemo(() => {
@@ -162,43 +136,20 @@ const HotspotDetail: React.FC = () => {
   const sourceTypes = useMemo(() => {
     if (!hotspot) return [] as string[];
 
-    return Array.from(
-      new Set([
-        ...(hotspot.source_types || []),
-        ...(hotspot.source_type ? [hotspot.source_type] : []),
-        ...(sources.map((item) => item.source_type).filter(Boolean) as string[]),
-      ]),
-    ).filter((value) => value.toLowerCase() !== 'manual');
+    return Array.from(new Set([
+      ...(hotspot.source_types || []),
+      ...(hotspot.source_type ? [hotspot.source_type] : []),
+      ...(sources.map((item) => item.source_type).filter(Boolean) as string[]),
+    ])).filter((value) => value.toLowerCase() !== 'manual');
   }, [hotspot, sources]);
 
   const copyLink = async () => {
-    const ok = await copyToClipboard(window.location.href);
-    if (ok) {
-      setCopied(true);
-      showToast('链接已复制到剪贴板', 'success');
-      window.setTimeout(() => setCopied(false), 1800);
-    } else {
-      showToast('复制失败，请手动复制地址栏链接', 'error');
-    }
-  };
-
-  const handleToggleBookmark = async () => {
-    if (!hotspot) return;
-    if (!isAuthenticated) {
-      showToast('收藏需要先登录', 'info');
-      navigate(`/login?redirect=${encodeURIComponent(`/hotspots/${hotspot.id}`)}`);
-      return;
-    }
-    if (bookmarkLoading) return;
-    setBookmarkLoading(true);
     try {
-      const res = await toggleBookmark('hotspot', hotspot.id);
-      setBookmarked(res.bookmarked);
-      showToast(res.bookmarked ? '已加入收藏' : '已取消收藏', 'success');
-    } catch (err: any) {
-      showToast(errorText(err, '收藏操作失败'), 'error');
-    } finally {
-      setBookmarkLoading(false);
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (copyError) {
+      console.error('复制链接失败', copyError);
     }
   };
 
@@ -208,73 +159,67 @@ const HotspotDetail: React.FC = () => {
 
   if (error || !hotspot) {
     return (
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <EmptyState
-          icon={<Icons.TrendingUp className="w-5 h-5" />}
-          title={error || '未找到热点详情'}
-          description="该热点可能已下线或链接有误，请返回热点列表继续浏览。"
-          action={
-            <Link to="/hotspots">
-              <Button variant="secondary" size="sm">
-                <Icons.ArrowLeft className="w-3.5 h-3.5" /> 返回热点列表
-              </Button>
-            </Link>
-          }
-        />
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm p-10 text-center">
+          <div className="text-lg font-bold text-slate-900 dark:text-white mb-2">{error || '未找到热点详情'}</div>
+          <p className="text-slate-500 dark:text-slate-400 mb-6">请返回热点列表重新选择内容。</p>
+          <Link
+            to="/hotspots"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 dark:bg-primary-600 text-white text-sm font-bold hover:bg-slate-800 dark:hover:bg-primary-500 transition-colors"
+          >
+            <Icons.ArrowLeft className="w-4 h-4" />
+            返回热点列表
+          </Link>
+        </div>
       </div>
     );
   }
 
   const auxiliaryPanel = (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
-        <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
-          内容信息
-        </div>
+      <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-900/70 p-5 shadow-sm">
+        <div className="text-sm font-bold text-slate-900 dark:text-white mb-3">内容信息</div>
         <div className="space-y-3 text-sm">
           <div>
-            <div className="text-xs text-slate-400 dark:text-slate-500 mb-1.5">标签</div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="text-xs text-slate-400 dark:text-slate-500 mb-1">标签</div>
+            <div className="flex flex-wrap gap-2">
               {(hotspot.tags || []).length > 0 ? (
                 hotspot.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="text-xs px-2.5 py-1 rounded-md bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
                   >
                     #{tag}
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-slate-400 dark:text-slate-500">暂无标签</span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">暂无标签</span>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 pt-1">
-            <div className="rounded-lg bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/70 px-3 py-2.5">
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-0.5">状态</div>
-              <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 inline-flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                已发布
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-3">
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-1">状态</div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-white">已发布</div>
             </div>
-            <div className="rounded-lg bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/70 px-3 py-2.5">
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-0.5">更新时间</div>
-              <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate" title={formatDateTime(hotspot.updated_at || hotspot.published_at)}>
-                {formatDateOnly(hotspot.updated_at || hotspot.published_at) || '—'}
-              </div>
+            <div className="rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-3">
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-1">更新时间</div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-white">{formatDateTime(hotspot.updated_at || hotspot.published_at)}</div>
             </div>
           </div>
         </div>
       </div>
 
       {headingItems.length > 1 && (
-        <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-hidden xl:hidden">
-          <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
-            <Icons.BookOpen className="w-4 h-4 text-primary-500" />
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">目录导航</div>
+        <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/75 dark:bg-slate-900/35">
+            <div className="flex items-center gap-2">
+              <Icons.BookOpen className="w-4 h-4 text-primary-500" />
+              <div className="text-sm font-black text-slate-900 dark:text-white">目录导航</div>
+            </div>
           </div>
-          <nav className="max-h-[45vh] overflow-y-auto p-3 space-y-1">
+          <nav className="max-h-[52vh] overflow-y-auto p-3 space-y-1">
             {headingItems.map((heading, index) => (
               <a
                 key={`${heading.id}-${index}`}
@@ -284,12 +229,11 @@ const HotspotDetail: React.FC = () => {
                   document.getElementById(heading.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   window.history.replaceState(null, '', `#${heading.id}`);
                 }}
-                className={`block rounded-lg border-l-2 px-3 py-1.5 text-xs transition-colors ${
-                  activeHeading === heading.id
-                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 font-semibold'
-                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
-                }`}
-                style={{ paddingLeft: `${10 + (heading.level - 2) * 12}px` }}
+                className={`block rounded-xl border-l-2 px-3 py-2 text-sm transition-all ${activeHeading === heading.id
+                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 font-semibold'
+                  : 'border-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/40 hover:text-slate-900 dark:hover:text-slate-100'
+                  }`}
+                style={{ paddingLeft: `${12 + (heading.level - 2) * 14}px` }}
               >
                 {heading.text}
               </a>
@@ -298,100 +242,93 @@ const HotspotDetail: React.FC = () => {
         </div>
       )}
 
-      <div id="hotspot-sources" className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
-        <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
-          参考来源
+      <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-900/70 p-5 shadow-sm">
+        <div className="text-sm font-bold text-slate-900 dark:text-white mb-3">评论接入状态</div>
+        <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-500/10 px-4 py-3 text-sm text-emerald-700 dark:text-emerald-300 leading-6">
+          当前页面已真实接入热点评论接口，评论按热点维度独立读写，不再借道普通文章 <code>article_id</code>。
         </div>
+      </div>
+
+      <div id="hotspot-sources" className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-900/70 p-5 shadow-sm">
+        <div className="text-sm font-bold text-slate-900 dark:text-white mb-3">来源列表</div>
         {sources.length > 0 ? (
           <div className="space-y-2">
-            {sources.map((source) => {
-              const safeUrl = safeExternalUrl(source.source_url);
-              const content = (
+            {sources.map((source) => (
+              <a
+                key={source.id}
+                href={source.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 hover:border-primary-300 dark:hover:border-primary-700 transition-colors"
+              >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">{source.source_name}</div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 break-all line-clamp-2">
-                      {source.original_title || source.source_url}
-                    </div>
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white">{source.source_name}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 break-all">{source.original_title || source.source_url}</div>
                   </div>
-                  {safeUrl && <Icons.ExternalLink className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />}
+                  <Icons.ExternalLink className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                 </div>
-              );
-              return safeUrl ? (
-                <a
-                  key={source.id}
-                  href={safeUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block rounded-lg border border-slate-200/80 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 px-3.5 py-2.5 hover:border-primary-300 dark:hover:border-primary-700 transition-colors"
-                >
-                  {content}
-                </a>
-              ) : (
-                <div
-                  key={source.id}
-                  className="block rounded-lg border border-slate-200/80 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 px-3.5 py-2.5"
-                >
-                  {content}
-                </div>
-              );
-            })}
+              </a>
+            ))}
           </div>
         ) : sourceTypes.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {sourceTypes.map((source) => (
               <button
                 key={source}
                 type="button"
                 onClick={() => navigate(`/hotspots?source_type=${encodeURIComponent(source)}`)}
-                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary-300 dark:hover:border-primary-700 transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary-300 dark:hover:border-primary-700 transition-colors"
               >
-                <Icons.Link className="w-3 h-3" />
+                <Icons.Link className="w-3.5 h-3.5" />
                 {source}
               </button>
             ))}
           </div>
         ) : (
-          <div className="text-xs text-slate-400 dark:text-slate-500">暂无来源信息</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400">暂无来源信息</div>
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
-        <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
-          继续浏览
-        </div>
+      <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm">
+        <div className="text-sm font-bold text-slate-900 dark:text-white mb-3">继续浏览</div>
         <div className="space-y-2">
           <Link
             to="/hotspots"
-            className="w-full inline-flex items-center justify-between rounded-lg px-3.5 py-2.5 bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-primary-300 dark:hover:border-primary-700 transition-colors"
+            className="w-full inline-flex items-center justify-between rounded-xl px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 hover:border-primary-200 dark:hover:border-primary-700 transition-colors"
           >
-            <span className="inline-flex items-center gap-2">
-              <Icons.ArrowLeft className="w-3.5 h-3.5" /> 返回热点列表
-            </span>
-            <Icons.ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+            <span className="inline-flex items-center gap-2"><Icons.ArrowLeft className="w-4 h-4" /> 返回热点列表</span>
+            <Icons.ArrowRight className="w-4 h-4" />
           </Link>
 
           {hotspot.primary_category && (
             <button
               type="button"
               onClick={() => navigate(`/hotspots?category=${encodeURIComponent(hotspot.primary_category as string)}`)}
-              className="w-full inline-flex items-center justify-between rounded-lg px-3.5 py-2.5 bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-primary-300 dark:hover:border-primary-700 transition-colors cursor-pointer"
+              className="w-full inline-flex items-center justify-between rounded-xl px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 hover:border-primary-200 dark:hover:border-primary-700 transition-colors"
             >
-              <span className="inline-flex items-center gap-2">
-                <Icons.Folder className="w-3.5 h-3.5" /> 查看同分类热点
-              </span>
-              <Icons.ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+              <span className="inline-flex items-center gap-2"><Icons.Folder className="w-4 h-4" /> 查看同分类热点</span>
+              <Icons.ArrowRight className="w-4 h-4" />
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={copyLink}
+            className="w-full inline-flex items-center justify-between rounded-xl px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 hover:border-primary-200 dark:hover:border-primary-700 transition-colors"
+          >
+            <span className="inline-flex items-center gap-2"><Icons.Copy className="w-4 h-4" /> {copied ? '链接已复制' : '复制当前链接'}</span>
+            <Icons.ArrowRight className="w-4 h-4" />
+          </button>
 
           {previousItem && (
             <button
               type="button"
               onClick={() => navigate(`/hotspots/${previousItem.id}`)}
-              className="w-full text-left rounded-lg border border-slate-200/80 dark:border-slate-700 px-3.5 py-2.5 bg-slate-50/80 dark:bg-slate-800/60 hover:border-primary-300 dark:hover:border-primary-700 transition-colors cursor-pointer"
+              className="w-full text-left rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 bg-slate-50 dark:bg-slate-900 hover:border-primary-300 dark:hover:border-primary-700 transition-colors"
             >
-              <div className="text-[11px] text-slate-400 mb-0.5">上一篇</div>
-              <div className="text-xs font-medium text-slate-800 dark:text-slate-100 line-clamp-2">{previousItem.title}</div>
+              <div className="text-[11px] text-slate-400 mb-1">上一篇</div>
+              <div className="text-sm font-medium text-slate-800 dark:text-slate-100 line-clamp-2">{previousItem.title}</div>
             </button>
           )}
 
@@ -399,10 +336,10 @@ const HotspotDetail: React.FC = () => {
             <button
               type="button"
               onClick={() => navigate(`/hotspots/${nextItem.id}`)}
-              className="w-full text-left rounded-lg border border-slate-200/80 dark:border-slate-700 px-3.5 py-2.5 bg-slate-50/80 dark:bg-slate-800/60 hover:border-primary-300 dark:hover:border-primary-700 transition-colors cursor-pointer"
+              className="w-full text-left rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 bg-slate-50 dark:bg-slate-900 hover:border-primary-300 dark:hover:border-primary-700 transition-colors"
             >
-              <div className="text-[11px] text-slate-400 mb-0.5">下一篇</div>
-              <div className="text-xs font-medium text-slate-800 dark:text-slate-100 line-clamp-2">{nextItem.title}</div>
+              <div className="text-[11px] text-slate-400 mb-1">下一篇</div>
+              <div className="text-sm font-medium text-slate-800 dark:text-slate-100 line-clamp-2">{nextItem.title}</div>
             </button>
           )}
         </div>
@@ -411,44 +348,34 @@ const HotspotDetail: React.FC = () => {
   );
 
   return (
-    <div className="relative min-h-screen pb-24 lg:pb-12">
+    <div className="relative min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100/70 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300 pb-24 xl:pb-0">
       <HotspotFloatingToolbar
         title={hotspot.title}
         category={hotspot.primary_category}
-        bookmarked={bookmarked}
-        onBookmark={handleToggleBookmark}
         onBackToList={() => navigate('/hotspots')}
         onScrollToTop={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         onScrollToComments={() => document.getElementById('hotspot-comments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
         onCopyLink={copyLink}
-        previousItem={
-          previousItem
-            ? {
-                label: previousItem.title,
-                title: previousItem.title,
-                onClick: () => navigate(`/hotspots/${previousItem.id}`),
-              }
-            : null
-        }
-        nextItem={
-          nextItem
-            ? {
-                label: nextItem.title,
-                title: nextItem.title,
-                onClick: () => navigate(`/hotspots/${nextItem.id}`),
-              }
-            : null
-        }
+        previousItem={previousItem ? {
+          label: previousItem.title,
+          title: previousItem.title,
+          onClick: () => navigate(`/hotspots/${previousItem.id}`),
+        } : null}
+        nextItem={nextItem ? {
+          label: nextItem.title,
+          title: nextItem.title,
+          onClick: () => navigate(`/hotspots/${nextItem.id}`),
+        } : null}
       />
 
       <div className="max-w-screen-2xl mx-auto flex gap-0">
         {headingItems.length > 1 && (
-          <aside className="hidden xl:block w-64 flex-shrink-0 pt-10 ml-6">
-            <div className="sticky top-24 pl-4 border-l border-slate-200/80 dark:border-slate-800">
-              <div className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 pl-2 flex items-center gap-2">
-                <Icons.BookOpen className="w-3.5 h-3.5" /> 大纲
+          <aside className="hidden lg:block w-64 flex-shrink-0 pt-12 ml-8">
+            <div className="sticky top-28 pl-4 border-l border-slate-200 dark:border-slate-800 transition-colors">
+              <div className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 pl-2 flex items-center gap-2 transition-colors">
+                <Icons.BookOpen className="w-4 h-4" /> 大纲
               </div>
-              <nav className="space-y-0.5 text-sm max-h-[70vh] overflow-y-auto pr-2">
+              <nav className="space-y-1 text-sm max-h-[70vh] overflow-y-auto pr-2">
                 {headingItems.map((heading, idx) => (
                   <a
                     key={`${heading.id}-${idx}`}
@@ -457,11 +384,10 @@ const HotspotDetail: React.FC = () => {
                       event.preventDefault();
                       document.getElementById(heading.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }}
-                    className={`block py-1.5 px-3 rounded-lg transition-colors border-l-2 -ml-[1px] text-xs ${
-                      activeHeading === heading.id
-                        ? 'border-primary-500 bg-primary-50/70 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 font-semibold'
-                        : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 hover:border-slate-300 dark:hover:border-slate-700'
-                    }`}
+                    className={`block py-1.5 px-3 rounded-lg transition-all border-l-2 -ml-[1px] text-sm ${activeHeading === heading.id
+                      ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-400 font-semibold'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
                     style={{ paddingLeft: `${12 + (heading.level - 2) * 12}px` }}
                   >
                     {heading.text}
@@ -473,49 +399,53 @@ const HotspotDetail: React.FC = () => {
         )}
 
         <main className="flex-1 min-w-0">
-          <div className="max-w-4xl mx-auto xl:mx-0 xl:ml-8 px-4 sm:px-6 py-8 sm:py-10 relative">
-            <div className="mb-5">
+          <div className="max-w-4xl mx-auto xl:mx-0 xl:ml-12 px-4 sm:px-6 py-10 sm:py-14 relative">
+            <div className="mb-8">
               <Link
                 to="/hotspots"
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 group transition-colors"
+                className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 mb-6 group transition-colors"
               >
-                <Icons.ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                <Icons.ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
                 返回热点列表
               </Link>
             </div>
 
-            <article className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 fade-up">
-              <div className="px-5 sm:px-8 pt-7 pb-6 border-b border-slate-100 dark:border-slate-800">
-                <h1
-                  className={`font-bold leading-snug break-words text-slate-900 dark:text-slate-100 ${
-                    hotspot.title.length > 22 ? 'text-2xl md:text-3xl' : 'text-3xl md:text-4xl'
-                  }`}
-                >
-                  {hotspot.title}
-                </h1>
+            {/* 三十七期：热点详情页头部重做。原结构有三个可测量的问题——
+                1) grid 的 260px 第二列只有一个子元素，白占宽度把标题挤到 532px；
+                2) 分类/热度/来源数在胶囊行和信息条里被念了两遍，中间夹 73px 死白；
+                3) AI HOTSPOT 黑胶囊 + ✓已发布 零信息量，却在抢标题的第一眼。
+                改后头部只留：标题、摘要、一行元信息（分类·日期·热度·复制）。
+                渐变顶条复用列表页 HotspotsList.tsx 的站内视觉签名。 */}
+            <article className="relative overflow-hidden rounded-3xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
+              <div className="h-1 bg-gradient-to-r from-indigo-500 via-primary-500 to-cyan-400" />
+
+              <div className="px-6 md:px-10 pt-8 md:pt-10 pb-6 md:pb-8 border-b border-slate-100 dark:border-slate-700">
+                {/* 二十二期：热点标题自适应——旧 text-5xl font-black 配 40+ 字长标题视觉压迫过强。
+                    短标题（≤22 字）text-3xl/4xl bold 保冲击力；长标题降一档并收紧行高。
+                    纯 Tailwind 档位切换，热点是资讯流内容，不用文章头版级字号。
+                    三十七期：去掉 tracking-tight（中文负字距会挤字），标题与 ArticleDetail 一致用 font-bold。 */}
+                <h1 className={`font-bold leading-snug break-words text-slate-900 dark:text-white ${hotspot.title.length > 22 ? 'text-2xl md:text-3xl' : 'text-3xl md:text-4xl'}`}>{hotspot.title}</h1>
 
                 {hotspot.summary && (
-                  <p className="mt-3.5 text-sm md:text-base text-slate-600 dark:text-slate-300 leading-7 max-w-3xl">
+                  <p className="mt-4 text-sm md:text-base text-slate-600 dark:text-slate-300 leading-8 max-w-3xl">
                     {hotspot.summary}
                   </p>
                 )}
 
-                <div className="mt-5 flex flex-wrap items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
+                <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs md:text-sm text-slate-500 dark:text-slate-400">
                   {hotspot.primary_category && (
                     <button
                       type="button"
                       onClick={() => navigate(`/hotspots?category=${encodeURIComponent(hotspot.primary_category as string)}`)}
-                      className="cursor-pointer"
+                      className="inline-flex items-center gap-1.5 max-w-[12rem] rounded-full bg-cyan-50 dark:bg-cyan-500/10 px-2.5 py-1 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-500/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40"
                     >
-                      <StatusPill tone="primary">
-                        <Icons.Folder className="w-3 h-3" />
-                        <span className="truncate max-w-[10rem]">{hotspot.primary_category}</span>
-                      </StatusPill>
+                      <Icons.Folder className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{hotspot.primary_category}</span>
                     </button>
                   )}
 
                   {(hotspot.published_at || hotspot.topic_date || hotspot.created_at) && (
-                    <span className="inline-flex items-center gap-1 tabular-nums">
+                    <span className="inline-flex items-center gap-1.5">
                       <Icons.Calendar className="w-3.5 h-3.5" />
                       <time
                         dateTime={hotspot.published_at || hotspot.topic_date || hotspot.created_at}
@@ -526,65 +456,51 @@ const HotspotDetail: React.FC = () => {
                     </span>
                   )}
 
-                  <span className="inline-flex items-center gap-1 tabular-nums">
+                  <span className="inline-flex items-center gap-1.5 tabular-nums">
                     <Icons.TrendingUp className="w-3.5 h-3.5" />
                     热度 {formatCompactNumber(hotspot.heat_score)}
                   </span>
 
-                  <div className="ml-auto flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleToggleBookmark}
-                      disabled={bookmarkLoading}
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                        bookmarked
-                          ? 'border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/50 text-primary-700 dark:text-primary-300'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
-                      }`}
-                    >
-                      <Icons.Bookmark className={`w-3.5 h-3.5 ${bookmarked ? 'fill-current' : ''}`} />
-                      {bookmarked ? '已收藏' : '收藏'}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={copyLink}
-                      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                        copied
-                          ? 'border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'
-                      }`}
-                    >
-                      {copied ? <Icons.Check className="w-3.5 h-3.5" /> : <Icons.Copy className="w-3.5 h-3.5" />}
-                      <span aria-live="polite">{copied ? '已复制' : '复制链接'}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={copyLink}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40 ${copied
+                      ? 'border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400'
+                      : 'border-slate-200 dark:border-slate-700 hover:border-cyan-300 dark:hover:border-cyan-700 hover:text-cyan-600 dark:hover:text-cyan-400'}`}
+                  >
+                    {copied ? <Icons.Check className="w-3.5 h-3.5" /> : <Icons.Copy className="w-3.5 h-3.5" />}
+                    <span aria-live="polite" className="inline-block min-w-[3.5em] text-left">{copied ? '已复制' : '复制链接'}</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="px-5 sm:px-8 py-7 space-y-8">
-                <section className="space-y-4">
+              <div className="px-6 md:px-10 py-8 md:py-10 space-y-8">
+                <section className="space-y-5">
                   <div className="flex items-center gap-2">
-                    <span className="w-1 h-5 rounded-full bg-primary-500" />
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">深度解读</h2>
+                    <div className="w-1.5 h-6 rounded-full bg-primary-500" />
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white">深度解读</h2>
                   </div>
 
                   {articleMarkdown ? (
-                    <div className="rounded-xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900/50 px-4 sm:px-6 py-5">
-                      <MarkdownContent
-                        className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-headings:tracking-normal prose-h1:text-2xl prose-h1:md:text-3xl prose-h2:text-xl prose-h2:md:text-2xl prose-p:text-[15px] md:prose-p:text-base prose-p:leading-8 prose-li:leading-8 prose-ul:my-4 prose-ol:my-4 prose-pre:rounded-xl prose-img:rounded-xl"
-                      >
-                        {articleMarkdown}
-                      </MarkdownContent>
+                    <div className="rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden">
+                      <div className="px-4 sm:px-6 md:px-8 py-6 md:py-8">
+                        <MarkdownContent
+                          className="prose prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-headings:tracking-normal prose-h1:text-3xl prose-h1:md:text-4xl prose-h2:text-2xl prose-h2:md:text-3xl prose-p:text-[15px] md:prose-p:text-base prose-p:leading-8 prose-li:leading-8 prose-ul:my-5 prose-ol:my-5 prose-blockquote:border-cyan-300 dark:prose-blockquote:border-cyan-700 prose-pre:rounded-2xl prose-img:rounded-2xl"
+                        >
+                          {articleMarkdown}
+                        </MarkdownContent>
+                      </div>
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 p-6 text-sm text-slate-500 dark:text-slate-400">
+                    <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-6 text-sm text-slate-500 dark:text-slate-400">
                       暂无 Markdown 正文内容。
                     </div>
                   )}
                 </section>
 
-                <div className="lg:hidden">{auxiliaryPanel}</div>
+                <div className="lg:hidden">
+                  {auxiliaryPanel}
+                </div>
 
                 <HotspotComments hotspotId={hotspot.id} hotspotTitle={hotspot.title} />
               </div>
@@ -592,8 +508,10 @@ const HotspotDetail: React.FC = () => {
           </div>
         </main>
 
-        <aside className="hidden lg:block w-80 flex-shrink-0 pt-10 pr-6">
-          <div className="sticky top-24">{auxiliaryPanel}</div>
+        <aside className="hidden lg:block w-80 flex-shrink-0 pt-12 pr-8">
+          <div className="sticky top-24">
+            {auxiliaryPanel}
+          </div>
         </aside>
       </div>
     </div>

@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Icons } from './Icons';
 import { ChatMessage } from '../types';
 import MarkdownContent from './MarkdownContent';
@@ -7,7 +6,6 @@ import AgentProcessStrip, { ProcessStep } from './AgentProcessStrip';
 import { createChatSession, streamAgenticChat, getChatHistory, ChatSession, getMyChatSessions, MyChatSessionItem } from '../api/chat';
 import { createForumThread, getForumCategories } from '../api/forum';
 import { useConfirm } from './ConfirmDialog';
-import { useAuth } from '../contexts/AuthContext';
 
 type PetVariant = {
   id: string;
@@ -203,14 +201,13 @@ const TypingDots: React.FC = () => (
 /**
  * 「问倒了转人工」：看板娘答不上来时，把这轮对话一键落成「问千禧」的论坛帖。
  *
- * 社区发帖现要求登录：
- * - 已登录：直接投递到「问千禧」版块并返回新帖链接；
- * - 未登录：将问题与小魄罗回答暂存到 sessionStorage('pet_forum_draft')，引导跳转 /login 登录后自动预填发帖页。
+ * 复用游客发帖管线（POST /forum/threads，蜜罐/限流全生效），零后端改动；
+ * 版块 id 动态取第一个活跃版块（论坛收缩为单版「问千禧」后即它）。
+ * 组装规则：标题=访客最后的问题，正文=最近一轮问答 + 来源说明。
  */
 const EscalateToQianxi: React.FC<{ messages: ChatMessage[]; theme: PetTheme }> = ({ messages, theme }) => {
-    const navigate = useNavigate();
-    const { isAuthenticated, user } = useAuth();
     const [open, setOpen] = useState(false);
+    const [nickname, setNickname] = useState('');
     const [sending, setSending] = useState(false);
     const [result, setResult] = useState<{ id: number } | null>(null);
     const [error, setError] = useState('');
@@ -220,64 +217,38 @@ const EscalateToQianxi: React.FC<{ messages: ChatMessage[]; theme: PetTheme }> =
     const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
     const question = (lastUser?.content || '').trim().slice(0, 80) || '看板娘对话里的问题';
 
-    const buildDraftContent = () => {
-        const answer = (lastAssistant?.content || '').slice(0, 1500);
-        return [
-            '> 这个问题来自首页看板娘「小魄罗」的对话——对话没能完全解决，转给千禧进一步解答。',
-            '',
-            '**我的问题**',
-            '',
-            (lastUser?.content || '').trim(),
-            '',
-            '**小魄罗当时给出的回答**（供参考）',
-            '',
-            answer || '（无回答记录）',
-            '',
-            '---',
-            '*如果你也遇到类似问题，欢迎在楼下补充环境与上下文。*',
-        ].join('\n');
-    };
-
-    const handleSaveDraftAndLogin = () => {
-        try {
-            sessionStorage.setItem(
-                'pet_forum_draft',
-                JSON.stringify({
-                    title: question,
-                    content: buildDraftContent(),
-                    categorySlug: 'ask-qianxi',
-                })
-            );
-        } catch {
-            // ignore storage errors
-        }
-        navigate('/login?redirect=%2Fforum%2Fnew%3Ffrom%3Dpet');
-    };
-
     const submit = async () => {
         if (sending) return;
-        if (!isAuthenticated) {
-            handleSaveDraftAndLogin();
-            return;
-        }
         setSending(true);
         setError('');
         try {
             const cats = await getForumCategories();
-            const target = cats.find(c => c.slug === 'ask-qianxi' || c.is_default) || cats[0];
+            const target = cats[0];
             if (!target) throw new Error('「问千禧」版块暂不可用');
+            const answer = (lastAssistant?.content || '').slice(0, 1500);
+            const content = [
+                '> 这个问题来自首页看板娘「小魄罗」的对话——访客问了一圈没解决，转给千禧本人。',
+                '',
+                '**访客的问题**',
+                '',
+                (lastUser?.content || '').trim(),
+                '',
+                '**小魄罗当时给出的回答**（供千禧参考，可能不完整）',
+                '',
+                answer || '（无回答记录）',
+                '',
+                '---',
+                '*如果你也卡在同样的问题上，欢迎在楼下补充你的环境与报错。*',
+            ].join('\n');
             const thread = await createForumThread({
                 category_id: target.id,
                 title: question,
-                content: buildDraftContent(),
+                content,
+                nickname: nickname.trim() || undefined,
                 honeypot: '',
             });
             setResult({ id: thread.id });
         } catch (e: any) {
-            if (e?.response?.status === 401) {
-                handleSaveDraftAndLogin();
-                return;
-            }
             setError(e?.response?.data?.detail || e?.message || '提交失败，稍后再试');
         } finally {
             setSending(false);
@@ -314,37 +285,30 @@ const EscalateToQianxi: React.FC<{ messages: ChatMessage[]; theme: PetTheme }> =
 
     return (
         <div className={`mt-1.5 rounded-lg ${theme.messageAssistantBorder} bg-white/70 dark:bg-slate-800/60 px-3 py-2.5 text-xs ${theme.messageAssistantText}`}>
-            <div className="font-semibold mb-1.5">把这个问题转成「问千禧」提问帖</div>
+            <div className="font-semibold mb-1.5">把这个问题转成「问千禧」的提问帖</div>
             <div className="text-slate-500 dark:text-slate-400 mb-2 break-words">「{question}」</div>
-            {isAuthenticated ? (
-                <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        将以 @{user?.username} 发布
-                    </span>
-                    <button
-                        type="button"
-                        onClick={submit}
-                        disabled={sending}
-                        className="shrink-0 rounded-md bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white px-3 py-1.5 text-xs font-medium transition-colors"
-                    >
-                        {sending ? '提交中...' : '确认转给千禧'}
-                    </button>
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                        发布求助帖需先登录（支持邮箱验证码一键登录/建号），当前问答会自动带入草稿。
-                    </p>
-                    <button
-                        type="button"
-                        onClick={handleSaveDraftAndLogin}
-                        className="w-full rounded-md bg-primary-500 hover:bg-primary-600 text-white px-3 py-1.5 text-xs font-medium transition-colors"
-                    >
-                        去登录并自动预填提问 →
-                    </button>
-                </div>
-            )}
+            <div className="flex gap-2">
+                <input
+                    type="text"
+                    value={nickname}
+                    onChange={e => setNickname(e.target.value)}
+                    placeholder="你的昵称（可选）"
+                    maxLength={50}
+                    className="flex-1 min-w-0 rounded-md border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary-400"
+                />
+                <button
+                    type="button"
+                    onClick={submit}
+                    disabled={sending}
+                    className="rounded-md bg-primary-500 hover:bg-primary-600 disabled:opacity-50 text-white px-3 py-1.5 text-xs font-medium transition-colors"
+                >
+                    {sending ? '提交中...' : '转给千禧'}
+                </button>
+            </div>
             {error && <div className="mt-1.5 text-red-500 text-[11px]">{error}</div>}
+            <div className="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500">
+                走论坛发帖通道，无需注册；对话上下文会附在帖子里，千禧本人会回。
+            </div>
         </div>
     );
 };

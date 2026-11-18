@@ -1,24 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  Input,
-  Select,
-  StatusPill,
-} from '../components/Shared';
-import { ListSkeleton } from '../components/Skeleton';
-import {
-  deleteHotspot,
-  getHotspots,
-  hideHotspot,
-  HotTopicListItem,
-  publishHotspot,
-  updateHotspot,
-} from '../api/hotspots';
+import { Button } from '../components/Shared';
+import { deleteHotspot, getHotspots, hideHotspot, HotTopicListItem, publishHotspot, updateHotspot } from '../api/hotspots';
 import { errorText } from '../utils/errors';
 import { useConfirm } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
@@ -35,13 +19,24 @@ const STATUS_OPTIONS: Array<{ label: string; value: StatusFilter }> = [
   { label: '已隐藏', value: 'hidden' },
 ];
 
-const STATUS_META: Record<
-  HotTopicListItem['status'],
-  { label: string; tone: 'emerald' | 'amber' | 'slate' }
-> = {
-  published: { label: '已发布', tone: 'emerald' },
-  draft: { label: '草稿', tone: 'amber' },
-  hidden: { label: '已隐藏', tone: 'slate' },
+const getStatusBadge = (status: HotTopicListItem['status']) => {
+  const styles = {
+    published: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
+    draft: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+    hidden: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600',
+  } as const;
+
+  const labels = {
+    published: '已发布',
+    draft: '草稿',
+    hidden: '已隐藏',
+  } as const;
+
+  return (
+    <span className={`inline-flex whitespace-nowrap px-2.5 py-1 text-xs rounded-full border ${styles[status]}`}>
+      {labels[status]}
+    </span>
+  );
 };
 
 const HotspotManager: React.FC = () => {
@@ -81,7 +76,7 @@ const HotspotManager: React.FC = () => {
   }, [searchParams]);
 
   const buildParams = (nextPage: number) => {
-    const params: Record<string, unknown> = { page: nextPage, page_size: 10, admin: true };
+    const params: any = { page: nextPage, page_size: 10, admin: true };
     if (selectedStatus !== 'all') params.status = selectedStatus;
     if (search.trim()) params.search = search.trim();
     if (selectedCategory !== 'all') params.primary_category = selectedCategory;
@@ -138,7 +133,7 @@ const HotspotManager: React.FC = () => {
   };
 
   const formatDate = (value?: string) => {
-    if (!value) return '—';
+    if (!value) return '-';
     return new Date(value).toLocaleString('zh-CN');
   };
 
@@ -163,9 +158,7 @@ const HotspotManager: React.FC = () => {
   const handleStartEditTime = (item: HotTopicListItem) => {
     setEditingTimeId(item.id);
     const base = item.published_at ? new Date(item.published_at) : new Date();
-    const localIso = new Date(base.getTime() - base.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
+    const localIso = new Date(base.getTime() - base.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     setEditingTimeValue(localIso);
   };
 
@@ -176,10 +169,9 @@ const HotspotManager: React.FC = () => {
       await updateHotspot(id, { published_at: new Date(editingTimeValue).toISOString() });
       setEditingTimeId(null);
       setEditingTimeValue('');
-      showToast('发布时间已更新', 'success');
       await loadData();
     } catch (error: any) {
-      showToast(errorText(error, '修改发布时间失败'), 'error');
+      alert(errorText(error, '修改发布时间失败'));
     } finally {
       setSavingTime(false);
     }
@@ -196,10 +188,9 @@ const HotspotManager: React.FC = () => {
       await updateHotspot(id, { heat_score: Number(editingHeatScore) || 0 });
       setEditingStatsId(null);
       setEditingHeatScore('');
-      showToast('热度分数已更新', 'success');
       await loadData();
     } catch (error: any) {
-      showToast(errorText(error, '修改热度失败'), 'error');
+      alert(errorText(error, '修改热度失败'));
     } finally {
       setSavingStats(false);
     }
@@ -230,9 +221,7 @@ const HotspotManager: React.FC = () => {
       (item.source_domains || []).forEach((value) => value && bucket.add(value));
       return Array.from(bucket);
     });
-    return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b, 'zh-CN')
-    );
+    return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   }, [allItems]);
 
   const sortedItems = useMemo(() => {
@@ -249,25 +238,19 @@ const HotspotManager: React.FC = () => {
     return next;
   }, [items, selectedSortField, selectedSortDirection]);
 
-  const allCurrentPageSelected =
-    sortedItems.length > 0 && sortedItems.every((item) => selectedIds.includes(item.id));
+  const allCurrentPageSelected = sortedItems.length > 0 && sortedItems.every((item) => selectedIds.includes(item.id));
 
   const toggleSort = (field: SortField) => {
     const sameField = selectedSortField === field;
-    const nextDirection: SortDirection =
-      sameField && selectedSortDirection === 'desc' ? 'asc' : 'desc';
+    const nextDirection: SortDirection = sameField && selectedSortDirection === 'desc' ? 'asc' : 'desc';
     updateParams({ sort_field: field, sort_direction: nextDirection, page: null });
   };
 
   const renderSortIcon = (field: SortField) => {
     if (selectedSortField !== field) {
-      return <Icons.ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />;
+      return <span className="text-slate-300 dark:text-slate-600">↕</span>;
     }
-    return selectedSortDirection === 'desc' ? (
-      <Icons.ChevronDown className="w-3.5 h-3.5 text-primary-500" />
-    ) : (
-      <Icons.ChevronUp className="w-3.5 h-3.5 text-primary-500" />
-    );
+    return <span>{selectedSortDirection === 'desc' ? '↓' : '↑'}</span>;
   };
 
   const handleToggleAll = () => {
@@ -279,9 +262,9 @@ const HotspotManager: React.FC = () => {
   };
 
   const handleToggleOne = (id: number) => {
-    setSelectedIds((prev) =>
+    setSelectedIds((prev) => (
       prev.includes(id) ? prev.filter((itemId) => itemId !== id) : [...prev, id]
-    );
+    ));
   };
 
   const handleBatchAction = async (action: 'publish' | 'hide') => {
@@ -290,6 +273,7 @@ const HotspotManager: React.FC = () => {
       return;
     }
 
+    // 批量隐藏会造成前台大面积下线，保留确认；批量发布可逆，但为防误点同样确认一次
     const ok = await confirm({
       title: action === 'publish' ? '批量发布' : '批量隐藏',
       message: `确认批量${action === 'publish' ? '发布' : '隐藏'}已选中的 ${selectedIds.length} 条热点吗？`,
@@ -320,15 +304,9 @@ const HotspotManager: React.FC = () => {
       await loadData();
       setSelectedIds([]);
       if (failedIds.length > 0) {
-        showToast(
-          `已完成 ${successCount} 条，失败 ${failedIds.length} 条（ID: ${failedIds.join(', ')}）`,
-          'error'
-        );
+        showToast(`已完成 ${successCount} 条，失败 ${failedIds.length} 条（ID: ${failedIds.join(', ')}）`, 'error');
       } else {
-        showToast(
-          `已成功${action === 'publish' ? '发布' : '隐藏'} ${successCount} 条热点`,
-          'success'
-        );
+        showToast(`已成功${action === 'publish' ? '发布' : '隐藏'} ${successCount} 条热点`, 'success');
       }
     } finally {
       setBatchLoading(false);
@@ -336,126 +314,97 @@ const HotspotManager: React.FC = () => {
   };
 
   const statCards = [
-    { label: '热点总数', value: stats.total, dot: 'bg-slate-400' },
-    { label: '已发布', value: stats.published, dot: 'bg-emerald-500' },
-    { label: '草稿箱', value: stats.draft, dot: 'bg-amber-500' },
-    { label: '已隐藏', value: stats.hidden, dot: 'bg-slate-500' },
+    { label: '总数', value: stats.total, tone: 'from-slate-500 to-slate-700' },
+    { label: '已发布', value: stats.published, tone: 'from-emerald-500 to-emerald-600' },
+    { label: '草稿', value: stats.draft, tone: 'from-amber-400 to-orange-500' },
+    { label: '隐藏', value: stats.hidden, tone: 'from-slate-400 to-slate-500' },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-white tracking-tight">
-            热点管理
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            管理每日热点的标题、摘要、热度分数与发布状态
-          </p>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">热点管理</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">管理每日热点的标题、摘要、热度与发布状态。</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button size="sm" variant="outline" onClick={() => navigate('/hotspots')}>
-            <Icons.ExternalLink className="w-3.5 h-3.5" />
-            前台查看
-          </Button>
-          <Button size="sm" onClick={() => navigate('/admin/hotspots/upload')}>
-            <Icons.Upload className="w-3.5 h-3.5" />
+        <div className="flex gap-3 flex-wrap">
+          <Button onClick={() => navigate('/admin/hotspots/upload')}>
             上传热点
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/hotspots')}>
+            前台查看
           </Button>
         </div>
       </div>
 
-      {/* Stat Grid */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {statCards.map((card) => (
-          <Card key={card.label} className="p-5">
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <span className={`w-2 h-2 rounded-full ${card.dot}`} aria-hidden />
-              <span>{card.label}</span>
-            </div>
-            <div className="mt-2.5 text-2xl font-semibold text-slate-900 dark:text-white tabular-nums">
-              {card.value}
-            </div>
-          </Card>
+          <div key={card.label} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 shadow-sm overflow-hidden relative">
+            <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${card.tone}`} />
+            <div className="text-sm text-slate-500 dark:text-slate-400">{card.label}</div>
+            <div className="mt-3 text-3xl font-bold text-slate-800 dark:text-slate-100">{card.value}</div>
+          </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <Card className="p-4 space-y-4">
+      <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">状态筛选：</span>
-          <div className="inline-flex rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-0.5">
-            {STATUS_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => {
-                  setPage(1);
-                  updateParams({ status: opt.value === 'all' ? null : opt.value, page: null });
-                }}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  selectedStatus === opt.value
-                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          <span className="text-sm text-slate-500 dark:text-slate-400">状态筛选：</span>
+          {STATUS_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => {
+                setPage(1);
+                updateParams({ status: opt.value === 'all' ? null : opt.value, page: null });
+              }}
+              className={`px-4 py-2 rounded-lg text-sm transition-all ${selectedStatus === opt.value
+                ? 'bg-cyan-500 text-white shadow-sm'
+                : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
                 }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
 
         <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
           <div className="relative xl:col-span-2">
             <Icons.Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input
+            <input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="搜索标题、摘要、标签..."
-              className="pl-9"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-cyan-200"
             />
           </div>
 
-          <Select
+          <select
             value={selectedCategory}
-            onChange={(e) =>
-              updateParams({ category: e.target.value === 'all' ? null : e.target.value, page: null })
-            }
+            onChange={(e) => updateParams({ category: e.target.value === 'all' ? null : e.target.value, page: null })}
+            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-cyan-200"
           >
             <option value="all">全部分类</option>
             {categoryOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
+              <option key={option} value={option}>{option}</option>
             ))}
-          </Select>
+          </select>
 
-          <Select
+          <select
             value={selectedSourceType}
-            onChange={(e) =>
-              updateParams({
-                source_type: e.target.value === 'all' ? null : e.target.value,
-                page: null,
-              })
-            }
+            onChange={(e) => updateParams({ source_type: e.target.value === 'all' ? null : e.target.value, page: null })}
+            className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-cyan-200"
           >
             <option value="all">全部来源类型</option>
             {sourceTypeOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
+              <option key={option} value={option}>{option}</option>
             ))}
-          </Select>
+          </select>
 
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" className="flex-1 h-9">
-              搜索
-            </Button>
+          <div className="flex gap-3">
+            <Button type="submit" className="flex-1">搜索</Button>
             <Button
               type="button"
-              size="sm"
               variant="outline"
-              className="h-9"
               onClick={() => {
                 setKeyword('');
                 setPage(1);
@@ -466,254 +415,151 @@ const HotspotManager: React.FC = () => {
             </Button>
           </div>
         </form>
-      </Card>
+      </div>
 
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-        <div className="flex items-center flex-wrap gap-3 tabular-nums">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 text-sm text-slate-500 dark:text-slate-400">
+        <div className="flex items-center flex-wrap gap-3">
           <span>共 {total} 条热点</span>
           <span>第 {page} / {totalPages} 页</span>
           <span>已选择 {selectedIds.length} 条</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleBatchAction('publish')}
-            disabled={batchLoading || selectedIds.length === 0}
-          >
+          <Button size="sm" variant="outline" onClick={() => handleBatchAction('publish')} disabled={batchLoading || selectedIds.length === 0}>
             {batchLoading ? '处理中...' : '批量发布'}
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleBatchAction('hide')}
-            disabled={batchLoading || selectedIds.length === 0}
-          >
+          <Button size="sm" variant="outline" onClick={() => handleBatchAction('hide')} disabled={batchLoading || selectedIds.length === 0}>
             {batchLoading ? '处理中...' : '批量隐藏'}
           </Button>
         </div>
       </div>
 
-      {/* Table */}
-      <Card className="overflow-hidden">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-4">
-            <ListSkeleton rows={5} />
-          </div>
+          <div className="p-10 text-center text-slate-500 dark:text-slate-400">加载中...</div>
         ) : items.length === 0 ? (
-          <EmptyState
-            icon={<Icons.TrendingUp className="w-5 h-5" />}
-            title="暂无热点数据"
-            description="可尝试清空筛选条件，或上传新的热点文章。"
-            action={
-              <Button size="sm" onClick={() => navigate('/admin/hotspots/upload')}>
-                <Icons.Upload className="w-3.5 h-3.5" />
-                上传热点
-              </Button>
-            }
-            className="border-0"
-          />
+          <div className="p-10 text-center text-slate-500 dark:text-slate-400">暂无热点数据</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] table-fixed">
-              <thead className="bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200/80 dark:border-slate-800">
+          <div className="overflow-x-auto lg:overflow-visible">
+            <table className="w-full min-w-[1040px] table-fixed">
+              <thead className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700">
                 <tr>
-                  <th className={`${TH} w-11`}>
+                  <th className={`${TH} w-12`}>
                     <input
                       type="checkbox"
                       checked={allCurrentPageSelected}
                       onChange={handleToggleAll}
-                      aria-label="全选本页"
-                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-primary-600 focus:ring-primary-500"
+                      className="h-4 w-4 rounded border-slate-300 text-cyan-500 focus:ring-cyan-400"
                     />
                   </th>
-                  <th className={`${TH} w-[35%]`}>热点</th>
+                  <th className={`${TH} w-[36%]`}>热点</th>
                   <th className={`${TH} w-[22%]`}>分类 / 来源</th>
-                  <th className={`${TH} w-[9%]`}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('heat_score')}
-                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-white transition-colors"
-                    >
+                  <th className={`${TH} w-[8%]`}>
+                    <button type="button" onClick={() => toggleSort('heat_score')} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200">
                       热度 {renderSortIcon('heat_score')}
                     </button>
                   </th>
-                  <th className={`${TH} w-[9%]`}>状态</th>
+                  <th className={`${TH} w-[8%]`}>状态</th>
                   <th className={`${TH} w-[14%]`}>
-                    <button
-                      type="button"
-                      onClick={() => toggleSort('published_at')}
-                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-white whitespace-nowrap transition-colors"
-                    >
+                    <button type="button" onClick={() => toggleSort('published_at')} className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200 whitespace-nowrap">
                       发布时间 {renderSortIcon('published_at')}
                     </button>
                   </th>
-                  <th className={`${TH} w-[11%] text-right`}>操作</th>
+                  <th className={`${TH} w-[12%] text-right`}>操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+              <tbody>
                 {sortedItems.map((item) => {
                   const sourceText = item.source_types?.length
                     ? item.source_types.join(' / ')
-                    : item.source_type || '—';
-                  const statusMeta = STATUS_META[item.status] || {
-                    label: item.status,
-                    tone: 'slate' as const,
-                  };
+                    : item.source_type || '-';
 
                   return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 align-top transition-colors"
-                    >
+                    <tr key={item.id} className="h-32 border-b border-slate-100 dark:border-slate-700 last:border-0 odd:bg-slate-50/60 dark:odd:bg-slate-900/20 hover:bg-cyan-50/50 dark:hover:bg-cyan-900/10 align-top transition-colors">
                       <td className={TD}>
                         <input
                           type="checkbox"
                           checked={selectedIds.includes(item.id)}
                           onChange={() => handleToggleOne(item.id)}
-                          aria-label={`选择 ${item.title}`}
-                          className="mt-1 h-4 w-4 rounded border-slate-300 dark:border-slate-700 text-primary-600 focus:ring-primary-500"
+                          className="mt-1 h-4 w-4 rounded border-slate-300 text-cyan-500 focus:ring-cyan-400"
                         />
                       </td>
                       <td className={TD}>
-                        <div className="space-y-1.5">
-                          <div className="font-medium text-slate-900 dark:text-slate-100 line-clamp-2 leading-snug">
-                            {item.title}
-                          </div>
-                          <div className="text-[11px] font-mono text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                            #{item.id} · 选题 {item.topic_date || '—'}
-                          </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                            {item.summary || '暂无摘要'}
-                          </div>
+                        <div className="space-y-2 min-h-[104px]">
+                          <div className="font-semibold text-slate-800 dark:text-slate-100 line-clamp-2 leading-6">{item.title}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">ID #{item.id} · 选题日期 {item.topic_date || '-'}</div>
+                          <div className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 leading-6">{item.summary || '暂无摘要'}</div>
                         </div>
                       </td>
                       <td className={TD}>
-                        <div className="space-y-1.5">
-                          <div className="text-xs font-medium text-slate-800 dark:text-slate-200 break-words">
-                            {item.primary_category || '未分类'}
-                          </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 break-words">
-                            来源：{sourceText}
-                          </div>
-                          <div className="flex flex-wrap gap-1">
-                            {(item.tags || []).length > 0 ? (
-                              item.tags.slice(0, 4).map((tag) => (
-                                <Badge key={tag} color="slate" className="text-[11px]">
-                                  #{tag}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-[11px] text-slate-400">无标签</span>
-                            )}
+                        <div className="space-y-2 min-h-[104px]">
+                          <div className="text-sm font-medium text-slate-700 dark:text-slate-200 break-words">{item.primary_category || '-'}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 break-words leading-5">来源：{sourceText}</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(item.tags || []).length > 0 ? item.tags.slice(0, 4).map((tag) => (
+                              <span key={tag} className="px-2 py-1 rounded-md text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                #{tag}
+                              </span>
+                            )) : <span className="text-xs text-slate-400">无标签</span>}
                           </div>
                         </div>
                       </td>
-                      <td className={`${TD} tabular-nums`}>
+                      <td className={`${TD} text-sm text-slate-700 dark:text-slate-200`}>
                         {editingStatsId === item.id ? (
-                          <div className="flex flex-col gap-1.5 max-w-[96px]">
+                          <div className="flex flex-col gap-2 max-w-[96px]">
                             <input
                               type="number"
                               value={editingHeatScore}
                               onChange={(e) => setEditingHeatScore(e.target.value)}
-                              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs focus:ring-2 focus:ring-primary-500/30 focus:outline-none"
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-sm"
                               min="0"
                             />
                             <div className="flex gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleSaveHeatScore(item.id)}
-                                disabled={savingStats}
-                                className="rounded bg-primary-600 px-2 py-0.5 text-[11px] text-white hover:bg-primary-700 disabled:opacity-50"
-                              >
-                                存
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingStatsId(null);
-                                  setEditingHeatScore('');
-                                }}
-                                className="rounded border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300"
-                              >
-                                取消
-                              </button>
+                              <button type="button" onClick={() => handleSaveHeatScore(item.id)} disabled={savingStats} className="rounded-md bg-cyan-500 px-2 py-1 text-xs text-white hover:bg-cyan-600 disabled:opacity-50">存</button>
+                              <button type="button" onClick={() => { setEditingStatsId(null); setEditingHeatScore(''); }} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:text-slate-300">取消</button>
                             </div>
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleStartEditHeatScore(item)}
-                            className="rounded-md bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-200/80 dark:hover:bg-slate-700 transition-colors"
-                            title="点击修改热度分数"
-                          >
+                          <button type="button" onClick={() => handleStartEditHeatScore(item)} className="rounded-lg bg-slate-50 px-3 py-1.5 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 whitespace-nowrap">
                             {item.heat_score}
                           </button>
                         )}
                       </td>
-                      <td className={`${TD} whitespace-nowrap`}>
-                        <StatusPill tone={statusMeta.tone} dot>
-                          {statusMeta.label}
-                        </StatusPill>
-                      </td>
-                      <td className={`${TD} text-xs text-slate-500 dark:text-slate-400 tabular-nums`}>
+                      <td className={`${TD} whitespace-nowrap`}>{getStatusBadge(item.status)}</td>
+                      <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                         {editingTimeId === item.id ? (
-                          <div className="flex flex-col gap-1.5 min-w-[176px]">
+                          <div className="flex flex-col gap-2 min-w-[180px]">
                             <input
                               type="datetime-local"
                               value={editingTimeValue}
                               onChange={(e) => setEditingTimeValue(e.target.value)}
-                              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs focus:ring-2 focus:ring-primary-500/30 focus:outline-none"
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-sm"
                             />
                             <div className="flex gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleSaveTime(item.id)}
-                                disabled={savingTime}
-                                className="rounded bg-primary-600 px-2 py-0.5 text-[11px] text-white hover:bg-primary-700 disabled:opacity-50"
-                              >
-                                存
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingTimeId(null);
-                                  setEditingTimeValue('');
-                                }}
-                                className="rounded border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300"
-                              >
-                                取消
-                              </button>
+                              <button type="button" onClick={() => handleSaveTime(item.id)} disabled={savingTime} className="rounded-md bg-cyan-500 px-2 py-1 text-xs text-white hover:bg-cyan-600 disabled:opacity-50">存</button>
+                              <button type="button" onClick={() => { setEditingTimeId(null); setEditingTimeValue(''); }} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:text-slate-300">取消</button>
                             </div>
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleStartEditTime(item)}
-                            className="text-left leading-5 hover:text-primary-600 dark:hover:text-primary-400 hover:underline transition-colors"
-                            title="点击编辑发布时间"
-                          >
+                          <button type="button" onClick={() => handleStartEditTime(item)} className="text-left leading-5 hover:text-cyan-600 dark:hover:text-cyan-400">
                             {formatDate(item.published_at)}
                           </button>
                         )}
                       </td>
                       <td className={TD}>
-                        <div className="flex flex-col items-end gap-1.5">
+                        <div className="flex flex-col items-end gap-2">
                           <Link
                             to={`/admin/hotspots/${item.id}/edit`}
-                            className="inline-flex items-center justify-center h-7 px-2.5 rounded-lg text-xs font-medium border border-primary-200/80 dark:border-primary-800/60 bg-primary-50/70 dark:bg-primary-950/50 text-primary-700 dark:text-primary-300 hover:bg-primary-100/70 dark:hover:bg-primary-950 transition-colors"
+                            className="w-20 rounded-lg bg-cyan-500 px-3 py-1.5 text-center text-sm text-white hover:bg-cyan-600 transition-colors"
                           >
                             编辑
                           </Link>
-                          <Button
-                            size="sm"
-                            variant="ghost"
+                          <button
+                            type="button"
                             onClick={() => handleDelete(item.id, item.title)}
-                            className="h-7 px-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
+                            className="w-20 rounded-lg bg-red-50 border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-900/30"
                           >
                             删除
-                          </Button>
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -723,37 +569,32 @@ const HotspotManager: React.FC = () => {
             </table>
           </div>
         )}
-      </Card>
+      </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
+        <div className="flex justify-center gap-2">
+          <button
             disabled={page <= 1}
             onClick={() => {
               const nextPage = Math.max(1, page - 1);
               setPage(nextPage);
               updateParams({ page: String(nextPage) });
             }}
+            className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm disabled:opacity-40"
           >
             上一页
-          </Button>
-          <span className="px-3 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-            第 {page} / {totalPages} 页
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
+          </button>
+          <button
             disabled={page >= totalPages}
             onClick={() => {
               const nextPage = Math.min(totalPages, page + 1);
               setPage(nextPage);
               updateParams({ page: String(nextPage) });
             }}
+            className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm disabled:opacity-40"
           >
             下一页
-          </Button>
+          </button>
         </div>
       )}
 

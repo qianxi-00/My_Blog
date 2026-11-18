@@ -1,461 +1,244 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Icons } from '../components/Icons';
-import { Button, Badge, StatusPill, EmptyState } from '../components/Shared';
-import { Skeleton, CardSkeleton } from '../components/Skeleton';
-import Avatar from '../components/Avatar';
+import { Card, Button, Badge } from '../components/Shared';
 import { getArticles, ArticleListItem, getTags, Tag } from '../api/articles';
 import { getHotspots, HotTopicListItem } from '../api/hotspots';
-import { getForumThreads, ForumThreadListItem } from '../api/forum';
-import {
-  getPublicSettings,
-  getPublicSiteOverview,
-  PublicSettings,
-  PublicSiteOverview,
-} from '../api/stats';
+import { getPublicSettings, PublicSettings } from '../api/stats';
 import { getFileUrl } from '../api/config';
 import { subscribe } from '../api/subscribe';
 import { errorText } from '../utils/errors';
-import { buildBilibiliUrl, buildGithubUrl, safeExternalUrl } from '../utils/urls';
-import { formatRelativeTimeZh } from '../utils/helpers';
-
-const formatRelativeTime = formatRelativeTimeZh;
 
 const Home: React.FC = () => {
   const [articles, setArticles] = useState<ArticleListItem[]>([]);
   const [latestHotspots, setLatestHotspots] = useState<HotTopicListItem[]>([]);
-  const [recentThreads, setRecentThreads] = useState<ForumThreadListItem[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [settings, setSettings] = useState<PublicSettings | null>(null);
-  const [overview, setOverview] = useState<PublicSiteOverview | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // 订阅状态
   const [subscribeEmail, setSubscribeEmail] = useState('');
   const [subscribing, setSubscribing] = useState(false);
   const [subscribeStatus, setSubscribeStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [subscribeMessage, setSubscribeMessage] = useState('');
 
   useEffect(() => {
-    let active = true;
     const fetchData = async () => {
       try {
-        const [articlesRes, hotspotsRes, threadsRes, settingsRes, tagsRes, overviewRes] =
-          await Promise.allSettled([
-            getArticles({ page: 1, page_size: 4, status: 'published' }),
-            getHotspots({ page: 1, page_size: 6, status: 'published', sort: 'latest', admin: false }),
-            getForumThreads({ page: 1, page_size: 5, sort: 'latest_activity' }),
-            getPublicSettings(),
-            getTags(),
-            getPublicSiteOverview(),
-          ]);
-
-        if (!active) return;
-
-        if (articlesRes.status === 'fulfilled') {
-          setArticles(articlesRes.value.data || []);
-        }
-        if (hotspotsRes.status === 'fulfilled') {
-          setLatestHotspots((hotspotsRes.value.data || []).slice(0, 6));
-        }
-        if (threadsRes.status === 'fulfilled') {
-          setRecentThreads((threadsRes.value.data || []).slice(0, 5));
-        }
-        if (settingsRes.status === 'fulfilled') {
-          setSettings(settingsRes.value);
-        }
-        if (tagsRes.status === 'fulfilled') {
-          setTags((tagsRes.value || []).slice(0, 14));
-        }
-        if (overviewRes.status === 'fulfilled') {
-          setOverview(overviewRes.value);
-        }
+        const [articlesRes, hotspotsRes, settingsRes, tagsRes] = await Promise.all([
+          getArticles({ page: 1, page_size: 5, status: 'published' }),
+          getHotspots({ page: 1, page_size: 8, status: 'published', sort: 'latest', admin: false }),
+          getPublicSettings(),
+          getTags(),
+        ]);
+        setArticles(articlesRes.data);
+        setLatestHotspots((hotspotsRes.data || []).slice(0, 8));
+        setSettings(settingsRes);
+        setTags(tagsRes.slice(0, 8)); // 最多显示8个标签
+      } catch (error) {
+        console.error('获取数据失败:', error);
       } finally {
-        if (active) setLoading(false);
+        setLoading(false);
       }
     };
-
     fetchData();
-    return () => {
-      active = false;
-    };
   }, []);
 
-  const githubUrl = buildGithubUrl(settings?.contact?.github);
-  const bilibiliUrl = buildBilibiliUrl(settings?.contact?.bilibili);
-  const twitterUrl = safeExternalUrl(settings?.contact?.twitter);
-
-  const handleSubscribe = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!subscribeEmail.trim()) return;
-    setSubscribing(true);
-    setSubscribeStatus('idle');
-    setSubscribeMessage('');
-    try {
-      const result = await subscribe(subscribeEmail.trim());
-      if (result.success) {
-        setSubscribeStatus('success');
-        setSubscribeMessage(result.message || '订阅成功，感谢关注！');
-        setSubscribeEmail('');
-      } else {
-        setSubscribeStatus('error');
-        setSubscribeMessage(result.message || '订阅失败，请稍后重试');
-      }
-    } catch (error: any) {
-      setSubscribeStatus('error');
-      setSubscribeMessage(errorText(error, '订阅失败'));
-    } finally {
-      setSubscribing(false);
-    }
-  };
-
-  const metrics = [
-    {
-      label: '技术文章',
-      value: overview?.articles_count,
-      to: '/articles',
-      icon: Icons.FileText,
-      hint: '工程笔记与长文归档',
-    },
-    {
-      label: 'AI 热点',
-      value: overview?.hotspots_count,
-      to: '/hotspots',
-      icon: Icons.TrendingUp,
-      hint: '论文精读与前沿动态',
-    },
-    {
-      label: 'Prompt 库',
-      value: overview?.prompts_count,
-      to: '/prompts',
-      icon: Icons.Sparkles,
-      hint: '可复用的提示词模板',
-    },
-    {
-      label: '社区讨论',
-      value: overview?.threads_count,
-      to: '/forum',
-      icon: Icons.MessagesSquare,
-      hint: '开放问答与技术交流',
-    },
-  ];
-
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-14 space-y-16">
-      {/* Editorial Hero */}
-      <section className="border-b border-slate-200/80 dark:border-slate-800 pb-12">
-        <div className="max-w-3xl space-y-5">
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusPill tone="emerald" dot>
-              持续更新 · AI 工程与开放讨论
-            </StatusPill>
-            <span className="text-xs font-mono text-slate-400 dark:text-slate-500">
-              {settings?.site_title || 'DevLog'}
-            </span>
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-20">
+
+      {/* Personal Hero Section */}
+      <section className="flex flex-col md:flex-row items-center gap-10 md:gap-16 mt-8">
+        <div className="flex-1 text-center md:text-left space-y-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-colors">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+            欢迎来到我的技术博客
           </div>
-
-          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-slate-900 dark:text-white leading-[1.15]">
-            记录工程实践、AI 论文精读与技术社区的日常沉淀
+          <h1 className="text-4xl md:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-tight transition-colors">
+            你好，我是 <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-600">
+              千禧
+            </span>
           </h1>
-
-          <p className="text-base sm:text-lg text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl">
-            {settings?.site_description ||
-              '你好，我是千禧。这里聚焦大模型应用架构、全栈工程细节、每日 AI 情报追踪，以及面向所有开发者的创作与问答社区。'}
+          <p className="text-lg text-slate-500 dark:text-slate-400 leading-relaxed max-w-2xl mx-auto md:mx-0 transition-colors">
+            {settings?.site_description || '你好，我是千禧，一名专注于 AI 大模型研发与应用的从业者。'}
           </p>
-
-          <div className="flex flex-wrap items-center gap-3 pt-2">
+          <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 pt-2">
             <Link to="/articles">
-              <Button size="lg">
-                <span>阅读技术文章</span>
-                <Icons.ArrowRight className="w-4 h-4" />
+              <Button size="lg" className="rounded-full">
+                阅读文章目录
+                <Icons.BookOpen className="w-4 h-4 ml-2" />
               </Button>
             </Link>
-            <Link to="/forum">
-              <Button size="lg" variant="outline">
-                <Icons.MessagesSquare className="w-4 h-4" />
-                <span>进入技术社区</span>
+            <Link to="/archives">
+              <Button size="lg" variant="outline" className="rounded-full">
+                技术栈归档
               </Button>
             </Link>
-            <Link to="/write">
-              <Button size="lg" variant="ghost">
-                <Icons.Pencil className="w-4 h-4" />
-                <span>我要投稿</span>
-              </Button>
-            </Link>
+            <div className="flex gap-4 ml-4 border-l border-slate-200 dark:border-slate-700 pl-4 transition-colors">
+              {settings?.contact?.github && (
+                <a href={settings.contact.github} target="_blank" rel="noopener noreferrer" className="text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+                  <Icons.Github className="w-5 h-5" />
+                </a>
+              )}
+              {settings?.contact?.twitter && (
+                <a href={settings.contact.twitter} target="_blank" rel="noopener noreferrer" className="text-slate-400 dark:text-slate-500 hover:text-primary-500 dark:hover:text-primary-400 transition-colors">
+                  <Icons.Twitter className="w-5 h-5" />
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
 
-            {(githubUrl || bilibiliUrl || twitterUrl) && (
-              <div className="flex items-center gap-2 ml-auto sm:ml-2 pl-3 border-l border-slate-200 dark:border-slate-800">
-                {githubUrl && (
-                  <a
-                    href={githubUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="GitHub"
-                    aria-label="GitHub"
-                    className="p-2 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <Icons.Github className="w-4 h-4" />
-                  </a>
-                )}
-                {bilibiliUrl && (
-                  <a
-                    href={bilibiliUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Bilibili"
-                    aria-label="Bilibili"
-                    className="p-2 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <Icons.Globe className="w-4 h-4" />
-                  </a>
-                )}
-                {twitterUrl && (
-                  <a
-                    href={twitterUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Twitter / X"
-                    aria-label="Twitter"
-                    className="p-2 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <Icons.Twitter className="w-4 h-4" />
-                  </a>
-                )}
+        {/* Abstract Avatar / Graphic */}
+        <div className="relative w-64 h-64 md:w-80 md:h-80 flex-shrink-0">
+          <div className="absolute inset-0 bg-gradient-to-tr from-cyan-100 to-purple-100 dark:from-cyan-900/30 dark:to-purple-900/30 rounded-full blur-3xl opacity-70 animate-pulse transition-all" style={{ animationDuration: '6s' }}></div>
+          <div className="relative w-full h-full rounded-full bg-white dark:bg-slate-800 border-4 border-white dark:border-slate-700 shadow-2xl dark:shadow-slate-900/50 overflow-hidden flex items-center justify-center transition-all">
+            {settings?.admin_avatar ? (
+              <img
+                src={getFileUrl(settings.admin_avatar)}
+                alt="头像"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-primary-400 to-indigo-500 flex items-center justify-center">
+                <span className="text-6xl font-bold text-white">千</span>
               </div>
             )}
           </div>
-        </div>
-
-        {/* Live Metrics Strip */}
-        <div className="mt-10 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {metrics.map((m) => {
-            const Icon = m.icon;
-            return (
-              <Link
-                key={m.to}
-                to={m.to}
-                className="group rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
-              >
-                <div className="flex items-center justify-between text-slate-400 dark:text-slate-500">
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                    {m.label}
-                  </span>
-                  <Icon className="w-4 h-4 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors" />
-                </div>
-                <div className="mt-2">
-                  {loading && m.value === undefined ? (
-                    <Skeleton className="h-7 w-14" />
-                  ) : (
-                    <span className="text-2xl font-semibold tracking-tight tabular-nums text-slate-900 dark:text-white">
-                      {m.value ?? 0}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500 truncate">
-                  {m.hint}
-                </p>
-              </Link>
-            );
-          })}
+          {/* Floating badges */}
+          <div className="absolute -bottom-4 -right-4 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 flex items-center gap-2 animate-bounce transition-all delay-100" style={{ animationDuration: '6s' }}>
+            <div className="bg-blue-100 dark:bg-blue-900/30 p-1.5 rounded-lg text-blue-600 dark:text-blue-400"><Icons.Code className="w-4 h-4" /></div>
+            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">编程开发</div>
+          </div>
+          <div className="absolute top-0 -left-4 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border border-slate-100 dark:border-slate-700 flex items-center gap-2 animate-bounce transition-all delay-100" style={{ animationDuration: '7s' }}>
+            <div className="bg-purple-100 dark:bg-purple-900/30 p-1.5 rounded-lg text-purple-600 dark:text-purple-400"><Icons.Bot className="w-4 h-4" /></div>
+            <div className="text-xs font-bold text-slate-700 dark:text-slate-200">AI 研究</div>
+          </div>
         </div>
       </section>
 
-      {/* Latest Articles */}
-      <section className="space-y-6">
-        <div className="flex items-end justify-between border-b border-slate-200/80 dark:border-slate-800 pb-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
-              最新文章
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              来自站长与社区创作者的精选长文
-            </p>
-          </div>
-          <Link
-            to="/articles"
-            className="inline-flex items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-          >
-            <span>全部文章</span>
-            <Icons.ArrowRight className="w-3.5 h-3.5" />
-          </Link>
+      {/* Blog Post List */}
+      <section>
+        <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100 dark:border-slate-700 transition-colors">
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2 transition-colors">
+            <Icons.FileText className="w-5 h-5 text-slate-400 dark:text-slate-500" />
+            最新发布
+          </h2>
+          <Link to="/articles" className="text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300">浏览目录 &rarr;</Link>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <CardSkeleton key={i} />
-            ))}
-          </div>
+          <div className="text-center py-10 text-slate-400 dark:text-slate-500">加载中...</div>
         ) : articles.length === 0 ? (
-          <EmptyState
-            icon={<Icons.FileText className="w-5 h-5" />}
-            title="暂无已发布文章"
-            description="第一篇精选文章正在撰写中"
-          />
+          <div className="text-center py-10 text-slate-400 dark:text-slate-500">暂无文章</div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 stagger-in">
+          <div className="space-y-8">
             {articles.map((article, idx) => (
-              <Link
-                key={article.id}
-                to={`/articles/${article.id}`}
-                className="group flex flex-col rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-hidden hover:border-slate-300 dark:hover:border-slate-700 transition-colors card-lift"
-              >
-                <div className="aspect-[16/9] bg-slate-100 dark:bg-slate-800/80 relative overflow-hidden border-b border-slate-200/60 dark:border-slate-800">
+              <article key={article.id} className="flex flex-col md:flex-row gap-6 group cursor-pointer rounded-2xl border border-slate-100 dark:border-slate-700/60 bg-white/70 dark:bg-slate-800/60 backdrop-blur-sm p-4 md:p-5 shadow-sm hover:shadow-lg hover:-translate-y-0.5 hover:border-primary-100 dark:hover:border-primary-700 transition-all duration-300">
+                <div className="md:w-1/3 aspect-video rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-800 relative transition-colors">
                   {article.cover_image ? (
                     <img
                       src={getFileUrl(article.cover_image)}
                       alt={article.title}
+                      // 首图在视口内要立刻加载；从第二张起懒加载，否则一页封面图能拉 7MB+
                       loading={idx === 0 ? 'eager' : 'lazy'}
                       decoding="async"
-                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100/80 dark:bg-slate-900 text-slate-400 dark:text-slate-600">
-                      <span className="text-3xl font-semibold tracking-tight text-slate-300 dark:text-slate-700 select-none">
-                        {(article.category || 'Dev').slice(0, 6)}
+                    // 无封面时用本地渐变占位（分类名首字），不再请求 picsum 外链
+                    <div className="w-full h-full bg-gradient-to-br from-cyan-100 to-purple-100 dark:from-cyan-900/40 dark:to-purple-900/40 flex items-center justify-center transition-transform duration-500 group-hover:scale-105">
+                      <span className="text-3xl font-bold text-cyan-600/70 dark:text-cyan-200/80 select-none">
+                        {(article.category || '其它').charAt(0)}
                       </span>
                     </div>
                   )}
-                  <div className="absolute top-3 left-3">
-                    <Badge color="slate" className="bg-white/90 dark:bg-slate-950/85 backdrop-blur-sm">
-                      {article.category || '技术'}
-                    </Badge>
+                  <div className="absolute top-2 left-2">
+                    <span className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 shadow-sm transition-colors">
+                      {article.category || '其它'}
+                    </span>
                   </div>
                 </div>
-
-                <div className="p-5 flex-1 flex flex-col">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
-                    <span>
-                      {article.published_at
-                        ? new Date(article.published_at).toLocaleDateString('zh-CN')
-                        : ''}
-                    </span>
-                    <span>·</span>
-                    <span>{article.read_time_minutes || 5} 分钟阅读</span>
-                    <span className="inline-flex items-center gap-1 ml-auto tabular-nums">
-                      <Icons.Eye className="w-3.5 h-3.5" />
-                      {article.view_count}
-                    </span>
-                    <span className="inline-flex items-center gap-1 tabular-nums">
-                      <Icons.Heart className="w-3.5 h-3.5" />
-                      {article.like_count}
-                    </span>
+                <div className="flex-1 py-2">
+                  <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400 mb-2 font-medium transition-colors">
+                    <span>{article.published_at ? new Date(article.published_at).toLocaleDateString('zh-CN') : ''}</span>
+                    <span className="w-1 h-1 bg-slate-400 dark:bg-slate-600 rounded-full"></span>
+                    <span>{article.read_time_minutes || 5} min 阅读</span>
+                    <span className="w-1 h-1 bg-slate-400 dark:bg-slate-600 rounded-full"></span>
+                    <span className="flex items-center gap-1"><Icons.Eye className="w-3 h-3" />{article.view_count}</span>
+                    <span className="flex items-center gap-1"><Icons.Heart className="w-3 h-3" />{article.like_count}</span>
                   </div>
-
-                  <h3 className="mt-2.5 text-base font-semibold text-slate-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors line-clamp-2 leading-snug">
-                    {article.title}
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors leading-tight">
+                    <Link to={`/articles/${article.id}`}>{article.title}</Link>
                   </h3>
-
-                  {article.summary && (
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                      {article.summary}
-                    </p>
-                  )}
-
-                  {article.tags?.length > 0 && (
-                    <div className="mt-auto pt-4 flex flex-wrap gap-1.5">
-                      {article.tags.slice(0, 3).map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="text-[11px] font-mono text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/70 px-2 py-0.5 rounded border border-slate-200/70 dark:border-slate-700/70"
-                        >
-                          #{tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed mb-4 line-clamp-2 transition-colors">
+                    {article.summary}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {article.tags.map(tag => (
+                      <span key={tag.id} className="text-xs text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded border border-slate-100 dark:border-slate-700 transition-colors">#{tag.name}</span>
+                    ))}
+                  </div>
                 </div>
-              </Link>
+              </article>
             ))}
           </div>
         )}
       </section>
 
-      {/* AI Hotspots */}
-      <section className="space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800 pb-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
-              AI 热点追踪
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              自动化研读管线精选的前沿模型与系统论文拆解
-            </p>
-          </div>
-          <div className="flex items-center gap-4 text-sm">
-            <Link
-              to="/ai-daily"
-              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
-            >
-              AI 日报
-            </Link>
-            <Link
-              to="/leaderboard"
-              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
-            >
-              模型榜
-            </Link>
-            <Link
-              to="/hotspots"
-              className="inline-flex items-center gap-1 font-medium text-slate-600 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-            >
-              <span>热点频道</span>
-              <Icons.ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
+      {/* Latest Hotspots */}
+      <section>
+        <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100 dark:border-slate-700 transition-colors">
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2 transition-colors">
+            <Icons.TrendingUp className="w-5 h-5 text-rose-400 dark:text-rose-500" />
+            最新热点
+          </h2>
+          <Link to="/hotspots" className="text-sm font-medium text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300">查看热点频道 &rarr;</Link>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <CardSkeleton key={i} />
-            ))}
-          </div>
+          <div className="text-center py-10 text-slate-400 dark:text-slate-500">加载中...</div>
         ) : latestHotspots.length === 0 ? (
-          <EmptyState
-            icon={<Icons.TrendingUp className="w-5 h-5" />}
-            title="暂无已发布热点"
-          />
+          <div className="text-center py-10 text-slate-400 dark:text-slate-500">暂无热点</div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {latestHotspots.map((item, idx) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+            {latestHotspots.map((item, index) => (
               <Link
                 key={item.id}
                 to={`/hotspots/${item.id}`}
-                className="group rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition-colors card-lift"
+                className="group rounded-2xl border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm hover:shadow-lg transition-all overflow-hidden"
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {idx < 3 && (
-                        <Badge color="primary" className="font-mono text-[10px]">
-                          TOP {idx + 1}
-                        </Badge>
+                <div className="h-1.5 bg-gradient-to-r from-rose-400 via-primary-500 to-cyan-400" />
+                <div className="p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex flex-wrap gap-2">
+                      {index < 3 && (
+                        <span className="px-2 py-1 rounded-md bg-rose-50 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">TOP {index + 1}</span>
                       )}
-                      <Badge color="slate" className="truncate">
-                        {item.primary_category || '未分类'}
-                      </Badge>
+                      <span className="px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{item.primary_category || '未分类'}</span>
                     </div>
-                    <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 shrink-0">
-                      {item.published_at
-                        ? new Date(item.published_at).toLocaleDateString('zh-CN')
-                        : item.topic_date}
-                    </span>
+                    <span className="text-slate-400 dark:text-slate-500">{item.published_at ? new Date(item.published_at).toLocaleDateString('zh-CN') : item.topic_date}</span>
                   </div>
-
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white line-clamp-2 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors leading-snug">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white line-clamp-2 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                     {item.title}
                   </h3>
-
-                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-3 leading-relaxed">
-                    {item.summary || '点击查看深度解析与结构化梳理'}
+                  <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3 min-h-[60px] transition-colors">
+                    {item.summary || '暂无摘要'}
                   </p>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
-                  <span>{item.source_count || 0} 条信息源</span>
-                  <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 group-hover:text-primary-600 dark:group-hover:text-primary-400 font-medium">
-                    深读 <Icons.ArrowRight className="w-3 h-3" />
-                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(item.tags || []).slice(0, 3).map((tag) => (
+                      <span key={tag} className="px-2 py-1 rounded-md text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500 pt-1">
+                    <span>来源 {item.source_count || 0}</span>
+                    <span className="inline-flex items-center gap-1 font-semibold text-primary-600 dark:text-primary-400">
+                      阅读详情 <Icons.ArrowRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
                 </div>
               </Link>
             ))}
@@ -463,233 +246,137 @@ const Home: React.FC = () => {
         )}
       </section>
 
-      {/* Latest Community Discussions */}
-      <section className="space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200/80 dark:border-slate-800 pb-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
-              最新社区讨论
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              技术提问、经验交流、Bug 探讨与精选回答
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link to="/forum/new">
-              <Button size="sm" variant="outline">
-                <Icons.Plus className="w-3.5 h-3.5" />
-                <span>发起讨论</span>
-              </Button>
-            </Link>
-            <Link
-              to="/forum"
-              className="inline-flex items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-            >
-              <span>进入社区</span>
-              <Icons.ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
-
-        {loading ? (
-          <CardSkeleton />
-        ) : recentThreads.length === 0 ? (
-          <EmptyState
-            icon={<Icons.MessagesSquare className="w-5 h-5" />}
-            title="社区讨论区暂无主题"
-            description="成为第一个发起技术讨论的开发者"
-            action={
-              <Link to="/forum/new">
-                <Button size="sm">发起第一个主题</Button>
-              </Link>
-            }
-          />
-        ) : (
-          <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 divide-y divide-slate-200/70 dark:divide-slate-800 overflow-hidden">
-            {recentThreads.map((t) => {
-              const displayAuthor = t.author_display_name || t.author_nickname;
-              return (
-                <div
-                  key={t.id}
-                  className="px-4 sm:px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
-                >
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    {t.username ? (
-                      <Link
-                        to={`/user/${encodeURIComponent(t.username)}`}
-                        className="shrink-0 mt-0.5"
-                        title={displayAuthor}
-                      >
-                        <Avatar
-                          name={displayAuthor}
-                          avatarUrl={t.author_avatar || undefined}
-                          className="w-8 h-8 text-xs"
-                        />
-                      </Link>
-                    ) : (
-                      <Avatar
-                        name={displayAuthor}
-                        avatarUrl={t.author_avatar || undefined}
-                        className="w-8 h-8 text-xs mt-0.5 shrink-0"
-                      />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {t.is_pinned && (
-                          <Badge color="amber" className="text-[10px] py-0">
-                            <Icons.Pin className="w-2.5 h-2.5" /> 置顶
-                          </Badge>
-                        )}
-                        {t.is_solved && (
-                          <Badge color="emerald" className="text-[10px] py-0">
-                            <Icons.CheckCircle2 className="w-2.5 h-2.5" /> 已解决
-                          </Badge>
-                        )}
-                        {t.is_featured && (
-                          <Badge color="primary" className="text-[10px] py-0">
-                            精华
-                          </Badge>
-                        )}
-                        {t.category_name && (
-                          <Badge color="slate" className="text-[10px] py-0">
-                            {t.category_name}
-                          </Badge>
-                        )}
-                        <Link
-                          to={`/forum/threads/${t.id}`}
-                          className="text-sm font-medium text-slate-900 dark:text-slate-100 hover:text-primary-600 dark:hover:text-primary-400 transition-colors truncate"
-                        >
-                          {t.title}
-                        </Link>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
-                        <span>{displayAuthor}</span>
-                        <span>·</span>
-                        <span>{formatRelativeTime(t.last_post_at || t.created_at)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 text-xs text-slate-400 dark:text-slate-500 shrink-0 tabular-nums">
-                    <span className="inline-flex items-center gap-1" title="点赞">
-                      <Icons.ThumbsUp className="w-3.5 h-3.5" />
-                      {t.like_count || 0}
-                    </span>
-                    <span className="inline-flex items-center gap-1" title="回复">
-                      <Icons.MessageSquare className="w-3.5 h-3.5" />
-                      {t.reply_count}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* Bottom: Newsletter + Tags & Navigation */}
+      {/* Bottom Section: Compact but Balanced */}
       <section className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-3 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 sm:p-8 flex flex-col justify-between gap-6">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary-600 dark:text-primary-400">
-              <Icons.Mail className="w-3.5 h-3.5" />
-              <span>周刊订阅</span>
-            </div>
-            <h3 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
-              获取精选文章与 AI 深度动态推送
-            </h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-lg">
-              每周精选 AI 工程实践、开源工具评测与系统架构笔记直达收件箱，无广告、支持随时一键退订。
-            </p>
-          </div>
+        {/* Left: Newsletter Subscription */}
+        <div className="lg:col-span-3">
+          <div className="relative rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 p-6 md:p-8 h-full flex flex-col justify-center gap-6 transition-colors">
+            <div className="absolute inset-0 opacity-[0.02] dark:opacity-[0.05] pointer-events-none bg-[radial-gradient(#0f172a_1px,transparent_1px)] dark:bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:24px_24px]"></div>
 
-          <form onSubmit={handleSubscribe} className="space-y-3">
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative z-10 flex flex-col md:flex-row items-start gap-6">
+              <div className="w-14 h-14 rounded-2xl bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 flex items-center justify-center shadow-sm flex-shrink-0 ring-4 ring-primary-50 dark:ring-primary-900/20 transition-all">
+                <Icons.Sparkles className="w-7 h-7" />
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-xl font-black text-slate-800 dark:text-white leading-none transition-colors">周刊订阅</h3>
+                <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed max-w-md transition-colors">
+                  每周一期，我会挑选最精华的 AI 动态、编程实战和深度思考，拒绝在信息洪流中迷失。
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1 font-medium italic">
+                  {['AI 工具测评', '编程实战总结', '独家源码分享'].map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500 transition-colors">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary-400"></div>
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row gap-2 transition-all">
               <div className="relative flex-1">
-                <Icons.Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="email"
-                  required
                   value={subscribeEmail}
                   onChange={(e) => setSubscribeEmail(e.target.value)}
-                  placeholder="输入你的邮箱地址..."
-                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+                  placeholder="请输入您的邮箱地址..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border-none bg-transparent text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-0 text-sm font-medium transition-colors"
                 />
+                <Icons.Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400 dark:text-slate-500" />
               </div>
-              <Button
-                type="submit"
-                size="lg"
+              <button
+                onClick={async () => {
+                  if (!subscribeEmail.trim()) return;
+                  setSubscribing(true);
+                  setSubscribeStatus('idle');
+                  try {
+                    const result = await subscribe(subscribeEmail);
+                    if (result.success) {
+                      setSubscribeStatus('success');
+                      setSubscribeMessage(result.message);
+                      setSubscribeEmail('');
+                    } else {
+                      setSubscribeStatus('error');
+                      setSubscribeMessage(result.message);
+                    }
+                  } catch (error: any) {
+                    setSubscribeStatus('error');
+                    setSubscribeMessage(errorText(error, '订阅失败'));
+                  } finally {
+                    setSubscribing(false);
+                  }
+                }}
                 disabled={subscribing || subscribeStatus === 'success'}
-                className="sm:w-auto w-full shrink-0"
+                className={`px-8 py-2.5 rounded-xl text-sm font-black transition-all flex items-center justify-center gap-2 min-w-[120px] shadow-sm active:scale-95 ${subscribeStatus === 'success'
+                  ? 'bg-emerald-500 text-white cursor-default'
+                  : 'bg-slate-900 dark:bg-primary-600 hover:bg-slate-800 dark:hover:bg-primary-700 text-white'
+                  }`}
               >
-                {subscribing
-                  ? '提交中...'
-                  : subscribeStatus === 'success'
-                  ? '已订阅'
-                  : '订阅更新'}
-              </Button>
+                {subscribing ? <Icons.RefreshCw className="w-4 h-4 animate-spin" /> : subscribeStatus === 'success' ? <Icons.Check className="w-4 h-4" /> : <Icons.Send className="w-4 h-4" />}
+                {subscribing ? '提交中' : subscribeStatus === 'success' ? '已订阅' : '立即订阅'}
+              </button>
             </div>
-            {subscribeStatus !== 'idle' && subscribeMessage && (
-              <p
-                className={`text-xs ${
-                  subscribeStatus === 'success'
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}
-              >
-                {subscribeMessage}
-              </p>
+
+            {subscribeStatus === 'error' && (
+              <p className="text-red-500 dark:text-red-400 text-xs text-center font-medium bg-red-50 dark:bg-red-900/20 py-1 rounded-lg">{subscribeMessage}</p>
             )}
-          </form>
+
+            <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-200/40 dark:border-slate-700/40 transition-colors">
+              <span className="font-medium">订阅后只接收精选更新</span>
+              <div className="flex items-center gap-2 opacity-60">
+                <Icons.Check className="w-3.5 h-3.5 text-emerald-500" />
+                <span>随时一键取消</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="lg:col-span-2 flex flex-col gap-5">
-          <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 flex-1">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3 flex items-center gap-1.5">
-              <Icons.Tags className="w-3.5 h-3.5" />
-              <span>热门标签</span>
+        {/* Right: Sidebar */}
+        <div className="lg:col-span-2 flex flex-col gap-4">
+          {/* Popular Tags */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-6 shadow-sm flex-1 transition-all">
+            <h4 className="text-[11px] font-black text-slate-300 dark:text-slate-600 uppercase tracking-[0.2em] mb-4 flex items-center gap-2 transition-colors">
+              <Icons.Tags className="w-4 h-4 text-rose-400 dark:text-rose-500" />
+              热门标签
             </h4>
-            <div className="flex flex-wrap gap-1.5">
-              {tags.length > 0 ? (
-                tags.map((tag) => (
-                  <Link
-                    key={tag.id}
-                    to={`/articles?tag=${encodeURIComponent(tag.name)}`}
-                    className="px-2.5 py-1 rounded-md text-xs font-mono bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/70 hover:border-primary-400 dark:hover:border-primary-500 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-                  >
-                    #{tag.name}
-                  </Link>
-                ))
-              ) : (
-                <span className="text-xs text-slate-400">暂无标签</span>
-              )}
+            <div className="flex flex-wrap gap-2">
+              {tags.length > 0 ? tags.map(tag => (
+                <Link
+                  key={tag.id}
+                  to={`/articles?tag=${tag.name}`}
+                  className="px-3 py-1 rounded-lg text-xs font-bold bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-300 border border-slate-100 dark:border-slate-600 hover:bg-rose-50 dark:hover:bg-rose-900/30 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-200 dark:hover:border-rose-800 transition-all"
+                >
+                  #{tag.name}
+                </Link>
+              )) : <span className="text-slate-300 dark:text-slate-600 text-sm">暂无标签</span>}
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3 flex items-center gap-1.5">
-              <Icons.Compass className="w-3.5 h-3.5" />
-              <span>快速直达</span>
+          {/* Quick Links */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 p-6 shadow-sm transition-all">
+            <h4 className="text-[11px] font-black text-slate-300 dark:text-slate-600 uppercase tracking-[0.2em] mb-4 flex items-center gap-2 transition-colors">
+              <Icons.Link className="w-4 h-4 text-indigo-400 dark:text-indigo-500" />
+              导航入口
             </h4>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-3">
               {[
-                { to: '/articles', icon: Icons.FileText, label: '文章目录' },
-                { to: '/archives', icon: Icons.Archive, label: '时间归档' },
-                { to: '/ai-daily', icon: Icons.Activity, label: 'AI 日报' },
-                { to: '/prompts', icon: Icons.Bot, label: 'Prompt 库' },
-              ].map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.to}
-                    to={item.to}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200/70 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 text-xs font-medium text-slate-700 dark:text-slate-300 transition-colors"
-                  >
-                    <Icon className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                );
-              })}
+                { to: '/articles', icon: Icons.FileText, label: '全部文章', bg: 'bg-blue-50 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400' },
+                { to: '/hotspots', icon: Icons.TrendingUp, label: 'AI 热点', bg: 'bg-rose-50 dark:bg-rose-900/30', text: 'text-rose-600 dark:text-rose-400' },
+                { to: '/archives', icon: Icons.Archive, label: '技术栈归档', bg: 'bg-amber-50 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400' },
+                { to: '/prompts', icon: Icons.Bot, label: '提示词库', bg: 'bg-purple-50 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400' },
+                { to: '/articles', icon: Icons.BookOpen, label: '精选文章', bg: 'bg-emerald-50 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400' }
+              ].map((item, idx) => (
+                <Link
+                  key={idx}
+                  to={item.to}
+                  className="flex items-center gap-3 p-2 rounded-xl border border-slate-50 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all group"
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${item.bg} ${item.text} group-hover:scale-110 transition-transform flex-shrink-0`}>
+                    <item.icon className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300 truncate transition-colors">{item.label}</span>
+                </Link>
+              ))}
             </div>
           </div>
         </div>

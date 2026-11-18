@@ -1,42 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Icons } from '../components/Icons';
-import { Badge, Button, Card, EmptyState, Input, Select, StatusPill, Textarea } from '../components/Shared';
-import { ListSkeleton } from '../components/Skeleton';
-import {
-  getPrompts,
-  likePrompt,
-  Prompt,
-  PromptCategory,
-  recordPromptUsage,
-  submitPrompt,
-  unlikePrompt,
-} from '../api/prompts';
-import { getMyBookmarks, toggleBookmark } from '../api/users';
-import { PromptLabResponse, runPromptLab } from '../api/chat';
+import { Card, Button, Badge } from '../components/Shared';
+import { getPrompts, submitPrompt, recordPromptUsage, Prompt, PromptCategory } from '../api/prompts';
+import { likePrompt, unlikePrompt } from '../api/prompts';
+import { runPromptLab, PromptLabResponse } from '../api/chat';
 import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '../components/Toast';
-import { copyToClipboard } from '../utils/helpers';
 import { errorText } from '../utils/errors';
-
-const CATEGORIES: (PromptCategory | 'All')[] = ['All', 'Dev', 'Writing', 'Business', 'Academic', 'Thinking', 'Growth', 'Other'];
-
-const CATEGORY_LABELS: Record<PromptCategory | 'All', string> = {
-  All: '全部',
-  Dev: '开发',
-  Writing: '写作',
-  Business: '商业',
-  Academic: '学术',
-  Thinking: '思维',
-  Growth: '成长',
-  Other: '其他',
-};
 
 const PromptLibrary: React.FC = () => {
   const { isAuthenticated } = useAuth();
-  const { showToast } = useToast();
   const navigate = useNavigate();
-
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<PromptCategory | 'All'>('All');
@@ -46,7 +20,6 @@ const PromptLibrary: React.FC = () => {
   const [sortMode, setSortMode] = useState<'latest' | 'popular' | 'liked'>('latest');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
-  const [likedIds, setLikedIds] = useState<Record<number, boolean>>({});
   const [totalPages, setTotalPages] = useState(1);
 
   // Prompt Lab state
@@ -68,44 +41,74 @@ const PromptLibrary: React.FC = () => {
   // Copy success state
   const [copySuccess, setCopySuccess] = useState<number | null>(null);
 
+  const categories: (PromptCategory | 'All')[] = ['All', 'Dev', 'Writing', 'Business', 'Academic', 'Thinking', 'Growth', 'Other'];
+  const categoryLabels: Record<PromptCategory | 'All', string> = {
+    All: '全部',
+    Dev: '开发',
+    Writing: '写作',
+    Business: '商业',
+    Academic: '学术',
+    Thinking: '思维',
+    Growth: '成长',
+    Other: '其他',
+  };
+
+  const visiblePrompts = useMemo(() => {
+    const list = favoritesOnly ? prompts.filter(item => favoriteIds.includes(item.id)) : [...prompts];
+    if (sortMode === 'popular') return list.sort((a, b) => (b.use_count || 0) - (a.use_count || 0));
+    if (sortMode === 'liked') return list.sort((a, b) => (b.like_count || 0) - (a.like_count || 0));
+    return list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [prompts, sortMode, favoritesOnly, favoriteIds]);
+
+  const promptStats = useMemo(() => ({
+    total: prompts.length,
+    uses: prompts.reduce((sum, item) => sum + (item.use_count || 0), 0),
+    likes: prompts.reduce((sum, item) => sum + (item.like_count || 0), 0),
+  }), [prompts]);
+
+  const topPrompts = useMemo(() => [...prompts]
+    .sort((a, b) => ((b.use_count || 0) * 2 + (b.like_count || 0)) - ((a.use_count || 0) * 2 + (a.like_count || 0)))
+    .slice(0, 5), [prompts]);
+
+  const activeCategoryLabel = categoryLabels[filter];
+
+  const applySearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearchTerm(searchInput.trim());
+    setPage(1);
+  };
+
   useEffect(() => {
-    let alive = true;
-    if (!isAuthenticated) {
-      setFavoriteIds([]);
-      return;
+    try {
+      const raw = localStorage.getItem('prompt_favorites');
+      if (raw) setFavoriteIds(JSON.parse(raw));
+    } catch (e) {
+      // ignore broken local cache
     }
-    getMyBookmarks({ target_type: 'prompt', page: 1, page_size: 100 })
-      .then((res) => {
-        if (!alive) return;
-        setFavoriteIds((res.data || []).map((item) => item.target_id));
-      })
-      .catch(() => {
-        // ignore bookmark load errors
-      });
-    return () => {
-      alive = false;
-    };
-  }, [isAuthenticated]);
+  }, []);
+
+  const toggleFavorite = (id: number) => {
+    setFavoriteIds(prev => {
+      const next = prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id];
+      localStorage.setItem('prompt_favorites', JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const fetchPrompts = async () => {
       setLoading(true);
       try {
-        const params: Record<string, any> = { page, page_size: 20 };
-        if (filter !== 'All') params.category = filter;
-        if (searchTerm) params.search = searchTerm;
+        const params: any = { page, page_size: 20 };
+        if (filter !== 'All') {
+          params.category = filter;
+        }
+        if (searchTerm) {
+          params.search = searchTerm;
+        }
         const response = await getPrompts(params);
-        const list = response.data || [];
-        setPrompts(list);
-        setTotalPages(response.total_pages || 1);
-
-        const nextLiked: Record<number, boolean> = {};
-        list.forEach((p) => {
-          if (localStorage.getItem(`liked_prompt_${p.id}`) === 'true') {
-            nextLiked[p.id] = true;
-          }
-        });
-        setLikedIds((prev) => ({ ...prev, ...nextLiked }));
+        setPrompts(response.data);
+        setTotalPages(response.total_pages);
       } catch (error) {
         console.error('获取 Prompt 列表失败:', error);
       } finally {
@@ -115,106 +118,43 @@ const PromptLibrary: React.FC = () => {
     fetchPrompts();
   }, [page, filter, searchTerm]);
 
-  const visiblePrompts = useMemo(() => {
-    const list = favoritesOnly ? prompts.filter((item) => favoriteIds.includes(item.id)) : [...prompts];
-    if (sortMode === 'popular') return list.sort((a, b) => (b.use_count || 0) - (a.use_count || 0));
-    if (sortMode === 'liked') return list.sort((a, b) => (b.like_count || 0) - (a.like_count || 0));
-    return list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [prompts, sortMode, favoritesOnly, favoriteIds]);
-
-  const promptStats = useMemo(
-    () => ({
-      total: prompts.length,
-      uses: prompts.reduce((sum, item) => sum + (item.use_count || 0), 0),
-      likes: prompts.reduce((sum, item) => sum + (item.like_count || 0), 0),
-    }),
-    [prompts],
-  );
-
-  const topPrompts = useMemo(
-    () =>
-      [...prompts]
-        .sort((a, b) => (b.use_count || 0) * 2 + (b.like_count || 0) - ((a.use_count || 0) * 2 + (a.like_count || 0)))
-        .slice(0, 5),
-    [prompts],
-  );
-
-  const activeCategoryLabel = CATEGORY_LABELS[filter];
-
-  const applySearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSearchTerm(searchInput.trim());
-    setPage(1);
-  };
-
-  const handleToggleFavorite = async (id: number) => {
-    if (!isAuthenticated) {
-      showToast('收藏需要先登录', 'info');
-      navigate('/login?redirect=%2Fprompts');
-      return;
-    }
+  const copyToClipboard = async (prompt: Prompt) => {
     try {
-      const res = await toggleBookmark('prompt', id);
-      setFavoriteIds((prev) => (res.bookmarked ? Array.from(new Set([...prev, id])) : prev.filter((item) => item !== id)));
-      showToast(res.bookmarked ? '已加入收藏' : '已取消收藏', 'success');
-    } catch (error: any) {
-      showToast(errorText(error, '收藏操作失败'), 'error');
-    }
-  };
-
-  const handleToggleFavoritesOnly = () => {
-    if (!favoritesOnly && !isAuthenticated) {
-      showToast('查看云端收藏请先登录', 'info');
-      navigate('/login?redirect=%2Fprompts');
-      return;
-    }
-    setFavoritesOnly((v) => !v);
-    setPage(1);
-  };
-
-  const handleCopyPrompt = async (prompt: Prompt) => {
-    const ok = await copyToClipboard(prompt.content);
-    if (!ok) {
-      showToast('复制失败，请手动复制', 'error');
-      return;
-    }
-    try {
-      await recordPromptUsage(prompt.id);
-      setPrompts((prev) => prev.map((p) => (p.id === prompt.id ? { ...p, use_count: p.use_count + 1 } : p)));
-    } catch {
-      // ignore usage record error
-    }
-    setCopySuccess(prompt.id);
-    showToast('指令已复制', 'success');
-    window.setTimeout(() => setCopySuccess(null), 1800);
-  };
-
-  const handleToggleLike = async (prompt: Prompt) => {
-    const isLiked = Boolean(likedIds[prompt.id]);
-    try {
-      if (isLiked) {
-        const res = await unlikePrompt(prompt.id);
-        localStorage.removeItem(`liked_prompt_${prompt.id}`);
-        setLikedIds((prev) => ({ ...prev, [prompt.id]: false }));
-        setPrompts((prev) =>
-          prev.map((p) => (p.id === prompt.id ? { ...p, like_count: res.like_count ?? Math.max(0, p.like_count - 1) } : p)),
-        );
-      } else {
-        const res = await likePrompt(prompt.id);
-        localStorage.setItem(`liked_prompt_${prompt.id}`, 'true');
-        setLikedIds((prev) => ({ ...prev, [prompt.id]: true }));
-        setPrompts((prev) =>
-          prev.map((p) => (p.id === prompt.id ? { ...p, like_count: res.like_count ?? p.like_count + 1 } : p)),
-        );
+      await navigator.clipboard.writeText(prompt.content);
+      // 记录使用次数
+      try {
+        await recordPromptUsage(prompt.id);
+        // 更新本地状态中的使用次数
+        setPrompts(prev => prev.map(p =>
+          p.id === prompt.id ? { ...p, use_count: p.use_count + 1 } : p
+        ));
+      } catch (e) {
+        // ignore usage record error
       }
-    } catch (error: any) {
-      showToast(errorText(error, '操作失败'), 'error');
+      setCopySuccess(prompt.id);
+      setTimeout(() => setCopySuccess(null), 2000);
+    } catch (err) {
+      // 回退方案：使用传统方法
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = prompt.content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        setCopySuccess(prompt.id);
+        setTimeout(() => setCopySuccess(null), 2000);
+      } catch (fallbackErr) {
+        alert('复制失败，请手动复制');
+      }
     }
   };
 
   const handleRunLab = async () => {
     if (!selectedPrompt) {
-      showToast('请先从左侧选择一条 Prompt', 'info');
+      alert('请先选择一个 Prompt');
       return;
     }
     setLabLoading(true);
@@ -228,462 +168,240 @@ const PromptLibrary: React.FC = () => {
       });
       setLabResult(result);
     } catch (error: any) {
-      showToast(errorText(error, '运行失败'), 'error');
+      const errorMsg = errorText(error, '运行失败');
+      alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
     } finally {
       setLabLoading(false);
     }
   };
 
-  const handleOpenSubmit = () => {
-    if (!isAuthenticated) {
-      showToast('投稿提示词需要先登录', 'info');
-      navigate('/login?redirect=%2Fprompts');
-      return;
-    }
-    setShowSubmitModal(true);
-  };
-
   const handleSubmitPrompt = async () => {
     if (!isAuthenticated) {
-      showToast('投稿需要先登录', 'info');
-      navigate('/login?redirect=%2Fprompts');
+      alert('投稿需要先登录（登录后可在用户中心管理自己的提示词）');
+      navigate('/login');
       return;
     }
-    if (!submitForm.title.trim() || !submitForm.content.trim()) {
-      showToast('请填写标题和 Prompt 内容', 'error');
+    if (!submitForm.title || !submitForm.content) {
+      alert('请填写标题和内容');
       return;
     }
     setSubmitting(true);
     try {
-      await submitPrompt({
-        title: submitForm.title.trim(),
-        description: submitForm.description.trim() || undefined,
-        content: submitForm.content.trim(),
-        category: submitForm.category,
-      });
-      showToast('提交成功，已进入待审核（可在用户中心查看进度）', 'success');
+      await submitPrompt(submitForm);
+      alert('提交成功！进入待审核，可在用户中心「我的提示词」跟踪进度');
       setShowSubmitModal(false);
       setSubmitForm({ title: '', description: '', content: '', category: 'Dev' });
     } catch (error: any) {
-      showToast(errorText(error, '提交失败'), 'error');
+      alert(errorText(error, '提交失败'));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      {/* 极简编辑部页头 */}
-      <header className="pb-8 mb-8 border-b border-slate-200/80 dark:border-slate-800 grid lg:grid-cols-[minmax(0,1fr)_auto] gap-6 items-end">
-        <div className="space-y-3">
-          <div className="inline-flex items-center gap-2 text-xs font-medium tracking-wider uppercase text-primary-600 dark:text-primary-400">
-            <Icons.Sparkles className="w-3.5 h-3.5" />
-            <span>Prompt Library / 提示词工作台</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            AI 提示词工程库
-          </h1>
-          <p className="max-w-2xl text-sm sm:text-base text-slate-500 dark:text-slate-400 leading-relaxed">
-            按场景检索、一键复制、云端收藏与在线试跑。选中任意指令即可直接在右侧实验室验证生成效果。
-          </p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button size="sm" onClick={handleOpenSubmit}>
-              <Icons.Plus className="w-3.5 h-3.5" /> 提交新提示词
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => document.getElementById('prompt-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            >
-              <Icons.Play className="w-3.5 h-3.5" /> 前往实验室试跑
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
-          {[
-            { label: '当前结果', value: promptStats.total, icon: Icons.Terminal },
-            { label: '累计使用', value: promptStats.uses, icon: Icons.Copy },
-            { label: '获赞总数', value: promptStats.likes, icon: Icons.Heart },
-            { label: '我的收藏', value: isAuthenticated ? favoriteIds.length : '—', icon: Icons.Bookmark },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-4 py-3 min-w-[100px]"
-            >
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                <stat.icon className="w-3.5 h-3.5 text-primary-500" />
-                {stat.label}
-              </div>
-              <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums">{stat.value}</div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 transition-colors duration-300">
+      <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-cyan-50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900 dark:to-cyan-950/30 border border-cyan-100 dark:border-slate-700 p-6 md:p-8 mb-8 shadow-sm">
+        <div className="absolute inset-0 opacity-70 dark:opacity-20" style={{ backgroundImage: 'radial-gradient(circle at 12% 10%, rgba(14,165,233,.18), transparent 28%), radial-gradient(circle at 88% 20%, rgba(99,102,241,.12), transparent 24%)' }} />
+        <div className="relative grid lg:grid-cols-[minmax(0,1fr)_360px] gap-8 items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/80 dark:bg-slate-800/80 border border-cyan-100 dark:border-slate-700 px-3 py-1.5 text-sm font-bold text-cyan-700 dark:text-cyan-200">
+              <Icons.Sparkles className="w-4 h-4" /> Prompt Library
             </div>
-          ))}
-        </div>
-      </header>
-
-      {/* 搜索与分类过滤栏 */}
-      <div className="mb-6 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
-        <form onSubmit={applySearch} className="flex flex-col lg:flex-row gap-2.5">
-          <div className="relative flex-1">
-            <Icons.Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="搜索标题、描述或提示词内容..."
-              className="pl-10"
-            />
+            <h1 className="mt-5 text-4xl md:text-5xl font-black tracking-tight text-slate-900 dark:text-white">AI 提示词工作台</h1>
+            <p className="mt-4 max-w-2xl text-slate-600 dark:text-slate-300 leading-7">按场景检索、复制、点赞和试跑提示词。这里更像一个轻量 Prompt marketplace：先找模板，再进实验室验证效果。</p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Button onClick={() => setShowSubmitModal(true)} className="bg-cyan-500 hover:bg-cyan-600">
+                <Icons.Sparkles className="w-4 h-4 mr-2" /> 提交新提示词
+              </Button>
+              <button type="button" onClick={() => document.getElementById('prompt-lab')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex items-center justify-center rounded-xl border border-cyan-200 dark:border-cyan-700 bg-white/80 dark:bg-cyan-900/20 px-4 py-2 text-sm font-bold text-cyan-700 dark:text-cyan-200 hover:bg-cyan-50 dark:hover:bg-cyan-900/40 transition-colors">去实验室试跑</button>
+            </div>
           </div>
-          <Select value={sortMode} onChange={(e) => setSortMode(e.target.value as any)}>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="rounded-3xl bg-white/85 dark:bg-slate-800/80 border border-cyan-100 dark:border-slate-700 p-4 text-center"><div className="text-2xl font-black text-slate-900 dark:text-white">{promptStats.total}</div><div className="text-xs text-slate-500 dark:text-slate-400 mt-1">当前结果</div></div>
+            <div className="rounded-3xl bg-white/85 dark:bg-slate-800/80 border border-cyan-100 dark:border-slate-700 p-4 text-center"><div className="text-2xl font-black text-slate-900 dark:text-white">{promptStats.uses}</div><div className="text-xs text-slate-500 dark:text-slate-400 mt-1">使用次数</div></div>
+            <div className="rounded-3xl bg-white/85 dark:bg-slate-800/80 border border-cyan-100 dark:border-slate-700 p-4 text-center"><div className="text-2xl font-black text-slate-900 dark:text-white">{promptStats.likes}</div><div className="text-xs text-slate-500 dark:text-slate-400 mt-1">点赞</div></div>
+            <div className="rounded-3xl bg-white/85 dark:bg-slate-800/80 border border-cyan-100 dark:border-slate-700 p-4 text-center"><div className="text-2xl font-black text-slate-900 dark:text-white">{favoriteIds.length}</div><div className="text-xs text-slate-500 dark:text-slate-400 mt-1">本地收藏</div></div>
+          </div>
+        </div>
+      </section>
+
+      <div className="mb-6 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 shadow-sm">
+        <form onSubmit={applySearch} className="flex flex-col lg:flex-row gap-3">
+          <div className="relative flex-1">
+            <Icons.Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="搜索标题、描述或提示词内容..." className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 py-3 pl-11 pr-4 text-sm text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-cyan-100 dark:focus:ring-cyan-900/40 focus:border-cyan-200" />
+          </div>
+          <select value={sortMode} onChange={(e) => setSortMode(e.target.value as any)} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-4 py-3 text-sm font-bold text-slate-600 dark:text-slate-300 outline-none">
             <option value="latest">最新优先</option>
             <option value="popular">使用最多</option>
             <option value="liked">点赞最多</option>
-          </Select>
-          <Button
-            type="button"
-            variant={favoritesOnly ? 'primary' : 'outline'}
-            onClick={handleToggleFavoritesOnly}
-          >
-            <Icons.Bookmark className={`w-3.5 h-3.5 ${favoritesOnly ? 'fill-current' : ''}`} />
-            只看收藏
-          </Button>
-          <Button type="submit" variant="secondary">
-            搜索
-          </Button>
+          </select>
+          <button type="button" onClick={() => { setFavoritesOnly(v => !v); setPage(1); }} className={`rounded-2xl border px-4 py-3 text-sm font-bold transition-all ${favoritesOnly ? 'bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-900/20 dark:text-rose-300 dark:border-rose-800' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}>只看收藏</button>
+          <Button type="submit" className="bg-cyan-500 hover:bg-cyan-600">搜索</Button>
         </form>
-
-        <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-0.5">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => {
-                setFilter(cat);
-                setPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap cursor-pointer ${
-                filter === cat
-                  ? 'bg-slate-900 dark:bg-slate-100 border-slate-900 dark:border-slate-100 text-white dark:text-slate-900'
-                  : 'bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
-              }`}
-            >
-              {CATEGORY_LABELS[cat]}
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          {categories.map(cat => (
+            <button key={cat} onClick={() => { setFilter(cat); setPage(1); }} className={`px-4 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap ${filter === cat ? 'bg-cyan-50 text-cyan-700 border border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-200 dark:border-cyan-700 shadow-sm' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-cyan-200 dark:hover:border-cyan-700'}`}>
+              {categoryLabels[cat]}
             </button>
           ))}
-          {searchTerm && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchInput('');
-                setSearchTerm('');
-                setPage(1);
-              }}
-              className="px-3 py-1.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 inline-flex items-center gap-1 cursor-pointer"
-            >
-              清除：{searchTerm} <Icons.X className="w-3 h-3" />
-            </button>
-          )}
+          {searchTerm && <button onClick={() => { setSearchInput(''); setSearchTerm(''); setPage(1); }} className="px-4 py-2 rounded-full text-sm font-bold bg-amber-50 text-amber-700 border border-amber-100">清除搜索：{searchTerm}</button>}
         </div>
       </div>
 
-      {/* 视图摘要条 */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">
-            {favoritesOnly ? '我的收藏' : activeCategoryLabel}
-            {searchTerm ? ` · “${searchTerm}”` : ''}
-          </span>
-          <StatusPill tone="primary">{visiblePrompts.length} 条指令</StatusPill>
+      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 px-5 py-4 shadow-sm">
+        <div>
+          <div className="text-sm font-bold text-slate-400 dark:text-slate-500">当前视图</div>
+          <div className="text-xl font-black text-slate-900 dark:text-white">{favoritesOnly ? '我的收藏' : activeCategoryLabel}{searchTerm ? ` · 搜索“${searchTerm}”` : ''}</div>
         </div>
-        <span>排序：{sortMode === 'latest' ? '最新优先' : sortMode === 'popular' ? '使用最多' : '点赞最多'}</span>
+        <div className="flex flex-wrap gap-2 text-xs font-bold">
+          <span className="rounded-full bg-cyan-50 text-cyan-700 border border-cyan-100 dark:bg-cyan-900/30 dark:text-cyan-200 dark:border-cyan-700 px-3 py-1.5">{visiblePrompts.length} 条结果</span>
+          <span className="rounded-full bg-slate-50 text-slate-500 border border-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700 px-3 py-1.5">排序：{sortMode === 'latest' ? '最新优先' : sortMode === 'popular' ? '使用最多' : '点赞最多'}</span>
+          {favoritesOnly && <span className="rounded-full bg-rose-50 text-rose-600 border border-rose-100 dark:bg-rose-900/20 dark:text-rose-300 dark:border-rose-800 px-3 py-1.5">收藏模式</span>}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left: Prompt Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left: Library */}
         <div className="lg:col-span-8">
           {loading ? (
-            <ListSkeleton rows={4} />
-          ) : visiblePrompts.length === 0 ? (
-            <EmptyState
-              icon={<Icons.Terminal className="w-5 h-5" />}
-              title={favoritesOnly ? '暂无已收藏的 Prompt' : '暂无匹配的 Prompt'}
-              description={
-                favoritesOnly
-                  ? '浏览提示词卡片并点击右上角收藏图标，即可把常用指令同步到个人中心。'
-                  : '可以切换分类、清空搜索词，或点击右上角提交新的高质量 Prompt。'
-              }
-              action={
-                favoritesOnly || searchTerm || filter !== 'All' ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setFavoritesOnly(false);
-                      setFilter('All');
-                      setSearchInput('');
-                      setSearchTerm('');
-                    }}
-                  >
-                    显示全部提示词
-                  </Button>
-                ) : (
-                  <Button size="sm" onClick={handleOpenSubmit}>
-                    提交第一条 Prompt
-                  </Button>
-                )
-              }
-            />
+            <div className="text-center py-20 text-slate-400 dark:text-slate-500 transition-colors">加载中...</div>
+          ) : prompts.length === 0 ? (
+            <div className="text-center py-20 text-slate-400 dark:text-slate-500 transition-colors">暂无 Prompt</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-in">
-              {visiblePrompts.map((prompt) => {
-                const isFav = favoriteIds.includes(prompt.id);
-                const isLiked = Boolean(likedIds[prompt.id]);
-                const authorLabel = prompt.author?.display_name || prompt.author?.username || prompt.submitted_by;
-
-                return (
-                  <Card
-                    key={prompt.id}
-                    className={`flex flex-col p-5 card-lift transition-colors group ${
-                      selectedPrompt?.id === prompt.id
-                        ? 'border-primary-400 dark:border-primary-600 ring-1 ring-primary-500/30'
-                        : 'hover:border-slate-300 dark:hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <Badge color="primary">{CATEGORY_LABELS[prompt.category] || prompt.category}</Badge>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleFavorite(prompt.id)}
-                        title={isFav ? '取消收藏' : '加入收藏'}
-                        className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                          isFav
-                            ? 'border-primary-300 dark:border-primary-700 bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400'
-                            : 'border-slate-200/80 dark:border-slate-700 text-slate-400 hover:text-primary-600 dark:hover:text-primary-400'
-                        }`}
-                      >
-                        <Icons.Bookmark className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
-                      </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {visiblePrompts.map(prompt => (
+                <Card key={prompt.id} className={`flex flex-col p-6 hover:border-primary-300 dark:hover:border-primary-600 hover:shadow-lg transition-all group ${selectedPrompt?.id === prompt.id ? 'border-primary-500 ring-2 ring-primary-200 dark:ring-primary-900/40' : 'dark:bg-slate-800 dark:border-slate-700'}`}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="p-2 bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 rounded-lg group-hover:bg-primary-500 group-hover:text-white transition-colors">
+                      <Icons.MessageSquare className="w-5 h-5" />
                     </div>
+                    <Badge>{prompt.category}</Badge>
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 transition-colors">{prompt.title}</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 line-clamp-2 transition-colors">{prompt.description}</p>
+                  <div className="mb-3 rounded-2xl bg-slate-50 dark:bg-slate-900/70 border border-slate-100 dark:border-slate-700 p-3 text-xs text-slate-500 dark:text-slate-400 font-mono line-clamp-3">
+                    {prompt.content}
+                  </div>
+                  <div className="mb-4 flex flex-wrap gap-2 text-[11px] font-bold">
+                    <span className="rounded-full bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-200 px-2.5 py-1">可复制</span>
+                    {prompt.use_count > 0 && <span className="rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300 px-2.5 py-1">已验证使用</span>}
+                    {(prompt.like_count || 0) > 0 && <span className="rounded-full bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-300 px-2.5 py-1">受欢迎</span>}
+                  </div>
+                  <div className="text-xs text-slate-400 dark:text-slate-500 mb-4 transition-colors flex items-center gap-3">
+                    <span className="flex items-center gap-1"><Icons.Copy className="w-3 h-3" /> {prompt.use_count} 次使用</span>
+                    <span className="flex items-center gap-1"><Icons.Heart className={`w-3 h-3 ${localStorage.getItem(`liked_prompt_${prompt.id}`) === 'true' ? 'fill-red-500 text-red-500' : ''}`} /> {prompt.like_count || 0} 点赞</span>
+                  </div>
 
-                    <Link to={`/prompts/${prompt.id}`} className="block mb-1.5">
-                      <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors line-clamp-1">
-                        {prompt.title}
-                      </h3>
+                  <div className="mt-auto flex gap-3">
+                    <Button
+                      size="sm"
+                      variant={copySuccess === prompt.id ? "primary" : "secondary"}
+                      className="flex-1"
+                      onClick={() => copyToClipboard(prompt)}
+                    >
+                      {copySuccess === prompt.id ? (
+                        <>
+                          <Icons.Copy className="w-3 h-3 mr-2" />
+                          已复制!
+                        </>
+                      ) : (
+                        <>
+                          <Icons.Copy className="w-3 h-3 mr-2" />
+                          复制指令
+                        </>
+                      )}
+                    </Button>
+                    <Link to={`/prompts/${prompt.id}`}>
+                      <Button size="sm" variant="outline" title="查看详情" className="dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+                        <Icons.ExternalLink className="w-3 h-3" />
+                      </Button>
                     </Link>
-
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 line-clamp-2 min-h-[32px] leading-relaxed">
-                      {prompt.description || '适用于通用 AI 对话与工作流场景的结构化指令模板'}
-                    </p>
-
-                    <div className="mb-3 rounded-lg bg-slate-50/90 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 p-3 text-xs text-slate-600 dark:text-slate-300 font-mono line-clamp-3 leading-relaxed">
-                      {prompt.content}
-                    </div>
-
-                    <div className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 flex items-center justify-between gap-2 tabular-nums">
-                      <div className="flex items-center gap-3">
-                        <span className="inline-flex items-center gap-1">
-                          <Icons.Copy className="w-3 h-3" /> {prompt.use_count}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icons.Heart className={`w-3 h-3 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
-                          {prompt.like_count || 0}
-                        </span>
-                      </div>
-                      {authorLabel &&
-                        (prompt.author?.username ? (
-                          <Link
-                            to={`/user/${encodeURIComponent(prompt.author.username)}`}
-                            className="truncate max-w-[120px] hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-                          >
-                            @{authorLabel}
-                          </Link>
-                        ) : (
-                          <span className="truncate max-w-[120px]">@{authorLabel}</span>
-                        ))}
-                    </div>
-
-                    <div className="mt-auto flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant={copySuccess === prompt.id ? 'primary' : 'secondary'}
-                        className="flex-1"
-                        onClick={() => handleCopyPrompt(prompt)}
-                      >
-                        {copySuccess === prompt.id ? (
-                          <>
-                            <Icons.Check className="w-3.5 h-3.5" /> 已复制
-                          </>
-                        ) : (
-                          <>
-                            <Icons.Copy className="w-3.5 h-3.5" /> 复制指令
-                          </>
-                        )}
-                      </Button>
-                      <Link to={`/prompts/${prompt.id}`}>
-                        <Button size="sm" variant="outline" title="查看详情">
-                          <Icons.ExternalLink className="w-3.5 h-3.5" />
-                        </Button>
-                      </Link>
-                      <Button
-                        size="sm"
-                        variant={selectedPrompt?.id === prompt.id ? 'primary' : 'outline'}
-                        onClick={() => {
-                          setSelectedPrompt(prompt);
-                          setLabResult(null);
-                        }}
-                        title="在实验室中试跑"
-                      >
-                        <Icons.Play className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleToggleLike(prompt)}
-                        title={isLiked ? '取消点赞' : '点赞'}
-                        className={isLiked ? 'text-red-500 border-red-200 dark:border-red-900/60 bg-red-50/70 dark:bg-red-950/30' : ''}
-                      >
-                        <Icons.Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-current like-pop' : ''}`} />
-                      </Button>
-                    </div>
-                  </Card>
-                );
-              })}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedPrompt(prompt);
+                        setLabResult(null);
+                      }}
+                      title="在实验室中测试"
+                      className="dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700"
+                    >
+                      <Icons.Play className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        const isLiked = localStorage.getItem(`liked_prompt_${prompt.id}`) === 'true';
+                        try {
+                          if (isLiked) {
+                            await unlikePrompt(prompt.id);
+                            localStorage.removeItem(`liked_prompt_${prompt.id}`);
+                            setPrompts(prev => prev.map(p =>
+                              p.id === prompt.id ? { ...p, like_count: Math.max(0, p.like_count - 1) } : p
+                            ));
+                          } else {
+                            await likePrompt(prompt.id);
+                            localStorage.setItem(`liked_prompt_${prompt.id}`, 'true');
+                            setPrompts(prev => prev.map(p =>
+                              p.id === prompt.id ? { ...p, like_count: p.like_count + 1 } : p
+                            ));
+                          }
+                        } catch (error) {
+                          console.error('操作失败:', error);
+                        }
+                      }}
+                      title={localStorage.getItem(`liked_prompt_${prompt.id}`) === 'true' ? "取消点赞" : "点赞"}
+                      className={`dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700 transition-colors ${localStorage.getItem(`liked_prompt_${prompt.id}`) === 'true' ? 'text-red-500 dark:text-red-400 border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-900/10' : ''
+                        }`}
+                    >
+                      <Icons.Heart className={`w-3 h-3 ${localStorage.getItem(`liked_prompt_${prompt.id}`) === 'true' ? 'fill-current' : ''}`} />
+                    </Button>
+                  </div>
+                </Card>
+              ))}
             </div>
           )}
 
+          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-2 mt-8">
-              <Button
-                variant="outline"
-                size="sm"
+            <div className="flex justify-center gap-2 mt-8">
+              <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg disabled:opacity-50 transition-colors"
               >
-                <Icons.ChevronLeft className="w-3.5 h-3.5" /> 上一页
-              </Button>
-              <span className="px-3 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                {page} / {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
+                上一页
+              </button>
+              <span className="px-4 py-2 text-slate-400 dark:text-slate-500 transition-colors">{page} / {totalPages}</span>
+              <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg disabled:opacity-50 transition-colors"
               >
-                下一页 <Icons.ChevronRight className="w-3.5 h-3.5" />
-              </Button>
+                下一页
+              </button>
             </div>
           )}
         </div>
 
-        {/* Right: Playground Sidebar */}
-        <aside id="prompt-lab" className="lg:col-span-4 scroll-mt-24">
-          <div className="sticky top-24 space-y-4">
-            <Card className="overflow-hidden">
-              <div className="bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 px-4 py-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Icons.Terminal className="w-4 h-4 text-primary-500" />
-                  <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">Prompt 实验室</span>
-                </div>
-                <StatusPill tone="emerald" dot>
-                  在线试跑
-                </StatusPill>
-              </div>
-              <div className="p-4 space-y-4">
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 block">
-                    当前选中指令
-                  </label>
-                  <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-lg text-xs text-slate-600 dark:text-slate-300 font-mono border border-slate-200/70 dark:border-slate-700/70 max-h-24 overflow-y-auto">
-                    {selectedPrompt ? selectedPrompt.content : '点击任意 Prompt 卡片上的 ▶ 图标载入模板...'}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex justify-between">
-                    <span>输入变量 / 测试上下文</span>
-                    <span className="font-normal tabular-nums">{labInput.length} / 2000</span>
-                  </label>
-                  <Textarea
-                    className="h-28 resize-none"
-                    placeholder="在此输入测试上下文..."
-                    value={labInput}
-                    onChange={(e) => setLabInput(e.target.value.slice(0, 2000))}
-                  />
-                </div>
-                <Button className="w-full" onClick={handleRunLab} disabled={labLoading || !selectedPrompt}>
-                  {labLoading ? (
-                    <>运行中...</>
-                  ) : (
-                    <>
-                      <Icons.Send className="w-3.5 h-3.5" /> 开始运行
-                    </>
-                  )}
-                </Button>
-
-                {labResult && (
-                  <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 rounded-lg p-3.5">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs text-emerald-700 dark:text-emerald-300 font-semibold">运行结果</span>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const ok = await copyToClipboard(labResult.result);
-                          showToast(ok ? '结果已复制' : '复制失败', ok ? 'success' : 'error');
-                        }}
-                        className="text-xs text-emerald-700 dark:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        <Icons.Copy className="w-3 h-3" /> 复制
-                      </button>
-                    </div>
-                    <div className="text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
-                      {labResult.result}
-                    </div>
-                    <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-2 tabular-nums">
-                      Tokens: {labResult.total_tokens} (P: {labResult.prompt_tokens}, C: {labResult.completion_tokens})
-                    </div>
-                  </div>
-                )}
-
-                {(selectedPrompt || labInput || labResult) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedPrompt(null);
-                      setLabInput('');
-                      setLabResult(null);
-                    }}
-                    className="w-full text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 py-1 transition-colors cursor-pointer"
-                  >
-                    清空实验室
-                  </button>
-                )}
-              </div>
-            </Card>
-
+        {/* Right: Playground */}
+        <div id="prompt-lab" className="lg:col-span-4 scroll-mt-24">
+          <div className="sticky top-24 space-y-5">
             {!!topPrompts.length && (
-              <Card className="p-4">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
-                  <Icons.TrendingUp className="w-3.5 h-3.5 text-primary-500" /> 精选榜单
+              <Card className="p-5 border-cyan-100 dark:border-slate-700">
+                <div className="flex items-center gap-2 text-sm font-black text-slate-900 dark:text-white mb-4">
+                  <Icons.TrendingUp className="w-4 h-4 text-cyan-500" /> 精选榜单
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {topPrompts.map((item, index) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedPrompt(item);
-                        setLabResult(null);
-                      }}
-                      className="w-full text-left rounded-lg bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/70 p-2.5 hover:border-primary-300 dark:hover:border-primary-700 transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <span className="shrink-0 w-5 h-5 rounded-md bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 flex items-center justify-center text-[11px] font-bold tabular-nums">
-                          {index + 1}
-                        </span>
+                    <button key={item.id} type="button" onClick={() => { setSelectedPrompt(item); setLabResult(null); }} className="w-full text-left rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-700 p-3 hover:border-cyan-200 dark:hover:border-cyan-700 transition-colors">
+                      <div className="flex gap-3">
+                        <span className="shrink-0 w-6 h-6 rounded-full bg-cyan-50 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-200 flex items-center justify-center text-xs font-black">{index + 1}</span>
                         <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-800 dark:text-slate-100 line-clamp-1">{item.title}</div>
-                          <div className="mt-0.5 text-[11px] text-slate-400 tabular-nums">
-                            {item.use_count || 0} 使用 &middot; {item.like_count || 0} 赞
-                          </div>
+                          <div className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-2">{item.title}</div>
+                          <div className="mt-1 text-xs text-slate-400 dark:text-slate-500">{item.use_count || 0} 使用 · {item.like_count || 0} 赞</div>
                         </div>
                       </div>
                     </button>
@@ -691,91 +409,164 @@ const PromptLibrary: React.FC = () => {
                 </div>
               </Card>
             )}
-
-            <Card className="p-4">
-              <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5 mb-2">
-                <Icons.CheckCircle2 className="w-3.5 h-3.5 text-primary-500" /> 好 Prompt 检查清单
-              </div>
-              <ul className="space-y-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                <li>&bull; 明确角色定位、任务目标与输出结构</li>
-                <li>&bull; 给出边界条件、约束说明与评估标准</li>
-                <li>&bull; 可复用变量建议用 {'{variable}'} 占位</li>
+            <Card className="p-5 bg-gradient-to-br from-cyan-50 to-white dark:from-cyan-950/20 dark:to-slate-800 border-cyan-100 dark:border-slate-700">
+              <div className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2"><Icons.Check className="w-4 h-4 text-cyan-500" /> 好 Prompt 检查表</div>
+              <ul className="mt-3 space-y-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                <li>• 明确角色、目标和输出格式</li>
+                <li>• 给出上下文、约束和评价标准</li>
+                <li>• 可复用变量用括号或占位符标出</li>
               </ul>
             </Card>
+            <Card className="overflow-hidden border-slate-200 dark:border-slate-700 shadow-lg dark:bg-slate-800">
+              <div className="bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700 p-4 flex items-center justify-between transition-colors">
+                <div className="flex items-center gap-2">
+                  <Icons.Bot className="w-4 h-4 text-primary-500 dark:text-primary-400" />
+                  <span className="font-bold text-sm text-slate-700 dark:text-slate-200">Prompt 实验室</span>
+                </div>
+                <div className="flex gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-400"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-400"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-400"></div>
+                </div>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-2 block">当前指令</label>
+                  <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded-xl text-xs text-slate-600 dark:text-slate-300 font-mono border border-slate-100 dark:border-slate-700 max-h-24 overflow-y-auto transition-colors">
+                    {selectedPrompt ? selectedPrompt.content : '"请从列表中选择一条指令..."'}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase mb-2 block flex justify-between">
+                    <span>输入变量</span>
+                    <span className="font-normal lowercase">{labInput.length} / 2000</span>
+                  </label>
+                  <textarea
+                    className="w-full h-32 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm resize-none focus:ring-2 focus:ring-primary-500 focus:outline-none dark:text-slate-200 transition-colors"
+                    placeholder="在此输入上下文..."
+                    value={labInput}
+                    onChange={(e) => setLabInput(e.target.value.slice(0, 2000))}
+                  ></textarea>
+                </div>
+                <Button className="w-full" onClick={handleRunLab} disabled={labLoading || !selectedPrompt}>
+                  {labLoading ? (
+                    <>运行中...</>
+                  ) : (
+                    <>
+                      <Icons.Send className="w-4 h-4 mr-2" />
+                      开始运行
+                    </>
+                  )}
+                </Button>
+
+                {/* Result */}
+                {labResult && (
+                  <div className="bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-900/30 rounded-xl p-3 transition-colors">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-green-600 dark:text-green-400 font-medium">运行结果</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(labResult.result);
+                          alert('结果已复制!');
+                        }}
+                        className="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1 transition-colors"
+                      >
+                        <Icons.Copy className="w-3 h-3" />
+                        复制
+                      </button>
+                    </div>
+                    <div className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap max-h-48 overflow-y-auto transition-colors">{labResult.result}</div>
+                    <div className="text-xs text-slate-400 dark:text-slate-500 mt-2 transition-colors">
+                      Tokens: {labResult.total_tokens} (P: {labResult.prompt_tokens}, C: {labResult.completion_tokens})
+                    </div>
+                  </div>
+                )}
+
+                {/* Clear Button */}
+                {(selectedPrompt || labInput || labResult) && (
+                  <button
+                    onClick={() => {
+                      setSelectedPrompt(null);
+                      setLabInput('');
+                      setLabResult(null);
+                    }}
+                    className="w-full text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 py-2 transition-colors"
+                  >
+                    清空实验室
+                  </button>
+                )}
+              </div>
+              <div className="bg-slate-50 dark:bg-slate-900 p-3 border-t border-slate-100 dark:border-slate-700 text-center transition-colors">
+                <span className="text-xs text-slate-400 dark:text-slate-500 flex items-center justify-center gap-1">
+                  <Icons.Bot className="w-3 h-3" />
+                  已连接至 AI 模型
+                </span>
+              </div>
+            </Card>
           </div>
-        </aside>
+        </div>
       </div>
 
       {/* Submit Modal */}
       {showSubmitModal && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={() => setShowSubmitModal(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="bg-white dark:bg-slate-900 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-5 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">提交新 Prompt</h2>
-              <button
-                type="button"
-                onClick={() => setShowSubmitModal(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              >
-                <Icons.X className="w-4 h-4" />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto transition-all shadow-2xl border border-slate-100 dark:border-slate-700">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white transition-colors">提交新 Prompt</h2>
+              <button onClick={() => setShowSubmitModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <Icons.X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">标题 *</label>
-                <Input
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">标题 *</label>
+                <input
+                  type="text"
                   value={submitForm.title}
                   onChange={(e) => setSubmitForm({ ...submitForm, title: e.target.value })}
-                  placeholder="例如：React 代码审查助手"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg dark:text-white transition-colors focus:ring-2 focus:ring-primary-500 outline-none"
+                  placeholder="Prompt 标题"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">分类</label>
-                <Select
-                  className="w-full"
-                  value={submitForm.category}
-                  onChange={(e) => setSubmitForm({ ...submitForm, category: e.target.value as PromptCategory })}
-                >
-                  {CATEGORIES.filter((c) => c !== 'All').map((cat) => (
-                    <option key={cat} value={cat}>
-                      {CATEGORY_LABELS[cat]} ({cat})
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">简短描述</label>
-                <Input
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">描述</label>
+                <input
+                  type="text"
                   value={submitForm.description}
                   onChange={(e) => setSubmitForm({ ...submitForm, description: e.target.value })}
-                  placeholder="说明适用场景与输出效果"
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg dark:text-white transition-colors focus:ring-2 focus:ring-primary-500 outline-none"
+                  placeholder="简短描述"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Prompt 正文 *</label>
-                <Textarea
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">内容 *</label>
+                <textarea
                   value={submitForm.content}
                   onChange={(e) => setSubmitForm({ ...submitForm, content: e.target.value })}
-                  className="h-36 font-mono text-xs"
-                  placeholder="输入完整的系统提示词或指令模板..."
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg h-32 dark:text-white transition-colors focus:ring-2 focus:ring-primary-500 outline-none resize-none"
+                  placeholder="Prompt 内容"
                 />
               </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => setShowSubmitModal(false)}>
-                  取消
-                </Button>
-                <Button onClick={handleSubmitPrompt} disabled={submitting}>
-                  {submitting ? '提交中...' : '提交审核'}
-                </Button>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">分类</label>
+                <select
+                  value={submitForm.category}
+                  onChange={(e) => setSubmitForm({ ...submitForm, category: e.target.value as PromptCategory })}
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg dark:text-white transition-colors focus:ring-2 focus:ring-primary-500 outline-none"
+                >
+                  <option value="Dev">Dev</option>
+                  <option value="Writing">Writing</option>
+                  <option value="Business">Business</option>
+                  <option value="Academic">Academic</option>
+                  <option value="Thinking">Thinking</option>
+                  <option value="Growth">Growth</option>
+                  <option value="Other">Other</option>
+                </select>
               </div>
+              {/* 提交者身份已绑定登录账号（2026-09-26 二期），不再手填昵称 */}
+              <Button className="w-full" onClick={handleSubmitPrompt} disabled={submitting}>
+                {submitting ? '提交中...' : '提交'}
+              </Button>
             </div>
           </div>
         </div>

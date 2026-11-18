@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Icons } from '../components/Icons';
-import { EmptyState, StatusPill } from '../components/Shared';
-import { ListSkeleton } from '../components/Skeleton';
 import { getArticles, getTags, ArticleListItem, Tag } from '../api/articles';
 import { getFileUrl } from '../api/config';
 
@@ -17,9 +15,11 @@ const ArticleList: React.FC = () => {
   const [sortBy, setSortBy] = useState<'time' | 'views' | 'likes'>('time');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  // 直接从 URL 参数获取 tag 和 search
   const selectedTag = searchParams.get('tag') || '';
   const searchQuery = searchParams.get('search') || '';
 
+  // 当筛选参数变化时重置页码
   useEffect(() => {
     setPage(1);
   }, [selectedTag, searchQuery, sortBy, sortOrder]);
@@ -28,16 +28,20 @@ const ArticleList: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const params: Record<string, any> = {
+        const params: any = {
           page,
           page_size: 10,
           status: 'published',
           sort_by: sortBy,
-          sort_order: sortOrder,
+          sort_order: sortOrder
         };
 
-        if (selectedTag) params.tag = selectedTag;
-        if (searchQuery) params.search = searchQuery;
+        if (selectedTag) {
+          params.tag = selectedTag;
+        }
+        if (searchQuery) {
+          params.search = searchQuery;
+        }
 
         const [articlesRes, tagsRes] = await Promise.all([
           getArticles(params),
@@ -59,11 +63,13 @@ const ArticleList: React.FC = () => {
     fetchData();
   }, [page, selectedTag, searchQuery, sortBy, sortOrder]);
 
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return '未知日期';
+  const formatDate = (dateStr: string | undefined) => {
+    if (!dateStr) return { day: '--', monthYear: '' };
     const date = new Date(dateStr);
-    if (Number.isNaN(date.getTime())) return '未知日期';
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return {
+      day: date.getDate().toString().padStart(2, '0'),
+      monthYear: `${date.getFullYear()}/${(date.getMonth() + 1).toString().padStart(2, '0')}`,
+    };
   };
 
   const clearFilter = () => {
@@ -71,329 +77,271 @@ const ArticleList: React.FC = () => {
   };
 
   const toggleSortOrder = () => {
-    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
   };
 
-  const hasFilter = Boolean(selectedTag || searchQuery);
+  // 判断是否有任何筛选条件
+  const hasFilter = selectedTag || searchQuery;
 
   const pageStats = useMemo(() => {
     const views = articles.reduce((sum, article) => sum + Number(article.view_count || 0), 0);
     const likes = articles.reduce((sum, article) => sum + Number(article.like_count || 0), 0);
     const comments = articles.reduce((sum, article) => sum + Number(article.comment_count || 0), 0);
+
     return { views, likes, comments };
   }, [articles]);
 
+  const hotTags = useMemo(() => tags.slice(0, 12), [tags]);
   const popularArticles = useMemo(
-    () =>
-      [...articles]
-        .sort(
-          (a, b) =>
-            Number(b.view_count || 0) +
-            Number(b.like_count || 0) * 3 -
-            (Number(a.view_count || 0) + Number(a.like_count || 0) * 3),
-        )
-        .slice(0, 5),
-    [articles],
+    () => [...articles]
+      .sort((a, b) => (Number(b.view_count || 0) + Number(b.like_count || 0) * 3) - (Number(a.view_count || 0) + Number(a.like_count || 0) * 3))
+      .slice(0, 5),
+    [articles]
   );
 
-  // 分页页码窗口（避免页数多时溢出）
-  const pageNumbers = useMemo(() => {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
-    const pages: Array<number | 'ellipsis'> = [1];
-    const start = Math.max(2, page - 1);
-    const end = Math.min(totalPages - 1, page + 1);
-    if (start > 2) pages.push('ellipsis');
-    for (let i = start; i <= end; i++) pages.push(i);
-    if (end < totalPages - 1) pages.push('ellipsis');
-    pages.push(totalPages);
-    return pages;
-  }, [page, totalPages]);
-
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-12">
-      {/* 极简编辑部 页头 */}
-      <header className="pb-8 mb-8 border-b border-slate-200/80 dark:border-slate-800 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-        <div>
-          <div className="inline-flex items-center gap-2 text-xs font-medium tracking-wider uppercase text-primary-600 dark:text-primary-400 mb-3">
-            <Icons.BookOpen className="w-3.5 h-3.5" />
-            <span>Articles / 技术沉淀</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
-            {searchQuery ? `搜索: "${searchQuery}"` : selectedTag ? `#${selectedTag}` : '全部文章'}
-          </h1>
-          <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 max-w-2xl leading-relaxed">
-            收录 {total} 篇 AI 与全栈工程实战记录，可按标签、关键词与多维排序快速检索。
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
-          {[
-            { label: '命中文章', value: total, icon: Icons.FileText },
-            { label: '本页阅读', value: pageStats.views, icon: Icons.Eye },
-            { label: '本页点赞', value: pageStats.likes, icon: Icons.Heart },
-            { label: '本页评论', value: pageStats.comments, icon: Icons.MessageSquare },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 px-4 py-3 min-w-[104px]"
-            >
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                <item.icon className="w-3.5 h-3.5 text-primary-500" />
-                {item.label}
-              </div>
-              <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-                {item.value}
-              </div>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <section className="mb-10 overflow-hidden rounded-[2rem] border border-primary-100 dark:border-slate-700 bg-gradient-to-br from-cyan-50 via-white to-violet-50 dark:from-slate-900 dark:via-slate-900 dark:to-cyan-950/30 p-6 md:p-8 shadow-sm relative">
+        <div className="absolute -right-16 -top-16 w-52 h-52 rounded-full bg-primary-200/30 dark:bg-primary-500/10 blur-3xl"></div>
+        <div className="absolute -left-12 -bottom-16 w-48 h-48 rounded-full bg-purple-200/30 dark:bg-purple-500/10 blur-3xl"></div>
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 dark:bg-slate-800/70 border border-white dark:border-slate-700 text-xs font-black tracking-wide text-primary-600 dark:text-primary-300 mb-4">
+              <Icons.Sparkles className="w-3.5 h-3.5" /> 阅读清单
             </div>
-          ))}
+            <h1 className="text-3xl md:text-5xl font-black text-slate-900 dark:text-white tracking-tight mb-3">
+              {searchQuery ? `搜索: "${searchQuery}"` : selectedTag ? `标签: #${selectedTag}` : '全部文章'}
+            </h1>
+            <p className="text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
+              共 {total} 篇 AI / 大模型实战笔记，持续更新；可按标签、关键词与排序自由检索。
+            </p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 min-w-full lg:min-w-[460px]">
+            {[
+              { label: '命中总数', value: total, icon: Icons.BookOpen },
+              { label: '本页阅读', value: pageStats.views, icon: Icons.Eye },
+              { label: '点赞', value: pageStats.likes, icon: Icons.Heart },
+              { label: '评论', value: pageStats.comments, icon: Icons.MessageSquare },
+            ].map(item => (
+              <div key={item.label} className="rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-white dark:border-slate-700 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
+                  <item.icon className="w-3.5 h-3.5 text-primary-500" /> {item.label}
+                </div>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{item.value}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </header>
+      </section>
 
-      <div className="flex flex-col xl:flex-row gap-10">
-        {/* 主列表 */}
+      <div className="flex flex-col xl:flex-row gap-12">
+        {/* Main Content */}
         <div className="flex-1 min-w-0">
-          {/* 排序与筛选栏 */}
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex p-1 bg-slate-100/90 dark:bg-slate-800/80 rounded-lg border border-slate-200/70 dark:border-slate-700/70">
+          {/* 排序选项 */}
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-400 dark:text-slate-500 font-medium">排序：</span>
+              <div className="flex p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl">
                 {[
-                  { label: '最新', value: 'time' as const, icon: Icons.Clock },
+                  { label: '时间', value: 'time' as const, icon: Icons.Clock },
                   { label: '阅读', value: 'views' as const, icon: Icons.Eye },
                   { label: '点赞', value: 'likes' as const, icon: Icons.Heart },
-                ].map((opt) => (
+                ].map(opt => (
                   <button
                     key={opt.value}
-                    type="button"
                     onClick={() => setSortBy(opt.value)}
-                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
-                      sortBy === opt.value
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
+                    className={`px-4 py-1.5 text-sm rounded-lg font-bold transition-all flex items-center gap-1.5 ${sortBy === opt.value
+                      ? 'bg-white dark:bg-slate-700 text-primary-600 dark:text-primary-400 shadow-sm'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                      }`}
                   >
                     <opt.icon className="w-3.5 h-3.5" />
                     {opt.label}
                   </button>
                 ))}
               </div>
-
-              {hasFilter && (
-                <button
-                  type="button"
-                  onClick={clearFilter}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-950/60 border border-primary-200/70 dark:border-primary-800/60 px-3 py-1.5 rounded-lg hover:bg-primary-100/70 dark:hover:bg-primary-900/50 transition-colors cursor-pointer"
-                >
-                  <Icons.X className="w-3.5 h-3.5" /> 清除筛选
-                </button>
-              )}
             </div>
 
             <button
-              type="button"
               onClick={toggleSortOrder}
-              className="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 transition-all shadow-sm active:scale-95"
             >
-              <Icons.ArrowUpDown className={`w-3.5 h-3.5 transition-transform ${sortOrder === 'asc' ? 'rotate-180' : ''}`} />
-              {sortOrder === 'desc' ? '降序' : '升序'}
+              <Icons.ArrowUpDown className={`w-4 h-4 transition-transform ${sortOrder === 'asc' ? 'rotate-180' : ''}`} />
+              {sortOrder === 'desc' ? '正在降序' : '正在升序'}
             </button>
           </div>
 
+          {hasFilter && (
+            <div className="mb-8">
+              <button onClick={clearFilter} className="flex items-center gap-2 text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-bold bg-primary-50 dark:bg-primary-900/20 px-4 py-2 rounded-xl transition-all hover:shadow-sm">
+                <Icons.X className="w-4 h-4" /> 清除所有筛选
+              </button>
+            </div>
+          )}
+
           {loading ? (
-            <ListSkeleton rows={4} />
-          ) : articles.length > 0 ? (
-            <div className="space-y-4">
-              {articles.map((article) => (
-                <article
-                  key={article.id}
-                  className="group rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 hover:border-slate-300 dark:hover:border-slate-700 transition-colors card-lift"
-                >
-                  <div className="flex flex-col md:flex-row gap-5">
-                    <div className="flex-1 min-w-0 flex flex-col">
-                      {/* 元信息 */}
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 dark:text-slate-500 mb-2 tabular-nums">
-                        <span className="font-medium text-slate-600 dark:text-slate-300">{formatDate(article.published_at)}</span>
-                        {article.category && (
-                          <>
-                            <span>&middot;</span>
-                            <span className="text-primary-600 dark:text-primary-400 font-medium">{article.category}</span>
-                          </>
-                        )}
-                        <span>&middot;</span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icons.Clock className="w-3 h-3" /> {article.read_time_minutes || 5} min
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icons.Eye className="w-3 h-3" /> {article.view_count}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icons.Heart className="w-3 h-3" /> {article.like_count}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Icons.MessageSquare className="w-3 h-3" /> {article.comment_count || 0}
-                        </span>
+            <div className="space-y-8 animate-pulse">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="relative pl-8 border-l-2 border-slate-100 dark:border-slate-800">
+                  <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 ring-4 ring-white dark:ring-slate-900"></div>
+                  <div className="flex flex-col md:flex-row gap-6">
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="h-5 w-20 bg-slate-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-4 w-16 bg-slate-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-4 w-12 bg-slate-200 dark:bg-slate-700 rounded"></div>
                       </div>
+                      <div className="h-7 w-3/4 bg-slate-200 dark:bg-slate-700 rounded"></div>
+                      <div className="space-y-2">
+                        <div className="h-4 w-full bg-slate-100 dark:bg-slate-800 rounded"></div>
+                        <div className="h-4 w-5/6 bg-slate-100 dark:bg-slate-800 rounded"></div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <div className="h-6 w-14 bg-slate-100 dark:bg-slate-800 rounded-lg"></div>
+                        <div className="h-6 w-16 bg-slate-100 dark:bg-slate-800 rounded-lg"></div>
+                        <div className="h-6 w-12 bg-slate-100 dark:bg-slate-800 rounded-lg"></div>
+                      </div>
+                    </div>
+                    {i <= 2 && (
+                      <div className="w-full md:w-56 lg:w-64 aspect-[16/9] rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0"></div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : articles.length > 0 ? (
+            <div className="space-y-8">
+              {articles.map((article) => {
+                const date = formatDate(article.published_at);
+                return (
+                  <article key={article.id} className="group relative pl-8 border-l-2 border-slate-100 dark:border-slate-800 hover:border-primary-200 dark:hover:border-primary-800 transition-colors">
+                    <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 ring-4 ring-white dark:ring-slate-900 group-hover:bg-primary-500 transition-colors"></div>
 
-                      {/* 标题 */}
-                      <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 mb-2 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors leading-snug">
-                        <Link to={`/articles/${article.id}`} className="inline">
-                          {article.title}
-                        </Link>
-                        {article.is_pinned && (
-                          <StatusPill tone="amber" dot className="ml-2 align-middle">
-                            置顶
-                          </StatusPill>
-                        )}
-                      </h2>
-
-                      {/* 摘要 */}
-                      {article.summary && (
-                        <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mb-4 line-clamp-2">
+                    <div className="flex flex-col md:flex-row gap-6">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400 mb-2 font-medium transition-colors">
+                          <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300 transition-colors">{date.monthYear}/{date.day}</span>
+                          <span className="w-1 h-1 bg-slate-300 dark:bg-slate-600 rounded-full"></span>
+                          <span className="flex items-center gap-1"><Icons.Clock className="w-3.5 h-3.5" /> {article.read_time_minutes} min</span>
+                          <span className="w-1 h-1 bg-slate-300 dark:bg-slate-600 rounded-full"></span>
+                          <span className="flex items-center gap-1"><Icons.Eye className="w-3.5 h-3.5" /> {article.view_count}</span>
+                          <span className="flex items-center gap-1"><Icons.Heart className="w-3.5 h-3.5" /> {article.like_count}</span>
+                          <span className="flex items-center gap-1"><Icons.MessageSquare className="w-3.5 h-3.5" /> {article.comment_count || 0}</span>
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-3 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors leading-tight">
+                          <Link to={`/articles/${article.id}`}>
+                            {article.title}
+                          </Link>
+                          {article.is_pinned && <span className="ml-2 inline-block px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 text-xs rounded-full align-middle">置顶</span>}
+                        </h2>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed mb-4 line-clamp-2 transition-colors">
                           {article.summary}
                         </p>
-                      )}
-
-                      {/* 标签与作者 */}
-                      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {article.tags.map((tag) => (
+                        <div className="flex flex-wrap items-center gap-3">
+                          {article.tags.map(tag => (
                             <Link
                               key={tag.id}
-                              to={`/articles?tag=${encodeURIComponent(tag.name)}`}
-                              className={`text-xs font-medium px-2 py-0.5 rounded-md border transition-colors ${
-                                selectedTag === tag.name
-                                  ? 'bg-primary-600 text-white border-primary-600'
-                                  : 'bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-primary-300 dark:hover:border-primary-700 hover:text-primary-600 dark:hover:text-primary-400'
-                              }`}
+                              to={`/articles?tag=${tag.name}`}
+                              className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-all ${selectedTag === tag.name
+                                ? 'bg-primary-500 text-white border-primary-500 shadow-md'
+                                : 'bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:text-primary-600 dark:hover:text-primary-400 hover:shadow-sm border-slate-100 dark:border-slate-700'
+                                }`}
                             >
                               #{tag.name}
                             </Link>
                           ))}
                         </div>
-
-                        {article.author?.username && (
-                          <Link
-                            to={`/user/${encodeURIComponent(article.author.username)}`}
-                            className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-                          >
-                            @{article.author.display_name || article.author.username}
-                          </Link>
-                        )}
                       </div>
+                      {article.cover_image && (
+                        <div className="w-full md:w-56 lg:w-64 aspect-[16/9] rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 flex-shrink-0 transition-colors">
+                          <img
+                            src={getFileUrl(article.cover_image)}
+                            alt={article.title}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                          />
+                        </div>
+                      )}
                     </div>
-
-                    {article.cover_image && (
-                      <Link
-                        to={`/articles/${article.id}`}
-                        className="w-full md:w-52 lg:w-56 aspect-[16/10] rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-800 flex-shrink-0"
-                      >
-                        <img
-                          src={getFileUrl(article.cover_image)}
-                          alt={article.title}
-                          loading="lazy"
-                          decoding="async"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                      </Link>
-                    )}
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           ) : (
-            <EmptyState
-              icon={<Icons.Search className="w-5 h-5" />}
-              title="未找到相关文章"
-              description="试试更换关键词、切换排序或清空标签筛选。"
-              action={
-                hasFilter ? (
-                  <button
-                    type="button"
-                    onClick={clearFilter}
-                    className="text-xs font-medium text-primary-600 dark:text-primary-400 hover:underline cursor-pointer"
-                  >
-                    查看所有文章 &rarr;
-                  </button>
-                ) : undefined
-              }
-            />
+            <div className="text-center py-20 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700 transition-colors">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 mb-4 transition-colors">
+                <Icons.Search className="w-8 h-8" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 transition-colors">未找到相关文章</h3>
+              <p className="text-slate-500 dark:text-slate-400 transition-colors">换个关键词或标签试试吧</p>
+              {hasFilter && (
+                <button onClick={clearFilter} className="mt-6 text-primary-600 dark:text-primary-400 hover:underline font-bold">
+                  查看所有文章
+                </button>
+              )}
+            </div>
           )}
 
-          {/* 分页 */}
+          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-1.5 mt-10">
+            <div className="flex justify-center gap-2 mt-16">
               <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                aria-label="上一页"
-                className="h-9 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
               >
-                <Icons.ChevronLeft className="w-4 h-4" />
+                <Icons.ArrowLeft className="w-5 h-5" />
               </button>
-              {pageNumbers.map((item, idx) =>
-                item === 'ellipsis' ? (
-                  <span key={`e-${idx}`} className="px-2 text-slate-400 text-xs select-none">
-                    ...
-                  </span>
-                ) : (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setPage(item)}
-                    className={`min-w-9 h-9 px-2.5 rounded-lg text-xs font-medium transition-colors tabular-nums cursor-pointer ${
-                      page === item
-                        ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border border-transparent'
-                        : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`w-11 h-11 rounded-xl font-bold transition-all ${page === p
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xl scale-110'
+                    : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm'
                     }`}
-                  >
-                    {item}
-                  </button>
-                ),
-              )}
+                >
+                  {p}
+                </button>
+              ))}
               <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                aria-label="下一页"
-                className="h-9 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
               >
-                <Icons.ChevronRight className="w-4 h-4" />
+                <Icons.ChevronRight className="w-5 h-5" />
               </button>
             </div>
           )}
         </div>
 
-        {/* 右侧边栏 */}
-        <aside className="w-full xl:w-64 flex-shrink-0 hidden xl:block">
-          <div className="sticky top-20 space-y-5">
-            {/* 标签分类 */}
-            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2">
-                <Icons.Tag className="w-3.5 h-3.5 text-primary-500" />
-                标签分类
+        {/* Sidebar */}
+        <aside className="w-full xl:w-56 flex-shrink-0 space-y-8 hidden xl:block">
+          <div className="sticky top-24 space-y-8">
+            {/* Tags (New Categorization) */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-100 dark:border-slate-700 shadow-sm transition-all">
+              <h3 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2 transition-colors">
+                <Icons.Tag className="w-4 h-4" /> 标签分类
               </h3>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 <Link
                   to="/articles"
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
-                    !selectedTag
-                      ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-transparent'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${!selectedTag
+                    ? 'bg-slate-900 text-white shadow-md'
+                    : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
                 >
                   全部
                 </Link>
-                {tags.map((tag) => (
+                {tags.map(tag => (
                   <Link
                     key={tag.id}
-                    to={`/articles?tag=${encodeURIComponent(tag.name)}`}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
-                      selectedTag === tag.name
-                        ? 'bg-primary-600 text-white border-primary-600'
-                        : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-primary-300 dark:hover:border-primary-700 hover:text-primary-600 dark:hover:text-primary-400'
-                    }`}
+                    to={`/articles?tag=${tag.name}`}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${selectedTag === tag.name
+                      ? 'bg-primary-500 text-white shadow-md'
+                      : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-100 dark:border-slate-800'
+                      }`}
                   >
                     #{tag.name}
                   </Link>
@@ -401,55 +349,44 @@ const ArticleList: React.FC = () => {
               </div>
             </div>
 
-            {/* 本页热读 */}
-            {popularArticles.length > 0 && (
-              <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2">
-                  <Icons.TrendingUp className="w-3.5 h-3.5 text-primary-500" />
-                  本页热读
-                </h3>
-                <div className="space-y-2">
-                  {popularArticles.map((article, index) => (
-                    <Link
-                      key={article.id}
-                      to={`/articles/${article.id}`}
-                      className="group flex items-start gap-2.5 rounded-lg p-1.5 -mx-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
-                    >
-                      <span className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-semibold flex items-center justify-center flex-shrink-0 tabular-nums mt-0.5">
-                        {index + 1}
-                      </span>
-                      <span className="text-xs font-medium text-slate-600 dark:text-slate-300 group-hover:text-primary-600 dark:group-hover:text-primary-400 line-clamp-2 leading-snug">
-                        {article.title}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
+            {/* Hot Articles */}
+            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-100 dark:border-slate-700 shadow-sm transition-all">
+              <h3 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2 transition-colors">
+                <Icons.TrendingUp className="w-4 h-4" /> 本页热读
+              </h3>
+              <div className="space-y-3">
+                {popularArticles.map((article, index) => (
+                  <Link key={article.id} to={`/articles/${article.id}`} className="group flex gap-3 rounded-xl p-2 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
+                    <span className="w-6 h-6 rounded-lg bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-300 text-xs font-black flex items-center justify-center flex-shrink-0">{index + 1}</span>
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 group-hover:text-primary-600 dark:group-hover:text-primary-400 line-clamp-2">{article.title}</span>
+                  </Link>
+                ))}
               </div>
-            )}
+            </div>
 
-            {/* 归档与投稿快捷入口 */}
-            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 p-5 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
-                <Icons.Archive className="w-3.5 h-3.5 text-primary-500" />
-                全站归档与时间线
+            {/* Quick Tag Cloud */}
+            <div className="bg-slate-900 dark:bg-slate-950 rounded-2xl p-6 border border-slate-800 shadow-sm overflow-hidden relative">
+              <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-primary-500/20 blur-2xl"></div>
+              <h3 className="font-bold text-white mb-4 flex items-center gap-2 relative z-10"><Icons.Tags className="w-4 h-4 text-primary-300" /> 快速跳转</h3>
+              <div className="flex flex-wrap gap-2 relative z-10">
+                {hotTags.map(tag => (
+                  <Link key={tag.id} to={`/articles?tag=${tag.name}`} className="px-2.5 py-1 rounded-full bg-white/10 hover:bg-primary-400/30 text-slate-200 text-xs font-bold transition-colors">#{tag.name}</Link>
+                ))}
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                按主题文件夹或月度写作曲线回顾全部文章、热点研究与 AI 日报。
+            </div>
+
+            {/* Archives Shortcut */}
+            <div className="bg-gradient-to-br from-slate-50 to-purple-50 dark:from-slate-800 dark:to-purple-950/30 rounded-2xl p-6 border border-slate-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
+              <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-purple-200/30 dark:bg-purple-600/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+              <h3 className="font-bold text-lg mb-2 flex items-center gap-2 relative z-10 text-slate-700 dark:text-slate-200">
+                <Icons.Sparkles className="w-5 h-5 text-purple-400" /> 往期内容
+              </h3>
+              <p className="text-slate-500 dark:text-slate-400 text-xs mb-4 relative z-10">
+                按技术栈分类浏览全部文章，寻找曾经的足迹。
               </p>
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Link
-                  to="/archives"
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:border-primary-300 dark:hover:border-primary-700 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-                >
-                  查看归档 &rarr;
-                </Link>
-                <Link
-                  to="/write"
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium transition-colors"
-                >
-                  写文章
-                </Link>
-              </div>
+              <Link to="/archives" className="inline-block px-4 py-2 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 dark:hover:bg-purple-900/60 text-purple-600 dark:text-purple-300 rounded-lg text-xs font-bold transition-all hover:translate-x-1 relative z-10">
+                查看文章归档 &rarr;
+              </Link>
             </div>
           </div>
         </aside>

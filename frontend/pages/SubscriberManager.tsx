@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import Avatar from '../components/Avatar';
 import { Icons } from '../components/Icons';
-import { Button, Card, EmptyState, Input, StatusPill } from '../components/Shared';
-import { ListSkeleton } from '../components/Skeleton';
+import { Card, Button } from '../components/Shared';
 import api from '../api/config';
 import { errorText } from '../utils/errors';
 import { useConfirm } from '../components/ConfirmDialog';
@@ -55,7 +53,7 @@ const SubscriberManager: React.FC = () => {
 
     try {
       await api.delete(`/subscribers/${id}`);
-      setSubscribers((prev) => prev.filter((s) => s.id !== id));
+      setSubscribers(prev => prev.filter(s => s.id !== id));
       showToast('订阅者已删除', 'success');
     } catch (error: any) {
       showToast(errorText(error, '删除失败'), 'error');
@@ -67,12 +65,8 @@ const SubscriberManager: React.FC = () => {
     const action = subscriber.is_frozen ? '解冻' : '冻结';
 
     try {
-      const response = await api.put(
-        `/subscribers/${subscriber.id}/freeze?frozen=${!subscriber.is_frozen}`
-      );
-      setSubscribers((prev) =>
-        prev.map((s) => (s.id === subscriber.id ? response.data : s))
-      );
+      const response = await api.put(`/subscribers/${subscriber.id}/freeze?frozen=${!subscriber.is_frozen}`);
+      setSubscribers(prev => prev.map(s => s.id === subscriber.id ? response.data : s));
       showToast(`${action}成功`, 'success');
     } catch (error: any) {
       showToast(errorText(error, `${action}失败`), 'error');
@@ -83,6 +77,7 @@ const SubscriberManager: React.FC = () => {
   const handleFreezeAll = async (frozen: boolean) => {
     const action = frozen ? '冻结' : '解冻';
     const target = frozen ? '所有活跃订阅者' : '所有已冻结订阅者';
+    // 批量冻结影响所有活跃订阅者的邮件投递，属高风险批量操作，保留确认
     if (frozen) {
       const ok = await confirm({
         title: '一键冻结全部',
@@ -96,151 +91,130 @@ const SubscriberManager: React.FC = () => {
     try {
       const response = await api.put(`/subscribers/freeze-all?frozen=${frozen}`);
       showToast(response.data.message || `${action}成功`, 'success');
-      fetchSubscribers();
+      fetchSubscribers(); // 重新加载列表
     } catch (error: any) {
       showToast(errorText(error, `${action}失败`), 'error');
     }
   };
 
-  const filteredSubscribers = subscribers.filter((s) => {
+  const filteredSubscribers = subscribers.filter(s => {
+    // 状态筛选
     if (filter === 'active' && !s.is_active) return false;
     if (filter === 'inactive' && s.is_active) return false;
+
+    // 搜索筛选
     if (searchTerm && !s.email.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+
     return true;
   });
 
-  const activeCount = subscribers.filter((s) => s.is_active && !s.is_frozen).length;
-  const frozenCount = subscribers.filter((s) => s.is_frozen).length;
-  const inactiveCount = subscribers.filter((s) => !s.is_active).length;
+  const activeCount = subscribers.filter(s => s.is_active && !s.is_frozen).length;
+  const frozenCount = subscribers.filter(s => s.is_frozen).length;
+  const inactiveCount = subscribers.filter(s => !s.is_active).length;
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 lg:p-10 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-white tracking-tight">
-            订阅管理
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            管理邮件更新订阅用户及投递冻结状态
-          </p>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">订阅管理</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">管理邮件订阅用户</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleFreezeAll(true)}
-            disabled={activeCount === 0}
-            title="冻结所有活跃订阅者"
-          >
-            <Icons.Lock className="w-3.5 h-3.5" />
-            一键冻结
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleFreezeAll(false)}
-            disabled={frozenCount === 0}
-            title="解冻所有已冻结订阅者"
-          >
-            <Icons.Unlock className="w-3.5 h-3.5" />
-            一键解冻
-          </Button>
+        <div className="flex items-center gap-4">
+          {/* 批量操作按钮 */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleFreezeAll(true)}
+              disabled={activeCount === 0}
+              className="px-3 py-1.5 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/60 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors"
+              title="冻结所有活跃订阅者"
+            >
+              ❄️ 一键冻结
+            </button>
+            <button
+              onClick={() => handleFreezeAll(false)}
+              disabled={frozenCount === 0}
+              className="px-3 py-1.5 bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/60 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors"
+              title="解冻所有已冻结订阅者"
+            >
+              ☀️ 一键解冻
+            </button>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="px-3 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 rounded-full font-medium">
+              活跃: {activeCount}
+            </span>
+            <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-full font-medium">
+              已冻结: {frozenCount}
+            </span>
+            <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-full font-medium">
+              已退订: {inactiveCount}
+            </span>
+          </div>
         </div>
-      </div>
-
-      {/* Stats Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="text-xs text-slate-500 dark:text-slate-400">总订阅数</div>
-          <div className="mt-1.5 text-2xl font-semibold text-slate-900 dark:text-white tabular-nums">
-            {subscribers.length}
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>活跃接收</span>
-          </div>
-          <div className="mt-1.5 text-2xl font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
-            {activeCount}
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-primary-500" />
-            <span>已冻结</span>
-          </div>
-          <div className="mt-1.5 text-2xl font-semibold text-primary-600 dark:text-primary-400 tabular-nums">
-            {frozenCount}
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-slate-400" />
-            <span>已退订</span>
-          </div>
-          <div className="mt-1.5 text-2xl font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
-            {inactiveCount}
-          </div>
-        </Card>
       </div>
 
       {/* Filters */}
-      <Card className="p-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+      <Card className="mb-6 p-4 dark:bg-slate-800 dark:border-slate-700 shadow-sm">
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Search */}
           <div className="flex-1 relative">
             <Icons.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
-            <Input
+            <input
               type="text"
               placeholder="搜索邮箱..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
+              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none transition-all"
             />
           </div>
 
-          <div className="inline-flex rounded-lg border border-slate-200/80 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-0.5 self-start sm:self-auto">
-            {([
-              { key: 'all', label: '全部' },
-              { key: 'active', label: '活跃' },
-              { key: 'inactive', label: '已退订' },
-            ] as const).map((opt) => (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setFilter(opt.key)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  filter === opt.key
-                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+          {/* Status Filter */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'all'
+                ? 'bg-cyan-500 text-white shadow-md'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
                 }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+            >
+              全部
+            </button>
+            <button
+              onClick={() => setFilter('active')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'active'
+                ? 'bg-green-500 text-white shadow-md'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+            >
+              活跃
+            </button>
+            <button
+              onClick={() => setFilter('inactive')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'inactive'
+                ? 'bg-slate-500 text-white shadow-md'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+            >
+              已退订
+            </button>
           </div>
         </div>
       </Card>
 
       {/* Subscriber List */}
-      <Card className="overflow-hidden">
+      <Card className="dark:bg-slate-800 dark:border-slate-700 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-4">
-            <ListSkeleton rows={4} />
-          </div>
+          <div className="p-10 text-center text-slate-400 dark:text-slate-500">加载中...</div>
         ) : filteredSubscribers.length === 0 ? (
-          <EmptyState
-            icon={<Icons.Mail className="w-5 h-5" />}
-            title={searchTerm ? '没有找到匹配的订阅者' : '暂无订阅者'}
-            description={searchTerm ? '尝试调整搜索关键词或状态筛选条件。' : undefined}
-            className="border-0"
-          />
+          <div className="p-10 text-center text-slate-400 dark:text-slate-500">
+            {searchTerm ? '没有找到匹配的订阅者' : '暂无订阅者'}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-slate-50/80 dark:bg-slate-950/50 border-b border-slate-200/80 dark:border-slate-800">
-                <tr>
+              <thead>
+                <tr className="border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30">
                   <th className={TH}>邮箱</th>
                   <th className={TH}>状态</th>
                   <th className={TH}>订阅时间</th>
@@ -248,78 +222,65 @@ const SubscriberManager: React.FC = () => {
                   <th className={`${TH} text-right`}>操作</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200/70 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
                 {filteredSubscribers.map((subscriber) => (
-                  <tr
-                    key={subscriber.id}
-                    className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
-                  >
+                  <tr key={subscriber.id} className="odd:bg-slate-50/60 dark:odd:bg-slate-900/20 hover:bg-cyan-50/50 dark:hover:bg-cyan-900/10 transition-colors">
                     <td className={TD}>
                       <div className="flex items-center gap-3">
-                        <Avatar
-                          name={subscriber.email}
-                          className="w-8 h-8 text-xs"
-                        />
-                        <span className="font-medium text-slate-800 dark:text-slate-200 text-sm">
-                          {subscriber.email}
-                        </span>
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-white dark:ring-slate-700">
+                          {subscriber.email[0].toUpperCase()}
+                        </div>
+                        <span className="font-medium text-slate-700 dark:text-slate-200">{subscriber.email}</span>
                       </div>
                     </td>
                     <td className={TD}>
                       {!subscriber.is_active ? (
-                        <StatusPill tone="slate" dot>
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-full text-xs font-medium">
+                          <span className="w-1.5 h-1.5 bg-slate-400 rounded-full"></span>
                           已退订
-                        </StatusPill>
+                        </span>
                       ) : subscriber.is_frozen ? (
-                        <StatusPill tone="primary" dot>
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-full text-xs font-medium border border-blue-200 dark:border-blue-800">
+                          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
                           已冻结
-                        </StatusPill>
+                        </span>
                       ) : (
-                        <StatusPill tone="emerald" dot>
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 rounded-full text-xs font-medium border border-green-200 dark:border-green-800">
+                          <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
                           活跃
-                        </StatusPill>
+                        </span>
                       )}
                     </td>
-                    <td className={`${TD} text-xs text-slate-500 dark:text-slate-400 tabular-nums`}>
+                    <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                       {new Date(subscriber.subscribed_at).toLocaleString('zh-CN')}
                     </td>
-                    <td className={`${TD} text-xs text-slate-500 dark:text-slate-400 tabular-nums`}>
+                    <td className={`${TD} text-sm text-slate-500 dark:text-slate-400`}>
                       {subscriber.unsubscribed_at
                         ? new Date(subscriber.unsubscribed_at).toLocaleString('zh-CN')
-                        : '—'}
+                        : '-'
+                      }
                     </td>
                     <td className={`${TD} text-right`}>
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-2">
                         {subscriber.is_active && (
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <button
                             onClick={() => handleFreeze(subscriber)}
-                            className="h-7 px-2.5 text-xs"
+                            className={`p-2 rounded-lg transition-colors ${subscriber.is_frozen
+                              ? 'text-green-500 dark:text-green-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30'
+                              : 'text-blue-500 dark:text-blue-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30'
+                              }`}
                             title={subscriber.is_frozen ? '解冻订阅者' : '冻结订阅者'}
                           >
-                            {subscriber.is_frozen ? (
-                              <>
-                                <Icons.Unlock className="w-3 h-3" />
-                                解冻
-                              </>
-                            ) : (
-                              <>
-                                <Icons.Lock className="w-3 h-3" />
-                                冻结
-                              </>
-                            )}
-                          </Button>
+                            {subscriber.is_frozen ? '☀️' : '❄️'}
+                          </button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
+                        <button
                           onClick={() => handleDelete(subscriber.id, subscriber.email)}
-                          className="h-7 px-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
+                          className="p-2 text-slate-400 dark:text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
                           title="删除订阅者"
                         >
-                          <Icons.Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                          <Icons.X className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -329,6 +290,22 @@ const SubscriberManager: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* Stats Summary */}
+      <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="p-6 text-center dark:bg-slate-800 dark:border-slate-700 shadow-sm">
+          <div className="text-3xl font-bold text-slate-800 dark:text-slate-100">{subscribers.length}</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-medium">总订阅数</div>
+        </Card>
+        <Card className="p-6 text-center dark:bg-slate-800 dark:border-slate-700 shadow-sm border-t-4 border-t-green-500">
+          <div className="text-3xl font-bold text-green-600 dark:text-green-400">{activeCount}</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-medium">活跃订阅</div>
+        </Card>
+        <Card className="p-6 text-center dark:bg-slate-800 dark:border-slate-700 shadow-sm">
+          <div className="text-3xl font-bold text-slate-400 dark:text-slate-500">{inactiveCount}</div>
+          <div className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-medium">已退订</div>
+        </Card>
+      </div>
 
       {confirmDialog}
     </div>

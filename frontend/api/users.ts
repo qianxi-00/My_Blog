@@ -3,7 +3,6 @@
  * 注册 / 用户资料 / 用户投稿 / 管理端审核与用户管理
  */
 import api, { PaginatedResponse } from './config';
-import type { ForumThreadListItem } from './forum';
 
 // 用户角色（token 中不携带，来自登录/注册响应或 /auth/me、/users/me）
 export type Role = 'super_admin' | 'admin' | 'user';
@@ -15,13 +14,7 @@ export interface UserProfile {
     email?: string;
     avatar_url?: string;
     bio?: string;
-    github?: string;
-    bilibili?: string;
-    website?: string;
     role: Role;
-    email_verified?: boolean;
-    has_password?: boolean;
-    username_customized?: boolean;
     created_at: string;
 }
 
@@ -29,7 +22,7 @@ export interface RegisterRequest {
     username: string;
     password: string;
     display_name?: string;
-    email: string;
+    email?: string;
     code?: string;
 }
 
@@ -43,20 +36,11 @@ export interface ProfileUpdate {
     bio?: string;
     email?: string;
     avatar_url?: string;
-    github?: string;
-    bilibili?: string;
-    website?: string;
 }
 
 export interface PasswordUpdate {
-    old_password?: string;
+    old_password: string;
     new_password: string;
-}
-
-export interface PasswordUpdateResponse {
-    message: string;
-    access_token: string;
-    has_password: boolean;
 }
 
 // 用户投稿状态
@@ -109,10 +93,6 @@ export interface PublicAuthor {
     display_name?: string;
     avatar_url?: string;
     bio?: string;
-    role?: Role;
-    github?: string;
-    bilibili?: string;
-    website?: string;
     created_at?: string;
 }
 
@@ -125,43 +105,15 @@ export interface PublicAuthorArticle {
     cover_image?: string;
 }
 
-export interface PublicAuthorPrompt {
-    id: number;
-    title: string;
-    description?: string;
-    content: string;
-    category: string;
-    copy_count?: number;
-    created_at: string;
-}
-
-export interface PublicAuthorThread {
-    id: number;
-    category_id: number;
-    category_name?: string;
-    title: string;
-    reply_count: number;
-    view_count: number;
-    like_count: number;
-    is_solved: boolean;
-    created_at: string;
-    last_post_at?: string;
-}
-
 /**
  * 公开作者页响应。
  * 2026-09-30 修正：后端 schemas/user.py 的 UserProfilePublic 是**扁平**结构
- * （UserPublicSafe 字段 + articles + prompts + threads + stats），没有 `user` 包装层。
+ * （UserPublicSafe 字段 + articles），没有 `user` 包装层。
+ * 之前前端声明成 { user, articles } 并读 `profile.user.display_name`，
+ * 在作者页直接抛 TypeError 整页白屏。
  */
 export interface PublicUserProfile extends PublicAuthor {
     articles: PublicAuthorArticle[];
-    prompts?: PublicAuthorPrompt[];
-    threads?: PublicAuthorThread[];
-    stats?: {
-        articles?: number;
-        prompts?: number;
-        threads?: number;
-    };
 }
 
 // 待审核文章（含作者信息）
@@ -176,9 +128,6 @@ export interface ReviewArticle extends UserArticle {
 // 管理端用户列表项
 export interface AdminUserItem extends UserProfile {
     is_active?: boolean;
-    article_count?: number;
-    comment_count?: number;
-    last_login_at?: string;
 }
 
 // 注册
@@ -199,19 +148,12 @@ export const updateCurrentUser = async (data: ProfileUpdate): Promise<UserProfil
     return response.data;
 };
 
-// 一次性修改正式用户名（免密自动建号引导用）
-export const updateMyUsername = async (username: string): Promise<UserProfile> => {
-    const response = await api.put<UserProfile>('/users/me/username', { username });
-    return response.data;
+// 修改当前用户密码
+export const updateCurrentUserPassword = async (data: PasswordUpdate): Promise<void> => {
+    await api.put('/users/me/password', data);
 };
 
-// 修改当前用户密码或首次设置密码（返回新 access_token 以保持当前会话在线）
-export const updateCurrentUserPassword = async (data: PasswordUpdate): Promise<PasswordUpdateResponse> => {
-    const response = await api.put<PasswordUpdateResponse>('/users/me/password', data);
-    return response.data;
-};
-
-// 获取公开作者主页（作者信息 + 已发布文章/提示词/社区主题）
+// 获取公开作者主页（作者信息 + 已发布文章）
 export const getPublicUser = async (username: string): Promise<PublicUserProfile> => {
     const response = await api.get<PublicUserProfile>(`/users/${encodeURIComponent(username)}`);
     return response.data;
@@ -465,167 +407,3 @@ export const deleteMyPrompt = async (id: number): Promise<{ message: string }> =
     const response = await api.delete(`/users/me/prompts/${id}`);
     return response.data;
 };
-
-// ===== 我的社区主题与评论记录 =====
-
-export const getMyThreads = async (params?: {
-    page?: number;
-    page_size?: number;
-}): Promise<PaginatedResponse<ForumThreadListItem>> => {
-    const response = await api.get('/users/me/threads', { params });
-    return response.data;
-};
-
-export interface MyCommentItem {
-    id: number;
-    target_type: 'article' | 'hotspot';
-    target_id: number;
-    target_title: string;
-    link: string;
-    content: string;
-    status: string;
-    like_count: number;
-    edited_at?: string;
-    created_at: string;
-}
-
-export const getMyComments = async (params?: {
-    page?: number;
-    page_size?: number;
-}): Promise<{
-    data: MyCommentItem[];
-    total: number;
-    page: number;
-    page_size: number;
-    total_pages: number;
-}> => {
-    const response = await api.get('/users/me/comments', { params });
-    return response.data;
-};
-
-// ===== 收藏与点赞 =====
-
-export type BookmarkTargetType = 'article' | 'hotspot' | 'prompt' | 'thread';
-
-export interface BookmarkItem {
-    id: number;
-    target_type: BookmarkTargetType;
-    target_id: number;
-    title: string;
-    summary?: string;
-    link: string;
-    extra?: {
-        available?: boolean;
-        category?: string;
-        reply_count?: number;
-    };
-    created_at: string;
-}
-
-export const toggleBookmark = async (
-    targetType: BookmarkTargetType,
-    targetId: number
-): Promise<{ bookmarked: boolean; target_type: BookmarkTargetType; target_id: number }> => {
-    const response = await api.post('/users/me/bookmarks/toggle', {
-        target_type: targetType,
-        target_id: targetId,
-    });
-    return response.data;
-};
-
-export const getBookmarkStatus = async (
-    targetType: BookmarkTargetType,
-    targetId: number
-): Promise<{ bookmarked: boolean }> => {
-    const response = await api.get('/users/me/bookmarks/status', {
-        params: { target_type: targetType, target_id: targetId },
-    });
-    return response.data;
-};
-
-export const getMyBookmarks = async (params?: {
-    target_type?: BookmarkTargetType;
-    page?: number;
-    page_size?: number;
-}): Promise<PaginatedResponse<BookmarkItem>> => {
-    const response = await api.get('/users/me/bookmarks', { params });
-    return response.data;
-};
-
-export interface LikedThreadItem {
-    id: number;
-    title: string;
-    category_name?: string;
-    like_count: number;
-    reply_count: number;
-    liked_at: string;
-    link: string;
-}
-
-export interface LikedPostItem {
-    id: number;
-    thread_id: number;
-    thread_title: string;
-    floor: number;
-    content_preview: string;
-    like_count: number;
-    liked_at: string;
-    link: string;
-}
-
-export interface MyLikesResponse {
-    threads: LikedThreadItem[];
-    posts: LikedPostItem[];
-    total_threads: number;
-    total_posts: number;
-}
-
-export const getMyLikes = async (params?: {
-    page?: number;
-    page_size?: number;
-}): Promise<MyLikesResponse> => {
-    const response = await api.get('/users/me/likes', { params });
-    return response.data;
-};
-
-// ===== 站内通知 =====
-
-export interface NotificationItem {
-    id: number;
-    actor_id?: number;
-    actor_name?: string;
-    actor_avatar?: string;
-    type: 'comment_reply' | 'forum_reply' | 'forum_accepted' | 'article_review' | 'prompt_review' | string;
-    target_type?: string;
-    target_id?: number;
-    title: string;
-    snippet?: string;
-    link?: string;
-    is_read: boolean;
-    created_at: string;
-}
-
-export const getNotifications = async (params?: {
-    unread_only?: boolean;
-    page?: number;
-    page_size?: number;
-}): Promise<PaginatedResponse<NotificationItem>> => {
-    const response = await api.get('/users/me/notifications', { params });
-    return response.data;
-};
-
-export const getUnreadNotificationsCount = async (): Promise<{ unread_count: number }> => {
-    const response = await api.get('/users/me/notifications/unread-count');
-    return response.data;
-};
-
-export const markNotificationRead = async (notifId: number): Promise<{ message: string; id: number }> => {
-    const response = await api.put(`/users/me/notifications/${notifId}/read`);
-    return response.data;
-};
-
-export const markAllNotificationsRead = async (): Promise<{ message: string }> => {
-    const response = await api.put('/users/me/notifications/read-all');
-    return response.data;
-};
-

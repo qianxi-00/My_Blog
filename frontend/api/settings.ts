@@ -26,8 +26,6 @@ export interface PublicSiteSettings {
     admin_avatar: string;
     admin_bio: string;
     contact: ContactInfo;
-    registration_enabled?: boolean;
-    email_verification_required?: boolean;
 }
 
 // Get public settings
@@ -52,24 +50,3 @@ export const updateSetting = async (key: string, value: string): Promise<SiteSet
 export const updateSettingsBatch = async (settings: Record<string, string>): Promise<void> => {
     await api.put('/settings/batch', settings);
 };
-
-export interface EmailStatus {
-    configured: boolean;
-    host: string;
-    port: number;
-    from_email: string;
-    from_name: string;
-    mode: string;
-    user_masked: string;
-}
-
-export const getEmailStatus = async (): Promise<EmailStatus> => {
-    const response = await api.get('/settings/email/status');
-    return response.data;
-};
-
-export const sendTestEmail = async (toEmail: string): Promise<{ message: string }> => {
-    const response = await api.post('/settings/email/test', { to_email: toEmail });
-    return response.data;
-};
-
