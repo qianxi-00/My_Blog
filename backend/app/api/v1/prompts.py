@@ -20,6 +20,7 @@ from ...schemas.prompt import (
     PromptResponse, PromptListResponse
 )
 from ...schemas.common import PaginatedResponse
+from ...services.notification_service import create_notification
 
 router = APIRouter()
 
@@ -282,6 +283,18 @@ async def approve_prompt(
         )
     
     prompt.status = "approved"
+    if prompt.author_id:
+        await create_notification(
+            db,
+            user_id=prompt.author_id,
+            type="prompt_review",
+            title=f"你提交的提示词「{prompt.title}」已审核通过",
+            snippet=prompt.description or (prompt.content[:120] if prompt.content else None),
+            link=f"/prompts/{prompt.id}",
+            actor=admin,
+            target_type="prompt",
+            target_id=prompt.id,
+        )
     await db.commit()
     
     return {"message": "审核通过"}
@@ -306,6 +319,18 @@ async def reject_prompt(
         )
     
     prompt.status = "rejected"
+    if prompt.author_id:
+        await create_notification(
+            db,
+            user_id=prompt.author_id,
+            type="prompt_review",
+            title=f"你提交的提示词「{prompt.title}」未通过审核",
+            snippet="可在用户中心重新编辑并等待审核或查看说明",
+            link="/user",
+            actor=admin,
+            target_type="prompt",
+            target_id=prompt.id,
+        )
     await db.commit()
     
     return {"message": "已拒绝"}

@@ -29,6 +29,7 @@ from ...schemas.article import (
 from ...schemas.common import PaginatedResponse
 from ...services.markdown_service import parse_markdown, extract_frontmatter, estimate_read_time
 from ...services.email_service import email_service
+from ...services.notification_service import create_notification
 from ...services.openai_service import OpenAIService
 from ...core.prompt import SYSTEM_PROMPT_ARTICLE_SUMMARY
 
@@ -395,6 +396,32 @@ async def review_article(
     else:
         article.status = "rejected"
         article.review_note = review_data.review_note.strip()
+
+    if article.author_id:
+        if action == "approve":
+            await create_notification(
+                db,
+                user_id=article.author_id,
+                type="article_review",
+                title=f"你的投稿文章《{article.title}》已审核通过并发布",
+                snippet=article.summary or "点击查看已发布的文章",
+                link=f"/articles/{article.id}",
+                actor=admin,
+                target_type="article",
+                target_id=article.id,
+            )
+        else:
+            await create_notification(
+                db,
+                user_id=article.author_id,
+                type="article_review",
+                title=f"你的投稿文章《{article.title}》未通过审核",
+                snippet=f"驳回理由：{article.review_note}",
+                link="/user",
+                actor=admin,
+                target_type="article",
+                target_id=article.id,
+            )
 
     await db.commit()
     await _invalidate_article_caches(article.id)

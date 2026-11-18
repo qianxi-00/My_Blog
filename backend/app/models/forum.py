@@ -20,6 +20,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -28,10 +29,7 @@ from ..core.database import Base
 
 if TYPE_CHECKING:
     from .admin import Admin
-
-
-# 为了避免循环依赖，Admin 的反向 relationship 不在 Admin 模型中声明。
-# ForumPost.admin 仅用于在服务端需要时加载管理员信息（例如管理员编辑/删除记录）。
+    from .user import User
 
 
 class ForumCategory(Base):
@@ -43,6 +41,10 @@ class ForumCategory(Base):
 
     name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
     slug: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    icon: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -85,9 +87,16 @@ class ForumThread(Base):
 
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_solved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    accepted_post_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     reply_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    report_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_reported: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     last_post_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     last_post_id: Mapped[Optional[int]] = mapped_column(
@@ -100,6 +109,12 @@ class ForumThread(Base):
     # 主题内最后一个楼层号（并发分配楼层用）；首帖创建后应为 1。
     last_floor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     author_nickname: Mapped[str] = mapped_column(String(50), nullable=False)
     author_email: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
@@ -107,6 +122,7 @@ class ForumThread(Base):
     user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     user_identifier: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
 
+    edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
@@ -116,6 +132,7 @@ class ForumThread(Base):
     )
 
     category: Mapped[ForumCategory] = relationship("ForumCategory", back_populates="threads")
+    user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id], lazy="selectin")
 
     posts: Mapped[List["ForumPost"]] = relationship(
         "ForumPost",
@@ -129,6 +146,7 @@ class ForumThread(Base):
     last_post: Mapped[Optional["ForumPost"]] = relationship(
         "ForumPost",
         foreign_keys=[last_post_id],
+        post_update=True,
         lazy="selectin",
     )
 
@@ -159,6 +177,12 @@ class ForumPost(Base):
 
     floor: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     nickname: Mapped[str] = mapped_column(String(50), nullable=False)
     email: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
@@ -172,6 +196,11 @@ class ForumPost(Base):
     )
 
     is_admin_post: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    like_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    report_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_reported: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     admin_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("admins.id", ondelete="SET NULL"),
@@ -182,6 +211,7 @@ class ForumPost(Base):
     user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     user_identifier: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
 
+    edited_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
@@ -195,6 +225,7 @@ class ForumPost(Base):
         back_populates="posts",
         foreign_keys=[thread_id],
     )
+    user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[user_id], lazy="selectin")
 
     parent: Mapped[Optional["ForumPost"]] = relationship(
         "ForumPost",
@@ -213,3 +244,72 @@ class ForumPost(Base):
 
     def __repr__(self) -> str:
         return f"<ForumPost(id={self.id}, thread_id={self.thread_id}, floor={self.floor}, status='{self.status}')>"
+
+
+class ForumThreadLike(Base):
+    """论坛主题点赞表"""
+
+    __tablename__ = "forum_thread_likes"
+    __table_args__ = (
+        UniqueConstraint("thread_id", "user_id", name="uq_forum_thread_like"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    thread_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("forum_threads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+
+
+class ForumPostLike(Base):
+    """论坛楼层点赞表"""
+
+    __tablename__ = "forum_post_likes"
+    __table_args__ = (
+        UniqueConstraint("post_id", "user_id", name="uq_forum_post_like"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("forum_posts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+
+
+class ForumReport(Base):
+    """论坛举报表（主题 / 楼层）"""
+
+    __tablename__ = "forum_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    target_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # thread / post
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    reporter_identifier: Mapped[str] = mapped_column(String(100), nullable=False)
+    reason: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)

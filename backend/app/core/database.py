@@ -134,6 +134,40 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("ai_intro", "TEXT"),
         ("ai_intro_adopted", "BOOLEAN DEFAULT 0"),
     ],
+    # 2026-11-18 用户体系与社区重构
+    "users": [
+        ("has_password", "BOOLEAN DEFAULT 1"),
+        ("username_customized", "BOOLEAN DEFAULT 1"),
+        ("website", "VARCHAR(255)"),
+    ],
+    "forum_categories": [
+        ("description", "TEXT"),
+        ("icon", "VARCHAR(50)"),
+        ("color", "VARCHAR(30)"),
+        ("is_default", "BOOLEAN DEFAULT 0"),
+    ],
+    "forum_threads": [
+        ("user_id", "INTEGER"),
+        ("edited_at", "DATETIME"),
+        ("like_count", "INTEGER DEFAULT 0"),
+        ("is_solved", "BOOLEAN DEFAULT 0"),
+        ("accepted_post_id", "INTEGER"),
+        ("is_featured", "BOOLEAN DEFAULT 0"),
+        ("is_hidden", "BOOLEAN DEFAULT 0"),
+        ("report_count", "INTEGER DEFAULT 0"),
+        ("is_reported", "BOOLEAN DEFAULT 0"),
+    ],
+    "forum_posts": [
+        ("user_id", "INTEGER"),
+        ("edited_at", "DATETIME"),
+        ("like_count", "INTEGER DEFAULT 0"),
+        ("is_hidden", "BOOLEAN DEFAULT 0"),
+        ("report_count", "INTEGER DEFAULT 0"),
+        ("is_reported", "BOOLEAN DEFAULT 0"),
+    ],
+    "comments": [
+        ("edited_at", "DATETIME"),
+    ],
 }
 
 
@@ -145,13 +179,26 @@ async def ensure_schema_columns() -> None:
     生产是 DEBUG=false，只挂 init_db 的话新代码上线会直接 500（列不存在）。
     """
     from sqlalchemy import text
+    # 确保全部 ORM 模型（含新增表）已注册到 Base.metadata，再跑 create_all
+    from ..models import (  # noqa: F401
+        admin,
+        agent,
+        article,
+        bookmark,
+        chat,
+        comment,
+        email_code,
+        forum,
+        hot_topic,
+        image,
+        notification,
+        prompt,
+        settings as _settings_model,
+        stats,
+        subscriber,
+        user,
+    )
 
-    # ---- 十一期修复：无条件补建缺失的表（create_all 幂等 checkfirst）----
-    # init_db 此前只在 DEBUG 模式跑，生产从不执行；项目也从不用 Alembic
-    # （表结构演进一直靠本函数补列 + 种子函数）。结果：新增模型（如
-    # ChatQaCache）在生产永远建不出来——十一期实踩（启动后 no such table，
-    # 删表重启的对照实验复现）。create_all 默认 checkfirst=True，对已存在的
-    # 表零操作，生产多跑一次只是几十个 PRAGMA 检查，成本可忽略。
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

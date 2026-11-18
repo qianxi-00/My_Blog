@@ -132,6 +132,8 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = ""
     SMTP_FROM_NAME: str = "千禧的个人博客"
     SMTP_USE_SSL: bool = True
+    SMTP_USE_TLS: Optional[bool] = None
+    SMTP_TIMEOUT_SECONDS: int = 15
     
     # 站点 URL（用于邮件中的链接）
     SITE_URL: str = "http://localhost:8000"

@@ -1,7 +1,15 @@
 """
 models 模块初始化
-延迟导入以避免循环依赖
+显式导出全站核心模型与新增业务模型，确保 SQLAlchemy mapper 与 create_all 完整注册
 """
-# 不在这里批量导入，让使用者直接导入需要的模型
-# 例外：User 是全站唯一人员表（2026-09-24 用户系统改造），显式导出
 from .user import User  # noqa: F401
+from .bookmark import Bookmark  # noqa: F401
+from .notification import Notification  # noqa: F401
+from .forum import (  # noqa: F401
+    ForumCategory,
+    ForumThread,
+    ForumPost,
+    ForumThreadLike,
+    ForumPostLike,
+    ForumReport,
+)

@@ -5,7 +5,7 @@
 from datetime import datetime, date
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class PageViewCreate(BaseModel):
@@ -89,3 +89,30 @@ class PublicSiteSettings(BaseModel):
     admin_avatar: str = ""
     admin_bio: str = ""
     contact: ContactInfo = ContactInfo()
+    registration_enabled: bool = True
+    email_verification_required: bool = True
+
+
+class PublicOverviewStats(BaseModel):
+    """首页公开核心指标统计"""
+    articles_count: int = 0
+    hotspots_count: int = 0
+    prompts_count: int = 0
+    threads_count: int = 0
+
+
+class EmailStatusResponse(BaseModel):
+    """管理端脱敏 SMTP 配置状态"""
+    configured: bool
+    host: str = ""
+    port: int = 465
+    from_email: str = ""
+    from_name: str = ""
+    mode: str = "SSL"
+    user_masked: str = ""
+
+
+class EmailTestRequest(BaseModel):
+    """管理端测试发送邮件请求"""
+    to_email: EmailStr = Field(..., description="接收测试邮件的邮箱地址")
+

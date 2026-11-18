@@ -18,7 +18,7 @@ from ...core.database import get_db
 from ...core.deps import get_current_admin, resolve_optional_user
 from ...core.ratelimit import rate_limit
 from ...core.redis import cache_delete_pattern
-from ...core.security import decode_access_token
+from ...core.security import utc_now_naive
 from ...models.admin import Admin  # noqa: F401  # Admin 模型休眠保留（历史数据引用），认证已切 users
 from ...models.article import Article
 from ...models.comment import Comment, CommentLike, CommentReport
@@ -28,6 +28,7 @@ from ...schemas.comment import (
     CommentCreate,
     CommentTargetCreate,
     AdminReplyCreate,
+    CommentUpdate,
     CommentResponse,
     CommentListResponse,
     CommentPendingResponse,
@@ -35,6 +36,7 @@ from ...schemas.comment import (
     ReportedCommentResponse,
     CommentReportResponse,
 )
+from ...services.notification_service import create_notification
 
 router = APIRouter()
 
@@ -102,13 +104,19 @@ def build_comment_tree(comments: List[Comment]) -> List[CommentResponse]:
             avatar_url=(user.avatar_url if user and user.avatar_url else comment.avatar_url),
             content=comment.content,
             is_admin_reply=comment.is_admin_reply,
-            admin_display_name=comment.admin.display_name if comment.admin else None,
+            admin_display_name=(
+                comment.admin.display_name
+                if comment.admin
+                else ((user.display_name or user.username) if comment.is_admin_reply and user else None)
+            ),
             user_id=comment.user_id,
             username=user.username if user else None,
-            user_display_name=user.display_name if user else None,
+            user_display_name=(user.display_name or user.username) if user else None,
+            user_role=user.role if user else None,
             status=comment.status,
             like_count=comment.like_count,
             is_reported=comment.is_reported,
+            edited_at=comment.edited_at,
             created_at=comment.created_at,
             replies=[],
         )
@@ -255,6 +263,7 @@ async def _create_target_comment(
 ) -> CommentResponse:
     normalized_type, resolved_target = await _resolve_comment_target(db, target_type, target_id, require_published=True)
 
+    parent_comment: Comment | None = None
     if comment_data.parent_id:
         result = await db.execute(
             select(Comment)
@@ -262,7 +271,8 @@ async def _create_target_comment(
             .where(Comment.target_type == normalized_type)
             .where(Comment.target_id == resolved_target.id)
         )
-        if not result.scalar_one_or_none():
+        parent_comment = result.scalar_one_or_none()
+        if not parent_comment:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="父评论不存在",
@@ -308,6 +318,42 @@ async def _create_target_comment(
             .values(comment_count=Article.comment_count + 1)
         )
 
+    # 通知父评论作者与文章作者（跳过本人、去重）
+    notified_ids: set[int] = set()
+    link = f"/articles/{resolved_target.id}#comments" if normalized_type == "article" else f"/hotspots/{resolved_target.id}#comments"
+    if parent_comment is not None and parent_comment.user_id:
+        if author is None or parent_comment.user_id != author.id:
+            await create_notification(
+                db,
+                user_id=parent_comment.user_id,
+                type="comment_reply",
+                title=f"{nickname} 回复了你在《{resolved_target.title}》下的评论",
+                snippet=comment_data.content,
+                link=link,
+                actor=author,
+                actor_name=nickname,
+                actor_avatar=avatar_url,
+                target_type=normalized_type,
+                target_id=resolved_target.id,
+            )
+            notified_ids.add(parent_comment.user_id)
+
+    if normalized_type == "article" and resolved_target.author_id and resolved_target.author_id not in notified_ids:
+        if author is None or resolved_target.author_id != author.id:
+            await create_notification(
+                db,
+                user_id=resolved_target.author_id,
+                type="comment_reply",
+                title=f"{nickname} 评论了你的文章《{resolved_target.title}》",
+                snippet=comment_data.content,
+                link=link,
+                actor=author,
+                actor_name=nickname,
+                actor_avatar=avatar_url,
+                target_type="article",
+                target_id=resolved_target.id,
+            )
+
     await db.commit()
     await db.refresh(comment)
 
@@ -326,9 +372,11 @@ async def _create_target_comment(
         user_id=author.id if author else None,
         username=author.username if author else None,
         user_display_name=(author.display_name or author.username) if author else None,
+        user_role=author.role if author else None,
         status=comment.status,
         like_count=0,
         is_reported=False,
+        edited_at=comment.edited_at,
         created_at=comment.created_at,
         replies=[],
     )
@@ -714,6 +762,72 @@ async def confirm_report(
     return {"message": "举报确认，评论已删除"}
 
 
+@router.put("/{comment_id}", response_model=CommentResponse)
+async def update_comment(
+    comment_id: int,
+    data: CommentUpdate,
+    db: AsyncSession = Depends(get_db),
+    author: User | None = Depends(get_comment_author),
+):
+    """编辑评论（管理员可改任意；普通用户只能改自己发的）"""
+    if author is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="请先登录")
+
+    result = await db.execute(
+        select(Comment)
+        .options(selectinload(Comment.admin), selectinload(Comment.user))
+        .where(Comment.id == comment_id)
+    )
+    comment = result.scalar_one_or_none()
+    if not comment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评论不存在")
+
+    if not author.is_admin_role and comment.user_id != author.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只能编辑自己的评论")
+
+    new_content = data.content.strip()
+    if not new_content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="评论内容不能为空")
+
+    user = comment.user
+    admin_rel = comment.admin
+
+    comment.content = new_content
+    comment.edited_at = utc_now_naive()
+    await db.commit()
+    await db.refresh(comment)
+    await _invalidate_hotspot_caches_if_needed(comment.target_type)
+
+    resolved_admin_display = (
+        admin_rel.display_name
+        if admin_rel
+        else ((user.display_name or user.username) if comment.is_admin_reply and user else None)
+    )
+
+    return CommentResponse(
+        id=comment.id,
+        article_id=comment.article_id,
+        target_type=comment.target_type,
+        target_id=comment.target_id,
+        parent_id=comment.parent_id,
+        nickname=comment.nickname,
+        avatar_url=(user.avatar_url if user and user.avatar_url else comment.avatar_url),
+        content=comment.content,
+        is_admin_reply=comment.is_admin_reply,
+        admin_display_name=resolved_admin_display,
+        user_id=comment.user_id,
+        username=user.username if user else None,
+        user_display_name=(user.display_name or user.username) if user else None,
+        user_role=user.role if user else None,
+        status=comment.status,
+        like_count=comment.like_count,
+        is_reported=comment.is_reported,
+        edited_at=comment.edited_at,
+        created_at=comment.created_at,
+        replies=[],
+    )
+
+
 @router.delete("/{comment_id}")
 async def delete_comment(
     comment_id: int,
@@ -761,14 +875,20 @@ async def admin_reply_comment(
     if not parent_comment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评论不存在")
 
+    admin_name = admin.display_name or admin.username
+    admin_avatar = admin.avatar_url or generate_avatar_url(admin.username)
+    clean_content = reply_data.content.strip()
+    if not clean_content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="回复内容不能为空")
+
     reply = Comment(
         article_id=parent_comment.article_id,
         target_type=parent_comment.target_type,
         target_id=parent_comment.target_id,
         parent_id=comment_id,
-        nickname=admin.display_name or admin.username,
-        avatar_url=admin.avatar_url or generate_avatar_url(admin.username),
-        content=reply_data.content,
+        nickname=admin_name,
+        avatar_url=admin_avatar,
+        content=clean_content,
         is_admin_reply=True,
         admin_id=admin.id,
         user_id=admin.id,
@@ -782,6 +902,28 @@ async def admin_reply_comment(
             update(Article)
             .where(Article.id == reply.article_id)
             .values(comment_count=Article.comment_count + 1)
+        )
+
+    if parent_comment.user_id and parent_comment.user_id != admin.id:
+        target_title_map = await _get_target_titles(db, [parent_comment])
+        target_title = target_title_map.get((parent_comment.target_type, parent_comment.target_id)) or "内容"
+        link = (
+            f"/articles/{parent_comment.target_id}#comments"
+            if parent_comment.target_type == "article"
+            else f"/hotspots/{parent_comment.target_id}#comments"
+        )
+        await create_notification(
+            db,
+            user_id=parent_comment.user_id,
+            type="comment_reply",
+            title=f"{admin_name} 回复了你在《{target_title}》下的评论",
+            snippet=clean_content,
+            link=link,
+            actor=admin,
+            actor_name=admin_name,
+            actor_avatar=admin_avatar,
+            target_type=parent_comment.target_type,
+            target_id=parent_comment.target_id,
         )
 
     await db.commit()
@@ -799,10 +941,15 @@ async def admin_reply_comment(
         avatar_url=reply.avatar_url,
         content=reply.content,
         is_admin_reply=True,
-        admin_display_name=admin.display_name or admin.username,
+        admin_display_name=admin_name,
+        user_id=admin.id,
+        username=admin.username,
+        user_display_name=admin_name,
+        user_role=admin.role,
         status=reply.status,
         like_count=0,
         is_reported=False,
+        edited_at=reply.edited_at,
         created_at=reply.created_at,
         replies=[],
     )

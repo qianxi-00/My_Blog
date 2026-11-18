@@ -13,7 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.database import Base
 
-CODE_PURPOSES = ("register", "reset", "bind")
+CODE_PURPOSES = ("register", "reset", "bind", "login")
 
 
 class EmailCode(Base):

@@ -48,6 +48,11 @@ class CommentReportRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=500, description="补充说明")
 
 
+class CommentUpdate(BaseModel):
+    """更新评论内容请求"""
+    content: str = Field(..., min_length=1, max_length=2000, description="评论内容")
+
+
 class CommentResponse(BaseModel):
     """评论响应模型"""
 
@@ -65,9 +70,11 @@ class CommentResponse(BaseModel):
     user_id: Optional[int] = None
     username: Optional[str] = None
     user_display_name: Optional[str] = None
+    user_role: Optional[str] = None
     status: str
     like_count: int = 0
     is_reported: bool = False
+    edited_at: Optional[datetime] = None
     created_at: datetime
     replies: List["CommentResponse"] = Field(default_factory=list)
 

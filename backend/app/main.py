@@ -3,69 +3,65 @@ FastAPI 应用入口
 """
 
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .core.config import settings
-from .core.database import init_db, close_db, ensure_schema_columns
-from .core.redis import init_redis, close_redis
 from .api.v1.router import api_router
-
-import os
+from .core.config import settings
+from .core.database import close_db, ensure_schema_columns, init_db
+from .core.redis import close_redis, init_redis
+from .services.storage_service import ensure_upload_dirs, resolve_upload_root
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     应用生命周期管理
-    启动时初始化数据库，关闭时清理连接
+    启动时初始化数据库与默认配置，关闭时清理连接
     """
-    # 启动时
     print("🚀 正在启动应用...")
-    
-    # 创建上传目录
-    upload_dir = os.path.join(os.path.dirname(__file__), "..", settings.UPLOAD_DIR)
-    os.makedirs(upload_dir, exist_ok=True)
-    os.makedirs(os.path.join(upload_dir, "images"), exist_ok=True)
-    print("✅ 上传目录已创建")
-    
-    # 初始化数据库表（DEBUG 模式下自动创建表）
+
+    # 创建持久化上传目录（images / avatars / forum）
+    ensure_upload_dirs()
+    print("✅ 上传目录已准备就绪")
+
+    # 初始化数据库表（DEBUG 模式下自动初始化并建超管）
     if settings.DEBUG:
         try:
             await init_db()
             print("✅ 数据库表已初始化")
-            
-            # 延迟导入以避免循环导入
-            from .services.init_data import init_super_admin, init_site_settings
-            
-            # 初始化超级管理员
+
+            from .services.init_data import init_super_admin
             await init_super_admin()
-            
-            # 初始化站点配置
-            await init_site_settings()
         except Exception as e:
             print(f"⚠️ 初始化数据库时出错: {e}")
             print("提示：请确保数据库配置正确，或者手动运行 Alembic 迁移")
 
-    # 后加列的幂等补齐：不能挂在 settings.DEBUG 门控下（生产 DEBUG=false，
-    # 那样新代码上线会因为缺列直接 500）。只做 PRAGMA + ALTER，开销可忽略。
+    # 无条件补齐新表与新增列（含 DEBUG=false 的生产环境）
     try:
         await ensure_schema_columns()
     except Exception as e:
         print(f"❌ schema 补列失败，服务可能不可用: {e}")
         raise
-    
+
+    # 生产/开发无条件执行幂等配置补齐、老白名单迁移与默认社区版块初始化
+    try:
+        from .services.init_data import ensure_default_data
+        await ensure_default_data()
+    except Exception as e:
+        print(f"⚠️ 初始化默认数据出错: {e}")
+
     print("✅ 应用启动完成")
     print(f"📖 API 文档地址: http://{settings.APP_HOST}:{settings.APP_PORT}/docs")
-    
+
     # 初始化 Redis
     await init_redis()
-    
+
     yield
-    
-    # 关闭时
+
     print("🔄 正在关闭应用...")
     await close_redis()
     await close_db()
@@ -86,7 +82,7 @@ app = FastAPI(
 # 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应该限制为具体域名
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,8 +91,8 @@ app.add_middleware(
 # 注册 API 路由
 app.include_router(api_router, prefix="/api/v1")
 
-# 挂载静态文件目录（用于上传的图片）
-upload_path = os.path.join(os.path.dirname(__file__), "..", settings.UPLOAD_DIR)
+# 兼容开发期本地直接访问 /uploads（线上持久化读取主要走 /api/v1/upload/files/）
+upload_path = resolve_upload_root()
 if os.path.exists(upload_path):
     app.mount("/uploads", StaticFiles(directory=upload_path), name="uploads")
 

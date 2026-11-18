@@ -34,11 +34,12 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # 兼容旧 Admin 面板的资料页字段（admins 迁移而来，普通用户留空）
+    # 兼容旧 Admin 面板的资料页字段（admins 迁移而来）
     qq: Mapped[str | None] = mapped_column(String(20), nullable=True)
     wechat: Mapped[str | None] = mapped_column(String(50), nullable=True)
     github: Mapped[str | None] = mapped_column(String(100), nullable=True)
     bilibili: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     role: Mapped[str] = mapped_column(
         Enum(*USER_ROLES, name="user_role_enum"),
@@ -52,8 +53,10 @@ class User(Base):
         default="active",
     )
 
-    # 2026-09-26 二期（邮箱认证 + 三级权限）
+    # 2026-09-26 二期（邮箱认证 + 三级权限）& 免密登录/用户名引导
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    has_password: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    username_customized: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

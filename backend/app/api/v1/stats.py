@@ -15,12 +15,51 @@ from ...core.redis import cache_get, cache_set, cache_delete, cache_delete_patte
 from ...models.admin import Admin
 from ...models.article import Article
 from ...models.comment import Comment
+from ...models.forum import ForumThread
+from ...models.hot_topic import HotTopic
+from ...models.prompt import Prompt
 from ...models.stats import PageView, DailyStat
 from ...schemas.stats import (
-    PageViewCreate, DailyStatResponse, DailyStatUpdate, StatsOverview, PopularArticle
+    PageViewCreate, DailyStatResponse, DailyStatUpdate, StatsOverview, PopularArticle,
+    PublicOverviewStats,
 )
 
 router = APIRouter()
+
+
+@router.get("/public-overview", response_model=PublicOverviewStats)
+async def get_public_overview_stats(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取首页公开核心指标统计"""
+    cache_key = "stats:public_overview"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
+    articles_count = (await db.execute(
+        select(func.count()).select_from(Article).where(Article.status == "published")
+    )).scalar() or 0
+    hotspots_count = (await db.execute(
+        select(func.count()).select_from(HotTopic).where(HotTopic.status == "published")
+    )).scalar() or 0
+    prompts_count = (await db.execute(
+        select(func.count()).select_from(Prompt).where(Prompt.status == "approved")
+    )).scalar() or 0
+    threads_count = (await db.execute(
+        select(func.count())
+        .select_from(ForumThread)
+        .where(ForumThread.status == "approved", ForumThread.is_hidden == False)
+    )).scalar() or 0
+
+    resp = PublicOverviewStats(
+        articles_count=articles_count,
+        hotspots_count=hotspots_count,
+        prompts_count=prompts_count,
+        threads_count=threads_count,
+    )
+    await cache_set(cache_key, resp.model_dump(), ttl=60)
+    return resp
 
 
 @router.post("/page-view")

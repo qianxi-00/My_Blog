@@ -2,6 +2,7 @@
 邮件发送服务
 """
 
+import logging
 import smtplib
 import ssl
 from email.mime.text import MIMEText
@@ -12,10 +13,34 @@ from typing import Optional
 
 from ..core.config import settings
 
+logger = logging.getLogger(__name__)
+
+
+def _resolve_use_ssl(port: int) -> bool:
+    """结合显式配置与端口惯例推导 SSL / STARTTLS 模式。"""
+    if "SMTP_USE_SSL" in settings.model_fields_set:
+        return bool(settings.SMTP_USE_SSL)
+    if int(port) == 587:
+        return False
+    if settings.SMTP_USE_TLS is True and int(port) != 465:
+        return False
+    return bool(settings.SMTP_USE_SSL)
+
+
+def _mask_user(user: str) -> str:
+    if not user:
+        return ""
+    if "@" in user:
+        local, domain = user.split("@", 1)
+        prefix = local[:2] if len(local) > 2 else local[:1]
+        return f"{prefix}***@{domain}"
+    prefix = user[:2] if len(user) > 2 else user[:1]
+    return f"{prefix}***"
+
 
 class EmailService:
     """邮件发送服务"""
-    
+
     def __init__(self):
         self.host = settings.SMTP_HOST
         self.port = settings.SMTP_PORT
@@ -23,19 +48,32 @@ class EmailService:
         self.password = settings.SMTP_PASSWORD
         self.from_email = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
         self.from_name = settings.SMTP_FROM_NAME
-        self.use_ssl = settings.SMTP_USE_SSL
+        self.use_ssl = _resolve_use_ssl(self.port)
+        self.timeout = max(5, int(getattr(settings, "SMTP_TIMEOUT_SECONDS", 15) or 15))
         self.site_url = settings.SITE_URL
-    
+
     def is_configured(self) -> bool:
         """检查邮件服务是否已配置"""
         return bool(self.host and self.user and self.password)
-    
+
+    def get_status_summary(self) -> dict:
+        """返回脱敏的 SMTP 配置状态摘要（绝不返回密码）"""
+        return {
+            "configured": self.is_configured(),
+            "host": self.host or "",
+            "port": int(self.port or 465),
+            "from_email": self.from_email or "",
+            "from_name": self.from_name or "",
+            "mode": "SSL" if self.use_ssl else "STARTTLS",
+            "user_masked": _mask_user(self.user),
+        }
+
     def _create_message(
-        self, 
-        to_email: str, 
-        subject: str, 
+        self,
+        to_email: str,
+        subject: str,
         html_content: str,
-        text_content: Optional[str] = None
+        text_content: Optional[str] = None,
     ) -> MIMEMultipart:
         """创建邮件消息"""
         message = MIMEMultipart("alternative")
@@ -43,63 +81,85 @@ class EmailService:
         # 使用 formataddr 正确编码中文发件人名称
         message["From"] = formataddr((str(Header(self.from_name, "utf-8")), self.from_email))
         message["To"] = to_email
-        
+
         # 添加纯文本版本（备用）
         if text_content:
             part1 = MIMEText(text_content, "plain", "utf-8")
             message.attach(part1)
-        
+
         # 添加 HTML 版本
         part2 = MIMEText(html_content, "html", "utf-8")
         message.attach(part2)
-        
+
         return message
-    
-    def send_email(
-        self, 
-        to_email: str, 
-        subject: str, 
+
+    def send_email_with_error(
+        self,
+        to_email: str,
+        subject: str,
         html_content: str,
-        text_content: Optional[str] = None
-    ) -> bool:
-        """
-        发送邮件
-        
-        Args:
-            to_email: 收件人邮箱
-            subject: 邮件主题
-            html_content: HTML 内容
-            text_content: 纯文本内容（可选）
-        
-        Returns:
-            是否发送成功
-        """
+        text_content: Optional[str] = None,
+    ) -> tuple[bool, Optional[str]]:
+        """发送邮件，返回 (是否成功, 失败原因)。"""
         if not self.is_configured():
-            print("⚠️ 邮件服务未配置，跳过发送")
-            return False
-        
+            msg = "邮件服务未配置（缺少 SMTP_HOST / SMTP_USER / SMTP_PASSWORD 环境变量）"
+            logger.warning("⚠️ %s", msg)
+            return False, msg
+
         message = self._create_message(to_email, subject, html_content, text_content)
-        
+        timeout = max(5, int(getattr(self, "timeout", 15) or 15))
+
         try:
+            context = ssl.create_default_context()
             if self.use_ssl:
                 # SSL 连接（端口 465）
-                context = ssl.create_default_context()
-                with smtplib.SMTP_SSL(self.host, self.port, context=context) as server:
+                with smtplib.SMTP_SSL(self.host, self.port, context=context, timeout=timeout) as server:
                     server.login(self.user, self.password)
                     server.sendmail(self.from_email, to_email, message.as_string())
             else:
-                # TLS 连接（端口 587）
-                with smtplib.SMTP(self.host, self.port) as server:
-                    server.starttls()
+                # STARTTLS 连接（端口 587 等）
+                with smtplib.SMTP(self.host, self.port, timeout=timeout) as server:
+                    server.ehlo()
+                    server.starttls(context=context)
+                    server.ehlo()
                     server.login(self.user, self.password)
                     server.sendmail(self.from_email, to_email, message.as_string())
-            
-            print(f"✅ 邮件已发送至 {to_email}")
-            return True
+
+            logger.info("✅ 邮件已发送至 %s", to_email)
+            return True, None
         except Exception as e:
-            print(f"❌ 邮件发送失败: {e}")
-            return False
-    
+            err = f"{type(e).__name__}: {e}"
+            logger.exception("❌ 邮件发送失败 (host=%s port=%s ssl=%s): %s", self.host, self.port, self.use_ssl, e)
+            return False, err
+
+    def send_email(
+        self,
+        to_email: str,
+        subject: str,
+        html_content: str,
+        text_content: Optional[str] = None,
+    ) -> bool:
+        """发送邮件（兼容既有 bool 返回约定）"""
+        ok, _ = self.send_email_with_error(to_email, subject, html_content, text_content)
+        return ok
+
+    def send_test_email(self, to_email: str) -> tuple[bool, Optional[str]]:
+        """发送管理后台测试邮件"""
+        subject = f"【{self.from_name}】SMTP 邮件服务连通性测试"
+        html_content = (
+            f"<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;max-width:520px;margin:0 auto;\">"
+            f"<h2 style=\"margin:0 0 12px;color:#0f172a;\">SMTP 邮件发送正常</h2>"
+            f"<p style=\"color:#475569;font-size:14px;line-height:1.7;margin:0 0 12px;\">"
+            f"这是一封来自 <strong>{self.from_name}</strong> 后台站点设置的测试邮件，用于确认容器 SMTP 通道连通性与发件权限。</p>"
+            f"<p style=\"color:#64748b;font-size:12px;margin:0;\">SMTP 主机：{self.host}:{self.port}（{'SSL' if self.use_ssl else 'STARTTLS'}）</p>"
+            f"</div>"
+        )
+        text_content = (
+            f"这是来自 {self.from_name} 的 SMTP 邮件服务测试邮件。\n"
+            f"主机：{self.host}:{self.port}（{'SSL' if self.use_ssl else 'STARTTLS'}）\n"
+        )
+        return self.send_email_with_error(to_email, subject, html_content, text_content)
+
     def send_welcome_email(self, to_email: str, unsubscribe_token: str) -> bool:
         """
         发送欢迎订阅邮件

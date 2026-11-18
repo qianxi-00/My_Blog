@@ -11,7 +11,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, update
+from sqlalchemy import delete, select, func, or_, update
 import secrets
 
 from ...core.database import get_db
@@ -19,7 +19,18 @@ from ...core.security import get_password_hash, verify_password, utc_now_naive
 from ...core.deps import get_current_admin, get_super_admin
 from ...models.user import User
 from ...models.article import Article
+from ...models.bookmark import Bookmark
+from ...models.chat import ChatSession
 from ...models.comment import Comment
+from ...models.forum import (
+    ForumPost,
+    ForumPostLike,
+    ForumReport,
+    ForumThread,
+    ForumThreadLike,
+)
+from ...models.image import ArticleImage
+from ...models.notification import Notification
 from ...models.prompt import Prompt
 from ...schemas.admin import (
     AdminCreate, AdminUpdate, AdminPasswordUpdate, AdminResponse, AdminUserListItem
@@ -293,6 +304,7 @@ async def reset_user_password(
 
     temp_password = secrets.token_urlsafe(9)  # 12 位 URL 安全字符
     user.password_hash = await get_password_hash(temp_password)
+    user.has_password = True
     user.password_changed_at = utc_now_naive()
     await db.commit()
 
@@ -367,15 +379,10 @@ async def delete_user(
     """
     删除用户（仅超管）。不能删自己、不能删最后一个超级管理员。
 
-    内容归属（2026-09-26 二期实测修正）：
-    - 评论 / 提示词：user_id / author_id 可空 → 置空保留内容；
-    - 文章：Article.author_id 是 NOT NULL（模型 nullable=False，线上库同），**置空会
-      直接 IntegrityError**。所以文章按「显式确认」处理：
-        · 该用户有文章且未带 with_content=true → 409，附带文章/评论/提示词数量，让前台先确认；
-        · 带 with_content=true → 逐篇走 ORM db.delete()（与 DELETE /articles/{id} 同路径，
-          连二级表 article_tags 一并清理）+ 失效文章缓存。
-      注意：本应用从未设置 PRAGMA foreign_keys，SQLite 默认 FK 关闭，ondelete=CASCADE
-      实际不会触发，因此这里不能依赖级联、也不能用批量 delete(Article)。
+    内容归属：
+    - 评论 / 提示词 / 社区主题与楼层 / 上传图片 / 会话：user_id/author_id 置空保留内容；
+    - 点赞 / 收藏 / 通知：显式删除并维护点赞计数（SQLite 默认不开 FK CASCADE）；
+    - 文章：Article.author_id 是 NOT NULL → 需 with_content=true 逐篇删除。
     """
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
@@ -423,13 +430,46 @@ async def delete_user(
         )).scalars().all()
         for article in articles:
             await db.delete(article)
-        await db.flush()  # 让后续计数/删除在同一事务里看到结果
+        await db.flush()
         for article in articles:
             await _invalidate_article_caches(article.id)
 
-    # 评论 / 提示词：可空 → 置空保留
+    # 社区主题点赞 / 楼层点赞：清理行并扣减计数
+    liked_thread_ids = (await db.execute(
+        select(ForumThreadLike.thread_id).where(ForumThreadLike.user_id == user_id)
+    )).scalars().all()
+    if liked_thread_ids:
+        await db.execute(delete(ForumThreadLike).where(ForumThreadLike.user_id == user_id))
+        await db.execute(
+            update(ForumThread)
+            .where(ForumThread.id.in_(liked_thread_ids), ForumThread.like_count > 0)
+            .values(like_count=ForumThread.like_count - 1)
+        )
+
+    liked_post_ids = (await db.execute(
+        select(ForumPostLike.post_id).where(ForumPostLike.user_id == user_id)
+    )).scalars().all()
+    if liked_post_ids:
+        await db.execute(delete(ForumPostLike).where(ForumPostLike.user_id == user_id))
+        await db.execute(
+            update(ForumPost)
+            .where(ForumPost.id.in_(liked_post_ids), ForumPost.like_count > 0)
+            .values(like_count=ForumPost.like_count - 1)
+        )
+
+    # 收藏与站内通知
+    await db.execute(delete(Bookmark).where(Bookmark.user_id == user_id))
+    await db.execute(delete(Notification).where(Notification.user_id == user_id))
+    await db.execute(update(Notification).where(Notification.actor_id == user_id).values(actor_id=None))
+
+    # 评论 / 提示词 / 社区主题与楼层 / 举报 / 上传图片 / 会话：置空保留内容
     await db.execute(update(Comment).where(Comment.user_id == user_id).values(user_id=None))
     await db.execute(update(Prompt).where(Prompt.author_id == user_id).values(author_id=None))
+    await db.execute(update(ForumThread).where(ForumThread.user_id == user_id).values(user_id=None))
+    await db.execute(update(ForumPost).where(ForumPost.user_id == user_id).values(user_id=None))
+    await db.execute(update(ForumReport).where(ForumReport.user_id == user_id).values(user_id=None))
+    await db.execute(update(ArticleImage).where(ArticleImage.uploaded_by == user_id).values(uploaded_by=None))
+    await db.execute(update(ChatSession).where(ChatSession.user_id == user_id).values(user_id=None))
 
     await db.delete(user)
     await db.commit()

@@ -28,7 +28,7 @@ CODE_MAX_ATTEMPTS = 5           # 错 5 次作废
 RESEND_COOLDOWN_SECONDS = 60    # 同邮箱同用途重发冷却
 PER_EMAIL_DAILY_LIMIT = 5       # 同邮箱每天发码上限
 PER_IP_HOURLY_LIMIT = 10        # 同 IP 每小时发码上限
-DEFAULT_DOMAIN_WHITELIST = "gmail.com,163.com,126.com,qq.com,icloud.com,foxmail.com"
+DEFAULT_DOMAIN_WHITELIST = ""
 
 
 class VerificationError(Exception):
@@ -51,26 +51,30 @@ def _hash_code(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
 
-async def _domain_whitelist(db: AsyncSession) -> list[str]:
-    """读站点设置 email_domain_whitelist，缺省用 new-api 同款"""
+async def _domain_list(db: AsyncSession, key: str, default: str = "") -> list[str]:
+    """读取逗号分隔的域名配置列表"""
     result = await db.execute(
-        select(SiteSetting).where(SiteSetting.key == "email_domain_whitelist")
+        select(SiteSetting).where(SiteSetting.key == key)
     )
     setting = result.scalar_one_or_none()
-    raw = (setting.value if setting and setting.value else DEFAULT_DOMAIN_WHITELIST)
+    raw = setting.value if (setting and setting.value is not None) else default
     return [d.strip().lower() for d in raw.split(",") if d.strip()]
 
 
 async def _assert_domain_allowed(db: AsyncSession, email: str) -> None:
-    domain = email.rsplit("@", 1)[-1]
-    whitelist = await _domain_whitelist(db)
+    domain = email.rsplit("@", 1)[-1].lower()
+    blacklist = await _domain_list(db, "email_domain_blacklist", "")
+    if blacklist and domain in blacklist:
+        raise VerificationError("该邮箱域名已被限制使用，请更换其他邮箱")
+
+    whitelist = await _domain_list(db, "email_domain_whitelist", DEFAULT_DOMAIN_WHITELIST)
     if whitelist and domain not in whitelist:
-        raise VerificationError("该邮箱域名暂不支持，请使用常用邮箱（QQ / 163 / Gmail 等）")
+        raise VerificationError("该邮箱域名不在站点允许列表内，请更换邮箱或联系管理员")
 
 
 def _code_email(email: str, code: str, purpose: str) -> tuple[str, str, str]:
     """验证码邮件的主题 / HTML / 纯文本"""
-    action = {"register": "注册", "reset": "重置密码", "bind": "绑定"}.get(purpose, "验证")
+    action = {"register": "注册", "reset": "重置密码", "bind": "绑定邮箱", "login": "登录"}.get(purpose, "验证")
     subject = f"【{settings.SMTP_FROM_NAME}】{action}验证码：{code}"
     html_content = f"""
 <!DOCTYPE html>

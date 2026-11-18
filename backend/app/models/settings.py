@@ -40,6 +40,8 @@ class SiteSetting(Base):
         return f"<SiteSetting(key='{self.key}', type='{self.type}')>"
 
 
+LEGACY_DOMAIN_WHITELIST = "gmail.com,163.com,126.com,qq.com,icloud.com,foxmail.com"
+
 # 预置配置项常量
 DEFAULT_SETTINGS = [
     {"key": "site_title", "value": "DevLog", "type": "string", "description": "站点标题"},
@@ -56,5 +58,6 @@ DEFAULT_SETTINGS = [
     {"key": "user_registration_enabled", "value": "true", "type": "boolean", "description": "开放用户注册"},
     # 2026-09-26 二期：邮箱认证（注册/重置密码强制；type 用 Enum 合法的 "boolean"）
     {"key": "email_verification_required", "value": "true", "type": "boolean", "description": "注册需要邮箱验证码验证"},
-    {"key": "email_domain_whitelist", "value": "gmail.com,163.com,126.com,qq.com,icloud.com,foxmail.com", "type": "string", "description": "允许的邮箱域名（逗号分隔）"},
+    {"key": "email_domain_whitelist", "value": "", "type": "string", "description": "允许的邮箱域名（逗号分隔；留空表示允许所有合法邮箱域名）"},
+    {"key": "email_domain_blacklist", "value": "", "type": "string", "description": "禁止的邮箱域名（逗号分隔）"},
 ]
